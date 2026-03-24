@@ -8,9 +8,10 @@ router.post('/', auth, async (req, res) => {
   if (req.user.role !== 'buyer')
     return res.status(403).json({ error: 'Only buyers can place orders' });
 
-  const { product_id, quantity } = req.body;
-  if (!product_id || !quantity)
-    return res.status(400).json({ error: 'product_id and quantity required' });
+  const { product_id } = req.body;
+  const quantity = parseInt(req.body.quantity, 10);
+  if (!product_id || isNaN(quantity) || quantity < 1)
+    return res.status(400).json({ error: 'product_id and a positive quantity are required' });
 
   const product = db.prepare(`
     SELECT p.*, u.stellar_public_key as farmer_wallet

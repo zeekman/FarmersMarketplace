@@ -49,13 +49,17 @@ router.post('/', auth, (req, res) => {
   if (req.user.role !== 'farmer')
     return res.status(403).json({ error: 'Only farmers can list products' });
 
-  const { name, description, price, quantity, unit, category } = req.body;
-  if (!name || !price || !quantity)
-    return res.status(400).json({ error: 'name, price, quantity required' });
+  const { name, description, unit, category } = req.body;
+  const price    = parseFloat(req.body.price);
+  const quantity = parseInt(req.body.quantity, 10);
+
+  if (!name || !name.trim())          return res.status(400).json({ error: 'Product name is required' });
+  if (isNaN(price)    || price <= 0)  return res.status(400).json({ error: 'Price must be a positive number' });
+  if (isNaN(quantity) || quantity < 1) return res.status(400).json({ error: 'Quantity must be a positive integer' });
 
   const result = db.prepare(
     'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(req.user.id, name, description || '', category || 'other', price, quantity, unit || 'unit');
+  ).run(req.user.id, name.trim(), description || '', category || 'other', price, quantity, unit || 'unit');
 
   res.json({ id: result.lastInsertRowid, message: 'Product listed' });
 });
