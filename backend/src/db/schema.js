@@ -20,6 +20,7 @@ db.exec(`
     farmer_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
+    category TEXT DEFAULT 'other',
     price REAL NOT NULL,
     quantity INTEGER NOT NULL,
     unit TEXT DEFAULT 'unit',
@@ -41,4 +42,8 @@ db.exec(`
   );
 `);
 
+// Migrate existing DB: add category column if missing
+try { db.exec(`ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'other'`); } catch {}
+
 module.exports = db;
+

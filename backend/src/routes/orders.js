@@ -3,6 +3,7 @@ const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { sendPayment } = require('../stellar');
 const validate = require('../middleware/validate');
+const { sendPayment, getBalance } = require('../stellar');
 
 // POST /api/orders - buyer places + pays for an order
 router.post('/', auth, validate.order, async (req, res) => {
@@ -10,6 +11,10 @@ router.post('/', auth, validate.order, async (req, res) => {
     return res.status(403).json({ error: 'Only buyers can place orders' });
 
   const { product_id, quantity } = req.body;
+  const { product_id } = req.body;
+  const quantity = parseInt(req.body.quantity, 10);
+  if (!product_id || isNaN(quantity) || quantity < 1)
+    return res.status(400).json({ error: 'product_id and a positive quantity are required' });
 
   const product = db.prepare(`
     SELECT p.*, u.stellar_public_key as farmer_wallet
@@ -22,6 +27,16 @@ router.post('/', auth, validate.order, async (req, res) => {
 
   const buyer = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   const totalPrice = product.price * quantity;
+
+  // Verify buyer has sufficient XLM balance (amount + network fee)
+  const balance = await getBalance(buyer.stellar_public_key);
+  const required = totalPrice + 0.00001;
+  if (balance < required)
+    return res.status(402).json({
+      error: 'Insufficient XLM balance',
+      required: required.toFixed(7),
+      available: balance.toFixed(7),
+    });
 
   // Create order as pending
   const order = db.prepare(

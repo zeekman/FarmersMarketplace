@@ -17,7 +17,7 @@ const s = {
 
 export default function Dashboard() {
   const [products, setProducts] = useState([]);
-  const [form, setForm] = useState({ name: '', description: '', price: '', quantity: '', unit: 'kg' });
+  const [form, setForm] = useState({ name: '', description: '', price: '', quantity: '', unit: 'kg', category: 'other' });
   const [msg, setMsg] = useState(null);
 
   async function load() {
@@ -32,7 +32,7 @@ export default function Dashboard() {
     try {
       await api.createProduct({ ...form, price: parseFloat(form.price), quantity: parseInt(form.quantity) });
       setMsg({ type: 'ok', text: 'Product listed successfully' });
-      setForm({ name: '', description: '', price: '', quantity: '', unit: 'kg' });
+      setForm({ name: '', description: '', price: '', quantity: '', unit: 'kg', category: 'other' });
       load();
     } catch (err) {
       setMsg({ type: 'err', text: err.message });
@@ -60,6 +60,12 @@ export default function Dashboard() {
             ))}
             <label style={s.label}>Description</label>
             <textarea style={s.textarea} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+            <label style={s.label}>Category</label>
+            <select style={s.input} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+              {['vegetables', 'fruits', 'grains', 'dairy', 'herbs', 'other'].map(c => (
+                <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+              ))}
+            </select>
             <button style={s.btn} type="submit">List Product</button>
           </form>
         </div>

@@ -23,7 +23,11 @@ export const api = {
   register: (body) => request('/auth/register', { method: 'POST', body }),
   login: (body) => request('/auth/login', { method: 'POST', body }),
 
-  getProducts: () => request('/products'),
+  getProducts: (filters = {}) => {
+    const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== '' && v != null)).toString();
+    return request(`/products${qs ? `?${qs}` : ''}`);
+  },
+  getCategories: () => request('/products/categories'),
   getProduct: (id) => request(`/products/${id}`),
   createProduct: (body) => request('/products', { method: 'POST', body }),
   getMyProducts: () => request('/products/mine/list'),
