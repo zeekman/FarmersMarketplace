@@ -27,6 +27,7 @@ export default function Navbar() {
           <>
             <Link to="/marketplace" style={s.link}>Browse</Link>
             {user.role === 'farmer' && <Link to="/dashboard" style={s.link}>Dashboard</Link>}
+            {user.role === 'buyer' && <Link to="/orders" style={s.link}>Orders</Link>}
             <Link to="/wallet" style={s.link}>Wallet</Link>
             <span style={{ color: '#d8f3dc', fontSize: 13 }}>{user.name} ({user.role})</span>
             <button style={s.btn} onClick={handleLogout}>Logout</button>

@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Marketplace from './pages/Marketplace';
 import ProductDetail from './pages/ProductDetail';
 import Wallet from './pages/Wallet';
+import Orders from './pages/Orders';
 
 function PrivateRoute({ children, role }) {
   const { user } = useAuth();
@@ -34,6 +35,7 @@ export default function App() {
           <Route path="/product/:id" element={<ProductDetail />} />
           <Route path="/dashboard" element={<PrivateRoute role="farmer"><Dashboard /></PrivateRoute>} />
           <Route path="/wallet" element={<PrivateRoute><Wallet /></PrivateRoute>} />
+          <Route path="/orders" element={<PrivateRoute><Orders /></PrivateRoute>} />
         </Routes>
       </div>
     </AuthProvider>
