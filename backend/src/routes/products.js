@@ -68,7 +68,6 @@ router.post('/', auth, validate.product, (req, res) => {
   if (req.user.role !== 'farmer')
     return res.status(403).json({ error: 'Only farmers can list products' });
 
-  const { name, description, price, quantity, unit } = req.body;
   const { name, description, unit, category } = req.body;
   const price    = parseFloat(req.body.price);
   const quantity = parseInt(req.body.quantity, 10);

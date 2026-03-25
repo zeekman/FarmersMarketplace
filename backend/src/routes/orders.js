@@ -10,7 +10,6 @@ router.post('/', auth, validate.order, async (req, res) => {
   if (req.user.role !== 'buyer')
     return res.status(403).json({ error: 'Only buyers can place orders' });
 
-  const { product_id, quantity } = req.body;
   const { product_id } = req.body;
   const quantity = parseInt(req.body.quantity, 10);
   if (!product_id || isNaN(quantity) || quantity < 1)
@@ -27,11 +26,6 @@ router.post('/', auth, validate.order, async (req, res) => {
   const buyer = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   const totalPrice = product.price * quantity;
 
-  // Atomically decrement stock only if sufficient quantity exists, then create order
-  const reserveStock = db.transaction((buyerId, productId, qty, total) => {
-    const deducted = db.prepare(
-      'UPDATE products SET quantity = quantity - ? WHERE id = ? AND quantity >= ?'
-    ).run(qty, productId, qty);
   // Verify buyer has sufficient XLM balance (amount + network fee)
   const balance = await getBalance(buyer.stellar_public_key);
   const required = totalPrice + 0.00001;
@@ -42,10 +36,11 @@ router.post('/', auth, validate.order, async (req, res) => {
       available: balance.toFixed(7),
     });
 
-  // Create order as pending
-  const order = db.prepare(
-    'INSERT INTO orders (buyer_id, product_id, quantity, total_price, status) VALUES (?, ?, ?, ?, ?)'
-  ).run(req.user.id, product_id, quantity, totalPrice, 'pending');
+  // Atomically decrement stock only if sufficient quantity exists, then create order
+  const reserveStock = db.transaction((buyerId, productId, qty, total) => {
+    const deducted = db.prepare(
+      'UPDATE products SET quantity = quantity - ? WHERE id = ? AND quantity >= ?'
+    ).run(qty, productId, qty);
 
     if (deducted.changes === 0) throw new Error('Insufficient stock');
 
