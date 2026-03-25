@@ -3,6 +3,9 @@
  * DB is fully mocked — no native SQLite bindings required.
  */
 
+// Must be set before app.js is required — app validates this on load
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-for-jest';
+
 // --- DB mock ---
 // Each test file can override these via jest.spyOn or by reassigning mockDb.*
 const mockRun  = jest.fn().mockReturnValue({ lastInsertRowid: 1, changes: 1 });

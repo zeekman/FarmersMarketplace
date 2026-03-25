@@ -3,7 +3,7 @@ const { request, app, mockGet, mockAll, mockRun } = require('./setup');
 
 beforeEach(() => jest.clearAllMocks());
 
-const SECRET = process.env.JWT_SECRET || 'secret';
+const SECRET = process.env.JWT_SECRET || 'test-secret-for-jest';
 const farmerToken = jwt.sign({ id: 1, role: 'farmer' }, SECRET);
 const buyerToken  = jwt.sign({ id: 2, role: 'buyer'  }, SECRET);
 

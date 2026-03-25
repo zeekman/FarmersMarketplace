@@ -4,7 +4,7 @@ const stellar = jest.requireMock('../src/utils/stellar');
 
 beforeEach(() => jest.clearAllMocks());
 
-const SECRET = process.env.JWT_SECRET || 'secret';
+const SECRET = process.env.JWT_SECRET || 'test-secret-for-jest';
 const token  = jwt.sign({ id: 1, role: 'buyer' }, SECRET);
 
 describe('GET /api/wallet', () => {

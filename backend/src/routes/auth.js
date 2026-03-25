@@ -20,7 +20,7 @@ router.post('/register', validate.register, async (req, res) => {
 
     const token = jwt.sign(
       { id: result.lastInsertRowid, role },
-      process.env.JWT_SECRET || 'secret',
+      process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
@@ -42,7 +42,7 @@ router.post('/login', validate.login, async (req, res) => {
 
   const token = jwt.sign(
     { id: user.id, role: user.role },
-    process.env.JWT_SECRET || 'secret',
+    process.env.JWT_SECRET,
     { expiresIn: '7d' }
   );
 
