@@ -7,6 +7,7 @@ const fundLimiter  = rateLimit({ windowMs: 60 * 60 * 1000,  max: 5,  message: { 
 
 router.use('/api/auth/login',    authLimiter);
 router.use('/api/auth/register', authLimiter);
+router.use('/api/auth/refresh',  authLimiter);
 router.use('/api/orders',        orderLimiter);
 router.use('/api/wallet/fund',   fundLimiter);
 

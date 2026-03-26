@@ -11,12 +11,18 @@ if (missing.length) {
 
 const express = require('express');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const { csrfProtect, csrfTokenHandler } = require('./middleware/csrf');
 const { errorHandler } = require('./middleware/error');
 
 const app = express();
 
 app.use(cors({
+  origin: process.env.CLIENT_ORIGIN || 'http://localhost:3000',
+  credentials: true, // required for cookies to be sent cross-origin
+}));
+app.use(express.json());
+app.use(cookieParser());
   origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
   credentials: true, // required so the browser sends/receives cookies cross-origin
 }));
