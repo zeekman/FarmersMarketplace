@@ -109,6 +109,29 @@ router.get('/', auth, (req, res) => {
   res.json({ success: true, data: orders });
 });
 
+// PATCH /api/orders/:id/status - farmer updates delivery status
+const FARMER_STATUSES = ['processing', 'shipped', 'delivered'];
+
+router.patch('/:id/status', auth, (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
+
+  const { status } = req.body;
+  if (!FARMER_STATUSES.includes(status))
+    return err(res, 400, `Status must be one of: ${FARMER_STATUSES.join(', ')}`, 'invalid_status');
+
+  // Verify the order belongs to this farmer's product
+  const order = db.prepare(`
+    SELECT o.* FROM orders o
+    JOIN products p ON o.product_id = p.id
+    WHERE o.id = ? AND p.farmer_id = ?
+  `).get(req.params.id, req.user.id);
+
+  if (!order) return err(res, 403, 'Order not found or not yours', 'forbidden');
+
+  db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, req.params.id);
+  res.json({ success: true, message: `Order status updated to ${status}` });
+});
+
 // GET /api/orders/sales - farmer's incoming orders
 router.get('/sales', auth, (req, res) => {
   if (req.user.role !== 'farmer')

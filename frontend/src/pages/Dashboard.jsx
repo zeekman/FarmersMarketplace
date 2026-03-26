@@ -4,6 +4,10 @@ import { api } from '../api/client';
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE_MB = 5;
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+const FARMER_STATUSES = ['processing', 'shipped', 'delivered'];
+
+const STATUS_ICON = { pending: '⏳', paid: '✅', processing: '⚙️', shipped: '🚚', delivered: '📦', failed: '❌' };
+const STATUS_COLOR = { paid: '#2d6a4f', pending: '#856404', processing: '#004085', shipped: '#0c5460', delivered: '#155724', failed: '#c0392b' };
 
 const s = {
   page: { maxWidth: 900, margin: '0 auto', padding: 24 },
@@ -37,6 +41,8 @@ export default function Dashboard() {
   const [products, setProducts] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [msg, setMsg] = useState(null);
+  const [sales, setSales] = useState([]);
+  const [salesMsg, setSalesMsg] = useState({});
 
   // image state
   const [imageFile, setImageFile] = useState(null);
@@ -51,6 +57,10 @@ export default function Dashboard() {
     try {
       const res = await api.getMyProducts();
       setProducts(res.data ?? res);
+    } catch {}
+    try {
+      const res = await api.getSales();
+      setSales(res.data ?? res);
     } catch {}
   }
 
@@ -131,6 +141,16 @@ export default function Dashboard() {
   async function handleDelete(id) {
     if (!confirm('Remove this product?')) return;
     try { await api.deleteProduct(id); load(); } catch {}
+  }
+
+  async function handleStatusUpdate(orderId, status) {
+    try {
+      await api.updateOrderStatus(orderId, status);
+      setSalesMsg(prev => ({ ...prev, [orderId]: { type: 'ok', text: `Updated to ${status}` } }));
+      load();
+    } catch (e) {
+      setSalesMsg(prev => ({ ...prev, [orderId]: { type: 'err', text: e.message } }));
+    }
   }
 
   return (
@@ -227,6 +247,51 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Order management panel */}
+      <div style={{ ...s.card, marginTop: 24 }}>
+        <h3 style={{ padding: '16px 20px', borderBottom: '1px solid #eee', margin: 0, color: '#333' }}>
+          📋 Incoming Orders ({sales.length})
+        </h3>
+        {sales.length === 0 ? (
+          <p style={{ padding: '20px', color: '#888', fontSize: 14 }}>No orders yet.</p>
+        ) : (
+          sales.map(o => {
+            const m = salesMsg[o.id];
+            return (
+              <div key={o.id} style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{o.product_name}</div>
+                    <div style={{ fontSize: 13, color: '#666' }}>
+                      {o.quantity} units · {parseFloat(o.total_price).toFixed(2)} XLM · by {o.buyer_name}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#aaa' }}>{new Date(o.created_at).toLocaleDateString()}</div>
+                    {m && <div style={{ fontSize: 12, color: m.type === 'ok' ? '#2d6a4f' : '#c0392b', marginTop: 4 }}>{m.text}</div>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: STATUS_COLOR[o.status] || '#333' }}>
+                      {STATUS_ICON[o.status]} {o.status}
+                    </span>
+                    {['paid', 'processing', 'shipped'].includes(o.status) && (
+                      <select
+                        style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13, cursor: 'pointer' }}
+                        defaultValue=""
+                        onChange={e => { if (e.target.value) handleStatusUpdate(o.id, e.target.value); e.target.value = ''; }}
+                      >
+                        <option value="" disabled>Update status…</option>
+                        {FARMER_STATUSES.filter(s => s !== o.status).map(s => (
+                          <option key={s} value={s}>{STATUS_ICON[s]} {s}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

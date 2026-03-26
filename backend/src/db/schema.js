@@ -9,26 +9,6 @@ try {
   process.exit(1);
 }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS refresh_tokens (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    token_hash TEXT NOT NULL UNIQUE,
-    expires_at DATETIME NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('farmer', 'buyer')),
-    stellar_public_key TEXT,
-    stellar_secret_key TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -42,6 +22,15 @@ try {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       farmer_id INTEGER NOT NULL,
@@ -51,6 +40,7 @@ try {
       price REAL NOT NULL,
       quantity INTEGER NOT NULL,
       unit TEXT DEFAULT 'unit',
+      image_url TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (farmer_id) REFERENCES users(id)
     );
@@ -61,7 +51,7 @@ try {
       product_id INTEGER NOT NULL,
       quantity INTEGER NOT NULL,
       total_price REAL NOT NULL,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'paid', 'failed')),
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'paid', 'processing', 'shipped', 'delivered', 'failed')),
       stellar_tx_hash TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (buyer_id) REFERENCES users(id),
@@ -76,5 +66,60 @@ try {
 // Migrate existing DB: add columns if missing
 try { db.exec(`ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'other'`); } catch {}
 try { db.exec(`ALTER TABLE products ADD COLUMN image_url TEXT`); } catch {}
+
+// Migrate orders: recreate with extended status CHECK if needed
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS orders_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      buyer_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      quantity INTEGER NOT NULL,
+      total_price REAL NOT NULL,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'paid', 'processing', 'shipped', 'delivered', 'failed')),
+      stellar_tx_hash TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (buyer_id) REFERENCES users(id),
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    );
+  `);
+  const count = db.prepare(`SELECT COUNT(*) as c FROM orders_new`).get().c;
+  if (count === 0) {
+    db.exec(`INSERT INTO orders_new SELECT * FROM orders`);
+    db.exec(`DROP TABLE orders`);
+    db.exec(`ALTER TABLE orders_new RENAME TO orders`);
+  } else {
+    db.exec(`DROP TABLE orders_new`);
+  }
+} catch {}
+
+// FTS5 virtual table for full-text product search
+try {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
+      name, description, content='products', content_rowid='id'
+    );
+  `);
+} catch (err) {
+  console.error('[DB] FTS5 setup failed:', err.message);
+}
+
+// Triggers to keep FTS in sync with products
+try {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS products_ai AFTER INSERT ON products BEGIN
+      INSERT INTO products_fts(rowid, name, description) VALUES (new.id, new.name, new.description);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS products_ad AFTER DELETE ON products BEGIN
+      INSERT INTO products_fts(products_fts, rowid, name, description) VALUES ('delete', old.id, old.name, old.description);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS products_au AFTER UPDATE ON products BEGIN
+      INSERT INTO products_fts(products_fts, rowid, name, description) VALUES ('delete', old.id, old.name, old.description);
+      INSERT INTO products_fts(rowid, name, description) VALUES (new.id, new.name, new.description);
+    END;
+  `);
+} catch {}
 
 module.exports = db;
