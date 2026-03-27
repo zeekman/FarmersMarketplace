@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import Spinner from '../components/Spinner';
+import { getStellarErrorMessage } from '../utils/stellarErrors';
 import { getErrorMessage } from '../utils/errorMessages';
 
 const DISCLAIMER_KEY = 'testnet_disclaimer_dismissed';
@@ -47,9 +49,10 @@ export default function Wallet() {
   );
   const [wallet, setWallet] = useState(null);
   const [txs, setTxs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [funding, setFunding] = useState(false);
   const [fundMsg, setFundMsg] = useState(null);
-  const [loadError, setLoadError] = useState(null);
 
   // Send form state
   const [sendForm, setSendForm] = useState({ destination: '', amount: '', currency: 'XLM', memo: '' });
@@ -62,12 +65,16 @@ export default function Wallet() {
   }
 
   async function load() {
+    setLoading(true);
     setLoadError(null);
     try {
       const [w, t] = await Promise.all([api.getWallet(), api.getTransactions()]);
       setWallet(w);
       setTxs(t);
     } catch (err) {
+      setLoadError(getStellarErrorMessage(err));
+    } finally {
+      setLoading(false);
       setLoadError(getErrorMessage(err));
     }
   }
@@ -137,17 +144,27 @@ export default function Wallet() {
       )}
 
       {loadError && (
-        <div style={{ ...s.msg, background: '#fee', color: '#c0392b', marginBottom: 16 }}>
-          ⚠️ {loadError}
+        <div style={{ ...s.msg, background: '#fee', color: '#c0392b', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>⚠️ {loadError}</span>
+          <button
+            style={{ background: '#c0392b', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+            onClick={load}
+          >
+            Retry
+          </button>
         </div>
       )}
 
-      <div style={s.card}>
-        <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>XLM Balance</div>
-        <div style={s.balance}>{wallet ? wallet.balance.toFixed(2) : '—'} XLM</div>
-        <div style={s.key}>Public Key: {wallet?.publicKey}</div>
-        <div style={{ fontSize: 12, color: '#888', marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ background: '#fff3cd', color: '#856404', border: '1px solid #ffc107', borderRadius: 4, padding: '1px 7px', fontWeight: 600, fontSize: 11 }}>TESTNET</span>
+      {loading && !loadError ? (
+        <Spinner message="Loading wallet..." />
+      ) : (
+        <>
+          <div style={s.card}>
+            <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>XLM Balance</div>
+            <div style={s.balance}>{wallet ? wallet.balance.toFixed(2) : '—'} XLM</div>
+            <div style={s.key}>Public Key: {wallet?.publicKey}</div>
+            <div style={{ fontSize: 12, color: '#888', marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ background: '#fff3cd', color: '#856404', border: '1px solid #ffc107', borderRadius: 4, padding: '1px 7px', fontWeight: 600, fontSize: 11 }}>TESTNET</span>
           XLM shown here has no real-world value.
         </div>
 
@@ -292,6 +309,8 @@ export default function Wallet() {
           </div>
         ))}
       </div>
+        </>
+      )}
     </div>
   );
 }

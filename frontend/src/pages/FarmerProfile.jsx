@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import Spinner from '../components/Spinner';
 
 const s = {
   page:       { maxWidth: 900, margin: '0 auto', padding: 24 },
@@ -46,7 +47,7 @@ export default function FarmerProfile() {
     );
   }
 
-  if (!farmer) return <div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>;
+  if (!farmer) return <Spinner />;
 
   return (
     <div style={s.page}>

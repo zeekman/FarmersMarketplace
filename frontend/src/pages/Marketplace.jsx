@@ -7,6 +7,7 @@ import { useXlmRate } from '../utils/useXlmRate';
 import { useDebounce } from '../utils/useDebounce';
 import StarRating from '../components/StarRating';
 import Pagination from '../components/Pagination';
+import Spinner from '../components/Spinner';
 
 const CATEGORIES = ['all', 'vegetables', 'fruits', 'grains', 'dairy', 'herbs', 'other'];
 const PAGE_SIZE = 20;
@@ -54,6 +55,7 @@ export default function Marketplace() {
   const load = useCallback(async (f, p = 1) => {
     setLoading(true);
     try {
+      let data;
       let data, total = 0, totalPages = 1;
 
       if (f.search && f.search.trim()) {
@@ -63,6 +65,9 @@ export default function Marketplace() {
         total = data.length;
         totalPages = 1;
       } else {
+        const params = { page: p, limit: PAGE_SIZE };
+        if (f.category)  params.category = f.category;
+        if (f.minPrice)  params.minPrice = f.minPrice;
         // Filtered browse endpoint
         const params = { page: p, limit: PAGE_SIZE };
         if (f.category)                          params.category  = f.category;
@@ -71,12 +76,19 @@ export default function Marketplace() {
         if (f.seller)                            params.seller    = f.seller;
         if (f.available)                         params.available = f.available;
         const res = await api.getProducts(params);
+        data = res.data ?? res;
+        setPagination({ total: res.total ?? 0, totalPages: res.totalPages ?? 1 });
         data       = res.data ?? [];
         total      = res.total ?? 0;
         totalPages = res.totalPages ?? 1;
       }
 
       setProducts(data);
+    } catch {
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
       setPagination({ total, totalPages });
     } catch {
       setProducts([]);
@@ -159,7 +171,7 @@ export default function Marketplace() {
       </div>
 
       {loading ? (
-        <div style={s.empty}>Loading...</div>
+        <Spinner />
       ) : products.length === 0 ? (
         <div style={s.empty}>No products found.</div>
       ) : (

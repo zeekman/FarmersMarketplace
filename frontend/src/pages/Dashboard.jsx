@@ -37,6 +37,7 @@ const s = {
   preview: { width: '100%', maxHeight: 180, objectFit: 'cover', borderRadius: 8, marginBottom: 8, display: 'block' },
   removeImg: { background: 'none', border: 'none', color: '#c0392b', cursor: 'pointer', fontSize: 12, marginBottom: 12 },
   imgErr: { color: '#c0392b', fontSize: 12, marginBottom: 8 },
+  fieldErr: { color: '#c0392b', fontSize: 12, marginBottom: 8 },
   uploading: { color: '#888', fontSize: 12, marginBottom: 8 },
   csvBtn: { background: '#218c74', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, marginRight: 8 },
   csvInput: { display: 'none' },
@@ -58,6 +59,8 @@ export default function Dashboard() {
   const [sales, setSales] = useState([]);
   const [salesMsg, setSalesMsg] = useState({});
   const [formErrors, setFormErrors] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // image state
   const [imageFile, setImageFile] = useState(null);
@@ -83,28 +86,32 @@ export default function Dashboard() {
   const csvInputRef = useRef(null);
 
   async function load() {
+    setLoading(true);
+    setError(null);
     try {
-      const res = await api.getMyProducts();
-      setProducts(res.data ?? res);
-    } catch {}
-    try {
-      const res = await api.getSales();
-      setSales(res.data ?? res);
-    } catch {}
+      const [productsRes, salesRes, profileRes] = await Promise.all([
+        api.getMyProducts().catch(() => ({ data: [] })),
+        api.getSales().catch(() => ({ data: [] })),
+        user?.id ? api.getFarmer(user.id).catch(() => ({})) : Promise.resolve({})
+      ]);
+      
+      setProducts(productsRes.data ?? productsRes);
+      setSales(salesRes.data ?? salesRes);
+      
+      if (profileRes.data) {
+        const d = profileRes.data;
+        setProfile({ bio: d.bio || '', location: d.location || '', avatar_url: d.avatar_url || '' });
+        if (d.avatar_url) setAvatarPreview(d.avatar_url);
+      }
+    } catch (err) {
+      setError(err?.message || 'Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     load();
-    // Load current profile
-    if (user?.id) {
-      api.getFarmer(user.id)
-        .then(res => {
-          const d = res.data;
-          setProfile({ bio: d.bio || '', location: d.location || '', avatar_url: d.avatar_url || '' });
-          if (d.avatar_url) setAvatarPreview(d.avatar_url);
-        })
-        .catch(() => {});
-    }
   }, []);
 
   function validateAndSetImage(file) {
@@ -265,6 +272,16 @@ export default function Dashboard() {
     }
   }
 
+  if (loading) return <Spinner />;
+  
+  if (error) {
+    return (
+      <div style={s.page}>
+        <div style={{ ...s.msg, background: '#fee', color: '#c0392b', marginBottom: 16 }}>
+          <strong>Error loading dashboard:</strong> {error}
+        </div>
+      </div>
+    );
   async function handleCsvUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -386,6 +403,8 @@ export default function Dashboard() {
                     if (formErrors[key]) setFormErrors(fe => ({ ...fe, [key]: '' }));
                   }}
                   required={key !== 'unit'}
+                  type={key === 'price' || key === 'quantity' ? 'number' : 'text'}
+                  step={key === 'price' ? 'any' : undefined}
                   type={key === 'price' || key === 'quantity' ? 'number' : undefined}
                   step={key === 'price' ? '0.01' : key === 'quantity' ? '1' : undefined}
                   min={key === 'price' || key === 'quantity' ? '0' : undefined}
@@ -575,6 +594,7 @@ export default function Dashboard() {
 
           <button style={s.btn} type="submit" disabled={avatarUploading}>Save Profile</button>
         </form>
+      </div>
 
       {/* Order management panel */}
       <div style={{ ...s.card, marginTop: 24 }}>

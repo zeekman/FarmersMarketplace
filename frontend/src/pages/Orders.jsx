@@ -1,5 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../api/client';
+import Spinner from '../components/Spinner';
+import React, { useEffect, useState, useCallback } from 'react';
+import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
 const ALL_STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'failed'];
@@ -77,6 +80,7 @@ export default function Orders() {
   const [allOrders, setAllOrders] = useState([]);
   const [activeTab, setActiveTab]  = useState('all');
   const [loading, setLoading]      = useState(true);
+  const [error, setError]          = useState(null);
   const [hovered, setHovered]      = useState(null);
   const { user } = useAuth();
   const [claimingId, setClaimingId] = useState(null);
@@ -84,10 +88,12 @@ export default function Orders() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await api.getOrders();
       setAllOrders(Array.isArray(data) ? data : (data?.data ?? []));
-    } catch {
+    } catch (err) {
+      setError(err?.message || 'Failed to load orders');
       setAllOrders([]);
     } finally {
       setLoading(false);
@@ -124,33 +130,46 @@ export default function Orders() {
       <div style={s.title}>📦 My Orders</div>
       <div style={s.sub}>Track your purchases and verify transactions</div>
 
-      <div style={s.stats}>
-        <div style={s.statCard}><div style={s.statNum}>{stats.total}</div><div style={s.statLabel}>Total Orders</div></div>
-        <div style={s.statCard}><div style={{ ...s.statNum, color: '#2d6a4f' }}>{stats.paid}</div><div style={s.statLabel}>Paid</div></div>
-        <div style={s.statCard}><div style={{ ...s.statNum, color: '#856404' }}>{stats.pending}</div><div style={s.statLabel}>Pending</div></div>
-        <div style={s.statCard}><div style={{ ...s.statNum, color: '#c0392b' }}>{stats.failed}</div><div style={s.statLabel}>Failed</div></div>
-        <div style={s.statCard}><div style={s.statNum}>{stats.spent.toFixed(2)}</div><div style={s.statLabel}>XLM Spent</div></div>
-      </div>
+      {error && (
+        <div style={{ background: '#fee', color: '#c0392b', border: '1px solid #f5a5a5', borderRadius: 8, padding: 16, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>⚠️ {error}</span>
+          <button
+            style={{ background: '#c0392b', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+            onClick={load}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
-      <div style={s.tabs}>
-        {FILTER_TABS.map(status => {
-          const count = status === 'all' ? allOrders.length : allOrders.filter(o => o.status === status).length;
-          return (
-            <button key={status} style={{ ...s.tab, ...(activeTab === status ? s.tabActive : {}) }} onClick={() => setActiveTab(status)}>
-              {status === 'all' ? '🗂 All' : `${STATUS_ICON[status]} ${status.charAt(0).toUpperCase() + status.slice(1)}`}
-              {' '}<span style={{ opacity: 0.75 }}>({count})</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div style={s.card}>
-        {loading ? (
-          <div style={s.empty}>Loading orders...</div>
-        ) : visible.length === 0 ? (
-          <div style={s.empty}>
-            {activeTab === 'all' ? 'No orders yet. Head to the marketplace to make a purchase.' : `No ${activeTab} orders.`}
+      {loading && !error ? (
+        <Spinner message="Loading orders..." />
+      ) : (
+        <>
+          <div style={s.stats}>
+            <div style={s.statCard}><div style={s.statNum}>{stats.total}</div><div style={s.statLabel}>Total Orders</div></div>
+            <div style={s.statCard}><div style={{ ...s.statNum, color: '#2d6a4f' }}>{stats.paid}</div><div style={s.statLabel}>Paid</div></div>
+            <div style={s.statCard}><div style={{ ...s.statNum, color: '#856404' }}>{stats.pending}</div><div style={s.statLabel}>Pending</div></div>
+            <div style={s.statCard}><div style={{ ...s.statNum, color: '#c0392b' }}>{stats.failed}</div><div style={s.statLabel}>Failed</div></div>
+            <div style={s.statCard}><div style={s.statNum}>{stats.spent.toFixed(2)}</div><div style={s.statLabel}>XLM Spent</div></div>
           </div>
+
+          <div style={s.tabs}>
+            {FILTER_TABS.map(status => {
+              const count = status === 'all' ? allOrders.length : allOrders.filter(o => o.status === status).length;
+              return (
+                <button key={status} style={{ ...s.tab, ...(activeTab === status ? s.tabActive : {}) }} onClick={() => setActiveTab(status)}>
+                  {status === 'all' ? '🗂 All' : `${STATUS_ICON[status]} ${status.charAt(0).toUpperCase() + status.slice(1)}`}
+                  {' '}<span style={{ opacity: 0.75 }}>({count})</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={s.card}>
+            {visible.length === 0 ? (
+              <div style={s.empty}>
+                {activeTab === 'all' ? 'No orders yet. Head to the marketplace to make a purchase.' : `No ${activeTab} orders.`}
         ) : (
           visible.map(o => {
             const st = STATUS_STYLE[o.status] || { bg: '#eee', color: '#333' };
@@ -217,10 +236,42 @@ export default function Orders() {
                   <span style={s.price}>{parseFloat(o.total_price).toFixed(2)} XLM</span>
                 </div>
               </div>
-            );
-          })
-        )}
-      </div>
+            ) : (
+              visible.map(o => {
+                const st = STATUS_STYLE[o.status] || { bg: '#eee', color: '#333' };
+                return (
+                  <div key={o.id} style={{ ...s.row, ...(hovered === o.id ? { background: '#fafafa' } : {}) }}
+                    onMouseEnter={() => setHovered(o.id)} onMouseLeave={() => setHovered(null)}>
+                    <div>
+                      <div style={s.name}>{o.product_name}</div>
+                      <div style={s.meta}>{o.quantity} {o.unit} &nbsp;·&nbsp; from {o.farmer_name}</div>
+                      <div style={s.meta}>
+                        {new Date(o.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                        {' '}<span style={{ color: '#bbb' }}>{new Date(o.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      {o.stellar_tx_hash && (
+                        <div style={s.hash}>
+                          TX:{' '}
+                          <a href={`https://stellar.expert/explorer/testnet/tx/${o.stellar_tx_hash}`} target="_blank" rel="noreferrer" style={{ color: '#2d6a4f' }}>
+                            {o.stellar_tx_hash}
+                          </a>
+                        </div>
+                      )}
+                      <StatusTimeline status={o.status} />
+                    </div>
+                    <div style={s.right}>
+                      <span style={{ ...s.badge, background: st.bg, color: st.color }}>
+                        {STATUS_ICON[o.status]} {o.status}
+                      </span>
+                      <span style={s.price}>{parseFloat(o.total_price).toFixed(2)} XLM</span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
