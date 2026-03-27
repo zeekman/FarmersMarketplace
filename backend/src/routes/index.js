@@ -87,6 +87,9 @@ router.use('/api/favorites', require('./favorites'));
 router.use('/api/rates',     require('./rates'));
 router.use('/api',           require('./reviews'));
 
+// QR code endpoint (mounted under products so /:id/qr resolves correctly)
+router.use('/api/products',  require('./market'));
+
 // Legacy routes
 router.use('/api/auth',     require('./auth'));
 router.use('/api/products', require('./products'));

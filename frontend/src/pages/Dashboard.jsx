@@ -101,6 +101,67 @@ export default function Dashboard() {
   const [galleryErr, setGalleryErr] = useState('');
   const galleryInputRef = useRef(null);
 
+  // QR code modal state
+  const [qrProductId, setQrProductId] = useState(null);
+  const [qrProductName, setQrProductName] = useState('');
+
+  async function openGallery(productId) {
+    setGalleryProductId(productId);
+    setGalleryErr('');
+    try {
+      const res = await api.getProductImages(productId);
+      setGalleryImages(res.data ?? []);
+    } catch { setGalleryImages([]); }
+  }
+
+  function closeGallery() {
+    setGalleryProductId(null);
+    setGalleryImages([]);
+    setGalleryErr('');
+  }
+
+  async function handleGalleryUpload(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    const invalid = files.find(f => !ALLOWED_TYPES.includes(f.type) || f.size > MAX_SIZE_BYTES);
+    if (invalid) return setGalleryErr('Only JPEG/PNG/WebP up to 5 MB each.');
+    if (galleryImages.length + files.length > MAX_IMAGES)
+      return setGalleryErr(`Max ${MAX_IMAGES} images. You have ${galleryImages.length}.`);
+    setGalleryUploading(true);
+    setGalleryErr('');
+    try {
+      const res = await api.uploadProductImages(galleryProductId, files);
+      setGalleryImages(res.data ?? []);
+      load();
+    } catch (e) { setGalleryErr(e.message); }
+    setGalleryUploading(false);
+  }
+
+  async function handleGalleryDelete(imgId) {
+    if (!confirm('Delete this image?')) return;
+    try {
+      await api.deleteProductImage(galleryProductId, imgId);
+      const res = await api.getProductImages(galleryProductId);
+      setGalleryImages(res.data ?? []);
+      load();
+    } catch (e) { setGalleryErr(e.message); }
+  }
+
+  async function handleGalleryMove(index, dir) {
+    const imgs = [...galleryImages];
+    const swapIdx = index + dir;
+    if (swapIdx < 0 || swapIdx >= imgs.length) return;
+    [imgs[index], imgs[swapIdx]] = [imgs[swapIdx], imgs[index]];
+    const order = imgs.map((img, i) => ({ id: img.id, sort_order: i }));
+    try {
+      const res = await api.reorderProductImages(galleryProductId, order);
+      setGalleryImages(res.data ?? imgs);
+      load();
+    } catch (e) { setGalleryErr(e.message); }
+  }
+
+  async function load() {
   async function openGallery(productId) {
     setGalleryProductId(productId);
     setGalleryErr('');
@@ -560,6 +621,12 @@ export default function Dashboard() {
                   >
                     📷 Photos
                   </button>
+                  <button
+                    style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#6c3483' }}
+                    onClick={() => { setQrProductId(p.id); setQrProductName(p.name); }}
+                  >
+                    📱 QR
+                  </button>
                   <input
                     type="number" min="1" placeholder="+Qty"
                     style={{ ...s.input, width: 70, marginBottom: 0, padding: '4px 8px' }}
@@ -762,6 +829,42 @@ export default function Dashboard() {
           })
         )}
       </div>
+
+      {/* QR Code Modal */}
+      {qrProductId && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={() => setQrProductId(null)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: 16, padding: 32, maxWidth: 340, width: '90%', textAlign: 'center', boxShadow: '0 8px 32px #0003' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#2d6a4f', marginBottom: 4 }}>📱 Product QR Code</div>
+            <div style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>{qrProductName}</div>
+            <img
+              src={`/api/products/${qrProductId}/qr`}
+              alt={`QR code for ${qrProductName}`}
+              style={{ width: 220, height: 220, borderRadius: 8, border: '1px solid #eee', marginBottom: 20 }}
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <a
+                href={`/api/products/${qrProductId}/qr`}
+                download={`product-${qrProductId}-qr.png`}
+                style={{ ...s.btn, textDecoration: 'none', fontSize: 13, padding: '8px 18px', background: '#218c74' }}
+              >
+                ⬇ Download
+              </a>
+              <button
+                style={{ ...s.btn, fontSize: 13, padding: '8px 18px', background: '#888' }}
+                onClick={() => setQrProductId(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
