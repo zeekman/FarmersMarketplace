@@ -13,7 +13,8 @@
     "setupFilesAfterEnv": ["<rootDir>/tests/jest.setup.js"],
     "testEnvironmentOptions": { "env": { "NODE_ENV": "test" } }
     "testMatch": [
-      "**/tests/**/*.test.js"
+      "**/tests/**/*.test.js",
+      "**/src/__tests__/**/*.test.js"
     ],
     "setupFilesAfterEnv": [
       "<rootDir>/tests/jest.setup.js"
