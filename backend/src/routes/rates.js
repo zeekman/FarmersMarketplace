@@ -24,7 +24,7 @@ router.get('/xlm-usd', async (req, res) => {
 
     cache = { rate, fetchedAt: now };
     res.json({ success: true, rate, cached: false });
-  } catch (e) {
+  } catch {
     // Return stale cache if available rather than failing
     if (cache.rate) return res.json({ success: true, rate: cache.rate, cached: true, stale: true });
     err(res, 502, 'Unable to fetch exchange rate', 'rate_fetch_error');

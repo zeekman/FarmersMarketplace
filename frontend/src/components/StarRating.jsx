@@ -14,9 +14,9 @@ export default function StarRating({ value = 0, max = 5, size = 16, onChange, co
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-      {stars.map(star => {
+      {stars.map((star) => {
         const filled = value >= star;
-        const half   = !filled && value >= star - 0.5;
+        const half = !filled && value >= star - 0.5;
         return (
           <span
             key={star}

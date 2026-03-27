@@ -9,20 +9,18 @@ if (!['testnet', 'mainnet'].includes(STELLAR_NETWORK)) {
 if (STELLAR_NETWORK === 'mainnet' && process.env.STELLAR_MAINNET_CONFIRMED !== 'true') {
   throw new Error(
     'Mainnet use requires STELLAR_MAINNET_CONFIRMED=true in your environment. ' +
-    'This guard prevents accidental real-fund transactions.'
+      'This guard prevents accidental real-fund transactions.'
   );
 }
 
 const isTestnet = STELLAR_NETWORK === 'testnet';
 
-const horizonUrl = process.env.STELLAR_HORIZON_URL || (
-  isTestnet ? 'https://horizon-testnet.stellar.org' : 'https://horizon.stellar.org'
-);
+const horizonUrl =
+  process.env.STELLAR_HORIZON_URL ||
+  (isTestnet ? 'https://horizon-testnet.stellar.org' : 'https://horizon.stellar.org');
 
 const server = new StellarSdk.Horizon.Server(horizonUrl);
-const networkPassphrase = isTestnet
-  ? StellarSdk.Networks.TESTNET
-  : StellarSdk.Networks.PUBLIC;
+const networkPassphrase = isTestnet ? StellarSdk.Networks.TESTNET : StellarSdk.Networks.PUBLIC;
 
 // Create a new Stellar keypair (wallet)
 function createWallet() {
@@ -40,7 +38,7 @@ async function fundTestnetAccount(publicKey) {
 async function getBalance(publicKey) {
   try {
     const account = await server.loadAccount(publicKey);
-    const xlm = account.balances.find(b => b.asset_type === 'native');
+    const xlm = account.balances.find((b) => b.asset_type === 'native');
     return xlm ? parseFloat(xlm.balance) : 0;
   } catch {
     return 0; // account not yet funded
@@ -75,16 +73,11 @@ async function sendPayment({ senderSecret, receiverPublicKey, amount, memo }) {
 // Get transaction history for a public key
 async function getTransactions(publicKey) {
   try {
-    const payments = await server
-      .payments()
-      .forAccount(publicKey)
-      .order('desc')
-      .limit(20)
-      .call();
+    const payments = await server.payments().forAccount(publicKey).order('desc').limit(20).call();
 
     return payments.records
-      .filter(p => p.type === 'payment' && p.asset_type === 'native')
-      .map(p => ({
+      .filter((p) => p.type === 'payment' && p.asset_type === 'native')
+      .map((p) => ({
         id: p.id,
         type: p.from === publicKey ? 'sent' : 'received',
         amount: p.amount,
@@ -99,11 +92,9 @@ async function getTransactions(publicKey) {
 }
 
 async function getContractState(contractId, prefix = null) {
-  const sorobanRpcUrl = process.env.SOROBAN_RPC_URL || (
-    isTestnet 
-      ? 'https://soroban-testnet.stellar.org'
-      : 'https://soroban.stellar.org'
-  );
+  const sorobanRpcUrl =
+    process.env.SOROBAN_RPC_URL ||
+    (isTestnet ? 'https://soroban-testnet.stellar.org' : 'https://soroban.stellar.org');
   const sorobanServer = new StellarSdk.SorobanRpc.Server(sorobanRpcUrl);
 
   const entries = [];
@@ -117,7 +108,7 @@ async function getContractState(contractId, prefix = null) {
       const entry = {
         key: StellarSdk.scValToNative(response.data.key, { asString: true }),
         val: StellarSdk.scValToNative(response.data.val, { asString: true }),
-        durability: response.data.durability || 'Persistent'
+        durability: response.data.durability || 'Persistent',
       };
       if (!prefix || entry.key.startsWith(prefix)) {
         entries.push(entry);
@@ -131,4 +122,12 @@ async function getContractState(contractId, prefix = null) {
   return entries;
 }
 
-module.exports = { isTestnet, createWallet, fundTestnetAccount, getBalance, sendPayment, getTransactions, getContractState };
+module.exports = {
+  isTestnet,
+  createWallet,
+  fundTestnetAccount,
+  getBalance,
+  sendPayment,
+  getTransactions,
+  getContractState,
+};

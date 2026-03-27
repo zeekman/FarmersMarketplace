@@ -9,13 +9,20 @@ export function AuthProvider({ children }) {
 
   // On mount: attempt silent refresh to restore session from HttpOnly cookie
   useEffect(() => {
-    api.refresh()
+    api
+      .refresh()
       .then((token) => {
         if (token) {
           // Fetch user info from the token payload (decode without verify — server already verified)
           const payload = JSON.parse(atob(token.split('.')[1]));
           // We only have id + role in the token; restore full user from localStorage if available
-          const stored = (() => { try { return JSON.parse(localStorage.getItem('user')); } catch { return null; } })();
+          const stored = (() => {
+            try {
+              return JSON.parse(localStorage.getItem('user'));
+            } catch {
+              return null;
+            }
+          })();
           if (stored && stored.id === payload.id) {
             setUser(stored);
           } else {
@@ -34,16 +41,18 @@ export function AuthProvider({ children }) {
   }
 
   async function logout() {
-    try { await api.logout(); } catch { /* best-effort */ }
+    try {
+      await api.logout();
+    } catch {
+      /* best-effort */
+    }
     clearAccessToken();
     localStorage.removeItem('user');
     setUser(null);
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={{ user, login, logout, loading }}>{children}</AuthContext.Provider>
   );
 }
 

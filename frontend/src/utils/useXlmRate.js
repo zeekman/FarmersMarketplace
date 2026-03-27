@@ -6,7 +6,10 @@ export function useXlmRate() {
   const [rate, setRate] = useState(null);
 
   useEffect(() => {
-    api.getXlmRate().then(res => setRate(res.rate)).catch(() => {});
+    api
+      .getXlmRate()
+      .then((res) => setRate(res.rate))
+      .catch(() => {});
   }, []);
 
   function usd(xlm) {

@@ -1,11 +1,27 @@
 import React from 'react';
 
 const s = {
-  wrap:    { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 24, flexWrap: 'wrap' },
-  btn:     { padding: '7px 13px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontSize: 13, color: '#444', transition: 'all 0.15s' },
-  active:  { background: '#2d6a4f', color: '#fff', border: '1px solid #2d6a4f', fontWeight: 700 },
-  disabled:{ opacity: 0.4, cursor: 'default' },
-  info:    { fontSize: 13, color: '#888', marginLeft: 8 },
+  wrap: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 24,
+    flexWrap: 'wrap',
+  },
+  btn: {
+    padding: '7px 13px',
+    borderRadius: 8,
+    border: '1px solid #ddd',
+    background: '#fff',
+    cursor: 'pointer',
+    fontSize: 13,
+    color: '#444',
+    transition: 'all 0.15s',
+  },
+  active: { background: '#2d6a4f', color: '#fff', border: '1px solid #2d6a4f', fontWeight: 700 },
+  disabled: { opacity: 0.4, cursor: 'default' },
+  info: { fontSize: 13, color: '#888', marginLeft: 8 },
 };
 
 /**
@@ -29,7 +45,9 @@ export default function Pagination({ page, totalPages, total, limit, onChange })
 
       {pages.map((p, i) =>
         p === '…' ? (
-          <span key={`ellipsis-${i}`} style={{ ...s.btn, cursor: 'default', border: 'none' }}>…</span>
+          <span key={`ellipsis-${i}`} style={{ ...s.btn, cursor: 'default', border: 'none' }}>
+            …
+          </span>
         ) : (
           <button
             key={p}

@@ -89,9 +89,9 @@ test.describe('Form interaction', () => {
     // Either native browser validation or custom error message
     const hasNativeValidity = await page.evaluate(() => {
       const inputs = document.querySelectorAll('input[required]');
-      return [...inputs].some(i => !i.validity.valid);
+      return [...inputs].some((i) => !i.validity.valid);
     });
-    const hasCustomError = await page.locator('[class*="err"], [class*="error"]').count() > 0;
+    const hasCustomError = (await page.locator('[class*="err"], [class*="error"]').count()) > 0;
     expect(hasNativeValidity || hasCustomError).toBe(true);
   });
 
@@ -105,7 +105,7 @@ test.describe('Form interaction', () => {
     // Navigate to a product detail page — will redirect or show 404 state
     await goto(page, '/product/1');
     const numInput = page.locator('input[type="number"]');
-    if (await numInput.count() > 0) {
+    if ((await numInput.count()) > 0) {
       await numInput.fill('3');
       await expect(numInput).toHaveValue('3');
     }
@@ -169,8 +169,13 @@ test.describe('Browser feature support', () => {
   test('localStorage is accessible', async ({ page }) => {
     await goto(page, '/login');
     const accessible = await page.evaluate(() => {
-      try { localStorage.setItem('__test__', '1'); localStorage.removeItem('__test__'); return true; }
-      catch { return false; }
+      try {
+        localStorage.setItem('__test__', '1');
+        localStorage.removeItem('__test__');
+        return true;
+      } catch {
+        return false;
+      }
     });
     expect(accessible).toBe(true);
   });
@@ -187,7 +192,7 @@ test.describe('Browser feature support', () => {
 test.describe('Network resilience', () => {
   test('app renders gracefully when API is unreachable', async ({ page }) => {
     // Block all API calls
-    await page.route('**/api/**', route => route.abort());
+    await page.route('**/api/**', (route) => route.abort());
     await goto(page, '/marketplace');
     // Should not show an unhandled JS error overlay
     const body = await page.locator('body').textContent();
@@ -196,8 +201,8 @@ test.describe('Network resilience', () => {
 
   test('app handles slow network without blank screen', async ({ page }) => {
     // Delay all API responses by 2 s
-    await page.route('**/api/**', async route => {
-      await new Promise(r => setTimeout(r, 2000));
+    await page.route('**/api/**', async (route) => {
+      await new Promise((r) => setTimeout(r, 2000));
       await route.continue();
     });
     await page.goto('/marketplace', { timeout: 15_000 });

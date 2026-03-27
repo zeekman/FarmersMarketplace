@@ -2,15 +2,27 @@ const router = require('express').Router();
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
-const { getBalance, getTransactions, fundTestnetAccount, sendPayment } = require('../utils/stellar');
-const { getBalance, getTransactions, fundTestnetAccount, isTestnet } = require('../utils/stellar');
+const {
+  getBalance,
+  getTransactions,
+  fundTestnetAccount,
+  sendPayment,
+  isTestnet,
+} = require('../utils/stellar');
 const { err } = require('../middleware/error');
 
 // GET /api/wallet
 router.get('/', auth, async (req, res) => {
-  const user = db.prepare('SELECT stellar_public_key, referral_code FROM users WHERE id = ?').get(req.user.id);
+  const user = db
+    .prepare('SELECT stellar_public_key, referral_code FROM users WHERE id = ?')
+    .get(req.user.id);
   const balance = await getBalance(user.stellar_public_key);
-  res.json({ success: true, publicKey: user.stellar_public_key, balance, referralCode: user.referral_code });
+  res.json({
+    success: true,
+    publicKey: user.stellar_public_key,
+    balance,
+    referralCode: user.referral_code,
+  });
 });
 
 // GET /api/wallet/transactions
@@ -22,9 +34,7 @@ router.get('/transactions', auth, async (req, res) => {
 
 // POST /api/wallet/fund - testnet only
 router.post('/fund', auth, async (req, res) => {
-  if (!isTestnet)
-    return err(res, 400, 'Only available on testnet', 'testnet_only');
-    return res.status(400).json({ error: 'Only available on testnet' });
+  if (!isTestnet) return err(res, 400, 'Only available on testnet', 'testnet_only');
 
   const user = db.prepare('SELECT stellar_public_key FROM users WHERE id = ?').get(req.user.id);
   try {
@@ -41,13 +51,13 @@ router.post('/send', auth, validate.sendXLM, async (req, res) => {
   const { destination, memo } = req.body;
   const amount = parseFloat(req.body.amount);
 
-  const user = db.prepare('SELECT stellar_public_key, stellar_secret_key FROM users WHERE id = ?').get(req.user.id);
+  const user = db
+    .prepare('SELECT stellar_public_key, stellar_secret_key FROM users WHERE id = ?')
+    .get(req.user.id);
 
-  // Prevent sending to yourself
   if (destination === user.stellar_public_key)
     return res.status(400).json({ error: 'Cannot send XLM to your own wallet' });
 
-  // Check sender balance (amount + base fee buffer)
   const balance = await getBalance(user.stellar_public_key);
   const required = amount + 0.00001;
   if (balance < required)
@@ -66,9 +76,9 @@ router.post('/send', auth, validate.sendXLM, async (req, res) => {
     });
 
     res.json({ txHash, amount, destination, memo: memo || null });
-  } catch (err) {
-    // Surface Stellar-specific errors clearly
-    const stellarMsg = err?.response?.data?.extras?.result_codes?.operations?.[0] || err.message;
+  } catch (stellarErr) {
+    const stellarMsg =
+      stellarErr?.response?.data?.extras?.result_codes?.operations?.[0] || stellarErr.message;
     res.status(502).json({ error: `Stellar transaction failed: ${stellarMsg}` });
   }
 });

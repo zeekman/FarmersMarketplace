@@ -18,7 +18,11 @@ function fileFilter(_req, file, cb) {
   if (ALLOWED_TYPES.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(Object.assign(new Error('Only JPEG, PNG, and WebP images are allowed'), { code: 'INVALID_TYPE' }));
+    cb(
+      Object.assign(new Error('Only JPEG, PNG, and WebP images are allowed'), {
+        code: 'INVALID_TYPE',
+      })
+    );
   }
 }
 

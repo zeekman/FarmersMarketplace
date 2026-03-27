@@ -5,22 +5,53 @@ const s = {
   page: { maxWidth: 1000, margin: '0 auto', padding: 24 },
   title: { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 24 },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 },
-  stat: { background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 8px #0001', textAlign: 'center' },
+  stat: {
+    background: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    boxShadow: '0 1px 8px #0001',
+    textAlign: 'center',
+  },
   statVal: { fontSize: 28, fontWeight: 700, color: '#2d6a4f' },
   statLabel: { fontSize: 13, color: '#666', marginTop: 4 },
   card: { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 14 },
-  th: { textAlign: 'left', padding: '10px 12px', borderBottom: '2px solid #eee', color: '#555', fontWeight: 600 },
+  th: {
+    textAlign: 'left',
+    padding: '10px 12px',
+    borderBottom: '2px solid #eee',
+    color: '#555',
+    fontWeight: 600,
+  },
   td: { padding: '10px 12px', borderBottom: '1px solid #f0f0f0' },
   badge: (role) => ({
-    display: 'inline-block', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+    display: 'inline-block',
+    padding: '2px 8px',
+    borderRadius: 12,
+    fontSize: 12,
+    fontWeight: 600,
     background: role === 'admin' ? '#ffeaa7' : role === 'farmer' ? '#d8f3dc' : '#dfe6e9',
     color: role === 'admin' ? '#b8860b' : role === 'farmer' ? '#2d6a4f' : '#555',
   }),
-  deactivate: { background: '#fee', color: '#c0392b', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 },
+  deactivate: {
+    background: '#fee',
+    color: '#c0392b',
+    border: 'none',
+    borderRadius: 6,
+    padding: '4px 10px',
+    cursor: 'pointer',
+    fontSize: 12,
+  },
   inactive: { color: '#aaa', fontSize: 12, fontStyle: 'italic' },
   pagination: { display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' },
-  pgBtn: (disabled) => ({ padding: '6px 14px', borderRadius: 6, border: '1px solid #ddd', cursor: disabled ? 'not-allowed' : 'pointer', background: disabled ? '#f5f5f5' : '#fff', color: disabled ? '#aaa' : '#333' }),
+  pgBtn: (disabled) => ({
+    padding: '6px 14px',
+    borderRadius: 6,
+    border: '1px solid #ddd',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    background: disabled ? '#f5f5f5' : '#fff',
+    color: disabled ? '#aaa' : '#333',
+  }),
   err: { color: '#c0392b', fontSize: 14, marginBottom: 12 },
 };
 
@@ -34,7 +65,9 @@ export default function AdminDashboard() {
     try {
       const res = await api.adminGetStats();
       setStats(res.data);
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
   async function loadUsers(page = 1) {
@@ -42,7 +75,9 @@ export default function AdminDashboard() {
       const res = await api.adminGetUsers(page);
       setUsers(res.data);
       setPagination(res.pagination);
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
   useEffect(() => {
@@ -55,7 +90,9 @@ export default function AdminDashboard() {
     try {
       await api.adminDeactivateUser(id);
       loadUsers(pagination.page);
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
   return (
@@ -99,17 +136,21 @@ export default function AdminDashboard() {
             </tr>
           </thead>
           <tbody>
-            {users.map(u => (
+            {users.map((u) => (
               <tr key={u.id}>
                 <td style={s.td}>{u.id}</td>
                 <td style={s.td}>{u.name}</td>
                 <td style={s.td}>{u.email}</td>
-                <td style={s.td}><span style={s.badge(u.role)}>{u.role}</span></td>
+                <td style={s.td}>
+                  <span style={s.badge(u.role)}>{u.role}</span>
+                </td>
                 <td style={s.td}>{new Date(u.created_at).toLocaleDateString()}</td>
                 <td style={s.td}>
-                  {u.active === 0
-                    ? <span style={s.inactive}>Inactive</span>
-                    : <span style={{ color: '#2d6a4f', fontSize: 12 }}>Active</span>}
+                  {u.active === 0 ? (
+                    <span style={s.inactive}>Inactive</span>
+                  ) : (
+                    <span style={{ color: '#2d6a4f', fontSize: 12 }}>Active</span>
+                  )}
                 </td>
                 <td style={s.td}>
                   {u.role !== 'admin' && u.active !== 0 && (
@@ -128,13 +169,19 @@ export default function AdminDashboard() {
             style={s.pgBtn(pagination.page <= 1)}
             disabled={pagination.page <= 1}
             onClick={() => loadUsers(pagination.page - 1)}
-          >← Prev</button>
-          <span style={{ fontSize: 13, color: '#666' }}>Page {pagination.page} of {pagination.pages}</span>
+          >
+            ← Prev
+          </button>
+          <span style={{ fontSize: 13, color: '#666' }}>
+            Page {pagination.page} of {pagination.pages}
+          </span>
           <button
             style={s.pgBtn(pagination.page >= pagination.pages)}
             disabled={pagination.page >= pagination.pages}
             onClick={() => loadUsers(pagination.page + 1)}
-          >Next →</button>
+          >
+            Next →
+          </button>
         </div>
       </div>
     </div>

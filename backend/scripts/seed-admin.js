@@ -8,18 +8,24 @@ const bcrypt = require('bcryptjs');
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const name     = process.env.ADMIN_NAME     || 'Admin';
-const email    = process.env.ADMIN_EMAIL    || 'admin@farmersmarketplace.com';
+const name = process.env.ADMIN_NAME || 'Admin';
+const email = process.env.ADMIN_EMAIL || 'admin@farmersmarketplace.com';
 const password = process.env.ADMIN_PASSWORD || 'Admin1234!';
 
 if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
-  console.warn('[seed-admin] ADMIN_EMAIL or ADMIN_PASSWORD not set — using defaults. Set them in .env for production.');
+  console.warn(
+    '[seed-admin] ADMIN_EMAIL or ADMIN_PASSWORD not set — using defaults. Set them in .env for production.'
+  );
 }
 
 const db = new Database(path.join(__dirname, '../market.db'));
 
 // Ensure active column exists
-try { db.exec('ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1'); } catch {}
+try {
+  db.exec('ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1');
+} catch {
+  /* column exists */
+}
 
 const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
 if (existing) {

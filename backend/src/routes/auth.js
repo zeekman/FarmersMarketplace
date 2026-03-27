@@ -7,7 +7,7 @@ const { createWallet } = require('../utils/stellar');
 const validate = require('../middleware/validate');
 const { err } = require('../middleware/error');
 
-const ACCESS_TOKEN_TTL  = '15m';
+const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
 
 const COOKIE_OPTIONS = {
@@ -33,16 +33,18 @@ function hashToken(token) {
 function storeRefreshToken(userId, rawToken) {
   const hash = hashToken(rawToken);
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL).toISOString();
-  db.prepare(
-    'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)'
-  ).run(userId, hash, expiresAt);
+  db.prepare('INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)').run(
+    userId,
+    hash,
+    expiresAt
+  );
 }
 
 function rotateRefreshToken(userId, oldRawToken) {
   const oldHash = hashToken(oldRawToken);
-  const existing = db.prepare(
-    'SELECT * FROM refresh_tokens WHERE token_hash = ? AND user_id = ?'
-  ).get(oldHash, userId);
+  const existing = db
+    .prepare('SELECT * FROM refresh_tokens WHERE token_hash = ? AND user_id = ?')
+    .get(oldHash, userId);
 
   if (!existing) return null;
   if (new Date(existing.expires_at) < new Date()) {
@@ -68,7 +70,7 @@ router.post('/register', validate.register, async (req, res) => {
     // Generate unique referral code
     let referralCode = crypto.randomBytes(4).toString('hex').toUpperCase();
     // Check if it's unique (highly likely with 4 bytes HEX, but let's be safe or just use it)
-    // For simplicity in this demo, we'll just use it. 
+    // For simplicity in this demo, we'll just use it.
     // In production, you'd loop until unique.
 
     // Find referrer if ref provided
@@ -78,9 +80,11 @@ router.post('/register', validate.register, async (req, res) => {
       if (referrer) referredBy = referrer.id;
     }
 
-    const result = db.prepare(
-      'INSERT INTO users (name, email, password, role, stellar_public_key, stellar_secret_key, referral_code, referred_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(name, email, hashed, role, wallet.publicKey, wallet.secretKey, referralCode, referredBy);
+    const result = db
+      .prepare(
+        'INSERT INTO users (name, email, password, role, stellar_public_key, stellar_secret_key, referral_code, referred_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      .run(name, email, hashed, role, wallet.publicKey, wallet.secretKey, referralCode, referredBy);
 
     const userId = result.lastInsertRowid;
     const accessToken = signAccessToken({ id: userId, role });
@@ -93,7 +97,8 @@ router.post('/register', validate.register, async (req, res) => {
       user: { id: userId, name, email, role, publicKey: wallet.publicKey, referralCode },
     });
   } catch (err) {
-    if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Email already exists' });
+    if (err.message.includes('UNIQUE'))
+      return res.status(409).json({ error: 'Email already exists' });
     res.status(500).json({ error: err.message });
   }
 });
@@ -114,7 +119,13 @@ router.post('/login', validate.login, async (req, res) => {
   res.cookie('refreshToken', rawRefresh, COOKIE_OPTIONS);
   res.json({
     token: accessToken,
-    user: { id: user.id, name: user.name, email: user.email, role: user.role, publicKey: user.stellar_public_key },
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      publicKey: user.stellar_public_key,
+    },
   });
 });
 

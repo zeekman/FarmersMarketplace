@@ -13,7 +13,7 @@ const EXEMPT_PATHS = ['/api/auth/login', '/api/auth/register'];
 function csrfTokenHandler(req, res) {
   const token = crypto.randomBytes(32).toString('hex');
   res.cookie(CSRF_COOKIE, token, {
-    httpOnly: false,   // must be readable by JS so the client can send it as a header
+    httpOnly: false, // must be readable by JS so the client can send it as a header
     sameSite: 'Strict',
     secure: process.env.NODE_ENV === 'production',
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
@@ -46,10 +46,7 @@ function csrfProtect(req, res, next) {
   const cookieBuf = Buffer.from(cookieToken);
   const headerBuf = Buffer.from(headerToken);
 
-  if (
-    cookieBuf.length !== headerBuf.length ||
-    !crypto.timingSafeEqual(cookieBuf, headerBuf)
-  ) {
+  if (cookieBuf.length !== headerBuf.length || !crypto.timingSafeEqual(cookieBuf, headerBuf)) {
     return res.status(403).json({ error: 'CSRF token invalid' });
   }
 

@@ -64,11 +64,14 @@ export function validateProduct({ name, price, quantity }) {
   if (price === '' || price === null || price === undefined) errors.price = 'Price is required';
   else if (isNaN(priceNum) || priceNum <= 0) errors.price = 'Price must be a positive number';
   else if (priceNum > 1_000_000) errors.price = 'Price seems too high (max 1,000,000 XLM)';
-  else if (!/^\d+(\.\d{1,7})?$/.test(String(price).trim())) errors.price = 'Price can have at most 7 decimal places';
+  else if (!/^\d+(\.\d{1,7})?$/.test(String(price).trim()))
+    errors.price = 'Price can have at most 7 decimal places';
 
   const qtyNum = parseInt(quantity, 10);
-  if (quantity === '' || quantity === null || quantity === undefined) errors.quantity = 'Quantity is required';
-  else if (isNaN(qtyNum) || qtyNum <= 0) errors.quantity = 'Quantity must be a positive whole number';
+  if (quantity === '' || quantity === null || quantity === undefined)
+    errors.quantity = 'Quantity is required';
+  else if (isNaN(qtyNum) || qtyNum <= 0)
+    errors.quantity = 'Quantity must be a positive whole number';
   else if (qtyNum > 1_000_000) errors.quantity = 'Quantity seems too high (max 1,000,000)';
 
   return errors;

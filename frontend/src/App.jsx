@@ -51,10 +51,38 @@ function AppContent() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/marketplace" element={<Marketplace />} />
           <Route path="/product/:id" element={<ProductDetail />} />
-          <Route path="/dashboard" element={<PrivateRoute role="farmer"><Dashboard /></PrivateRoute>} />
-          <Route path="/wallet" element={<PrivateRoute><Wallet /></PrivateRoute>} />
-          <Route path="/orders" element={<PrivateRoute><Orders /></PrivateRoute>} />
-          <Route path="/admin" element={<PrivateRoute role="admin"><AdminDashboard /></PrivateRoute>} />
+          <Route
+            path="/dashboard"
+            element={
+              <PrivateRoute role="farmer">
+                <Dashboard />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/wallet"
+            element={
+              <PrivateRoute>
+                <Wallet />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/orders"
+            element={
+              <PrivateRoute>
+                <Orders />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <PrivateRoute role="admin">
+                <AdminDashboard />
+              </PrivateRoute>
+            }
+          />
           <Route path="/farmer/:id" element={<FarmerProfile />} />
         </Routes>
       </div>

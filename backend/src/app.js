@@ -2,7 +2,7 @@ require('dotenv').config();
 
 // Fail fast — refuse to start if critical secrets are missing
 const REQUIRED_ENV = ['JWT_SECRET'];
-const missing = REQUIRED_ENV.filter(k => !process.env[k]);
+const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
 if (missing.length) {
   console.error(`[FATAL] Missing required environment variables: ${missing.join(', ')}`);
   console.error('Copy backend/.env.example to backend/.env and fill in the values.');
@@ -23,10 +23,12 @@ const app = express();
 app.use(enforceHttps);
 app.use(hsts);
 
-app.use(cors({
-  origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 app.use(cookieParser());
