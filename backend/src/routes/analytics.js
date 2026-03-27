@@ -27,6 +27,7 @@ router.get('/farmer', auth, (req, res) => {
     LIMIT 5
   `).all(farmerId);
 
+  // Monthly revenue for last 6 months
   const monthly = db.prepare(`
     SELECT strftime('%Y-%m', o.created_at) as month,
            COALESCE(SUM(o.total_price), 0) as revenue,
@@ -42,6 +43,12 @@ router.get('/farmer', auth, (req, res) => {
   res.json({
     success: true,
     data: { total_revenue: totals.total_revenue, order_count: totals.order_count, top_products: topProducts, monthly },
+    data: {
+      total_revenue: totals.total_revenue,
+      order_count: totals.order_count,
+      top_products: topProducts,
+      monthly,
+    },
   });
 });
 

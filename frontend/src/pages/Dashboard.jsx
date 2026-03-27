@@ -1,9 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE_MB = 5;
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+const FARMER_STATUSES = ['processing', 'shipped', 'delivered'];
+
+const STATUS_ICON = { pending: '⏳', paid: '✅', processing: '⚙️', shipped: '🚚', delivered: '📦', failed: '❌' };
+const STATUS_COLOR = { paid: '#2d6a4f', pending: '#856404', processing: '#004085', shipped: '#0c5460', delivered: '#155724', failed: '#c0392b' };
 
 const s = {
   page: { maxWidth: 900, margin: '0 auto', padding: 24 },
@@ -34,27 +39,55 @@ const s = {
 const EMPTY_FORM = { name: '', description: '', price: '', quantity: '', unit: 'kg', category: 'other' };
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const [products, setProducts] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [restockVals, setRestockVals] = useState({});
   const [msg, setMsg] = useState(null);
+  const [sales, setSales] = useState([]);
+  const [salesMsg, setSalesMsg] = useState({});
 
   // image state
   const [imageFile, setImageFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
-  const [imageUrl, setImageUrl] = useState(null); // confirmed server URL after upload
+  const [imageUrl, setImageUrl] = useState(null);
   const [imageErr, setImageErr] = useState('');
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
+
+  // profile state
+  const [profile, setProfile]       = useState({ bio: '', location: '', avatar_url: '' });
+  const [profileMsg, setProfileMsg] = useState(null);
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarInputRef = useRef(null);
 
   async function load() {
     try {
       const res = await api.getMyProducts();
       setProducts(res.data ?? res);
     } catch {}
+    try {
+      const res = await api.getSales();
+      setSales(res.data ?? res);
+    } catch {}
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // Load current profile
+    if (user?.id) {
+      api.getFarmer(user.id)
+        .then(res => {
+          const d = res.data;
+          setProfile({ bio: d.bio || '', location: d.location || '', avatar_url: d.avatar_url || '' });
+          if (d.avatar_url) setAvatarPreview(d.avatar_url);
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   function validateAndSetImage(file) {
     setImageErr('');
@@ -90,6 +123,38 @@ export default function Dashboard() {
     setPreviewUrl(null);
     setImageUrl(null);
     setImageErr('');
+  }
+
+  async function handleProfileSave(e) {
+    e.preventDefault();
+    setProfileMsg(null);
+    let finalAvatarUrl = profile.avatar_url;
+
+    if (avatarFile) {
+      setAvatarUploading(true);
+      try {
+        const res = await api.uploadAvatar(avatarFile);
+        finalAvatarUrl = res.imageUrl;
+        setAvatarFile(null);
+      } catch (err) {
+        setAvatarUploading(false);
+        setProfileMsg({ type: 'err', text: `Avatar upload failed: ${err.message}` });
+        return;
+      }
+      setAvatarUploading(false);
+    }
+
+    try {
+      const res = await api.updateFarmerProfile({
+        bio: profile.bio || undefined,
+        location: profile.location || undefined,
+        avatar_url: finalAvatarUrl || undefined,
+      });
+      setProfile({ bio: res.data.bio || '', location: res.data.location || '', avatar_url: res.data.avatar_url || '' });
+      setProfileMsg({ type: 'ok', text: 'Profile updated' });
+    } catch (err) {
+      setProfileMsg({ type: 'err', text: err.message });
+    }
   }
 
   async function handleAdd(e) {
@@ -131,6 +196,25 @@ export default function Dashboard() {
   async function handleDelete(id) {
     if (!confirm('Remove this product?')) return;
     try { await api.deleteProduct(id); load(); } catch {}
+  }
+
+  async function handleRestock(id) {
+    const qty = parseInt(restockVals[id], 10);
+    if (isNaN(qty) || qty <= 0) return alert('Enter a valid positive number to restock.');
+    try {
+      await api.restockProduct(id, qty);
+      setRestockVals({ ...restockVals, [id]: '' });
+      load();
+    } catch (err) {
+      alert(err.message);
+  async function handleStatusUpdate(orderId, status) {
+    try {
+      await api.updateOrderStatus(orderId, status);
+      setSalesMsg(prev => ({ ...prev, [orderId]: { type: 'ok', text: `Updated to ${status}` } }));
+      load();
+    } catch (e) {
+      setSalesMsg(prev => ({ ...prev, [orderId]: { type: 'err', text: e.message } }));
+    }
   }
 
   return (
@@ -223,10 +307,124 @@ export default function Dashboard() {
                   <div style={{ fontSize: 13, color: '#666' }}>{p.price} XLM · {p.quantity} {p.unit}</div>
                 </div>
               </div>
-              <button style={s.del} onClick={() => handleDelete(p.id)}>Remove</button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="+Qty"
+                  style={{ ...s.input, width: 70, marginBottom: 0, padding: '4px 8px' }}
+                  value={restockVals[p.id] || ''}
+                  onChange={e => setRestockVals({ ...restockVals, [p.id]: e.target.value })}
+                />
+                <button
+                  style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#218c74' }}
+                  onClick={() => handleRestock(p.id)}
+                >
+                  Restock
+                </button>
+                <button style={s.del} onClick={() => handleDelete(p.id)}>Remove</button>
+              </div>
             </div>
           ))}
         </div>
+      </div>
+      {/* Profile edit */}
+      <div style={{ ...s.card, marginTop: 24 }}>
+        <h3 style={{ marginBottom: 16, color: '#333' }}>My Farmer Profile</h3>
+        {profileMsg && (
+          <div style={{ ...s.msg, background: profileMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: profileMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
+            {profileMsg.text}
+          </div>
+        )}
+        <form onSubmit={handleProfileSave}>
+          <label style={s.label}>Avatar</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+            {avatarPreview
+              ? <img src={avatarPreview} alt="Avatar" style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover' }} />
+              : <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#d8f3dc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🌾</div>
+            }
+            <div>
+              <button type="button" style={{ ...s.btn, fontSize: 13, padding: '7px 14px' }} onClick={() => avatarInputRef.current?.click()}>
+                {avatarUploading ? 'Uploading...' : 'Change Avatar'}
+              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                style={{ display: 'none' }}
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) { setAvatarFile(file); setAvatarPreview(URL.createObjectURL(file)); }
+                  e.target.value = '';
+                }}
+              />
+            </div>
+          </div>
+
+          <label style={s.label}>Location</label>
+          <input
+            style={s.input}
+            placeholder="e.g. Nairobi, Kenya"
+            value={profile.location}
+            onChange={e => setProfile(p => ({ ...p, location: e.target.value }))}
+            maxLength={100}
+          />
+
+          <label style={s.label}>Bio</label>
+          <textarea
+            style={s.textarea}
+            placeholder="Tell buyers about your farm..."
+            value={profile.bio}
+            onChange={e => setProfile(p => ({ ...p, bio: e.target.value }))}
+            maxLength={500}
+          />
+
+          <button style={s.btn} type="submit" disabled={avatarUploading}>Save Profile</button>
+        </form>
+
+      {/* Order management panel */}
+      <div style={{ ...s.card, marginTop: 24 }}>
+        <h3 style={{ padding: '16px 20px', borderBottom: '1px solid #eee', margin: 0, color: '#333' }}>
+          📋 Incoming Orders ({sales.length})
+        </h3>
+        {sales.length === 0 ? (
+          <p style={{ padding: '20px', color: '#888', fontSize: 14 }}>No orders yet.</p>
+        ) : (
+          sales.map(o => {
+            const m = salesMsg[o.id];
+            return (
+              <div key={o.id} style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{o.product_name}</div>
+                    <div style={{ fontSize: 13, color: '#666' }}>
+                      {o.quantity} units · {parseFloat(o.total_price).toFixed(2)} XLM · by {o.buyer_name}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#aaa' }}>{new Date(o.created_at).toLocaleDateString()}</div>
+                    {m && <div style={{ fontSize: 12, color: m.type === 'ok' ? '#2d6a4f' : '#c0392b', marginTop: 4 }}>{m.text}</div>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: STATUS_COLOR[o.status] || '#333' }}>
+                      {STATUS_ICON[o.status]} {o.status}
+                    </span>
+                    {['paid', 'processing', 'shipped'].includes(o.status) && (
+                      <select
+                        style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13, cursor: 'pointer' }}
+                        defaultValue=""
+                        onChange={e => { if (e.target.value) handleStatusUpdate(o.id, e.target.value); e.target.value = ''; }}
+                      >
+                        <option value="" disabled>Update status…</option>
+                        {FARMER_STATUSES.filter(s => s !== o.status).map(s => (
+                          <option key={s} value={s}>{STATUS_ICON[s]} {s}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

@@ -8,7 +8,7 @@ const validate = require('../middleware/validate');
 const { err } = require('../middleware/error');
 
 const ACCESS_TOKEN_TTL  = '15m';
-const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
+const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -82,16 +82,6 @@ router.post('/register', validate.register, async (req, res) => {
   } catch (err) {
     if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Email already exists' });
     res.status(500).json({ error: err.message });
-    const token = jwt.sign(
-      { id: result.lastInsertRowid, role },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    res.json({ success: true, token, user: { id: result.lastInsertRowid, name, email, role, publicKey: wallet.publicKey } });
-  } catch (e) {
-    if (e.message.includes('UNIQUE')) return err(res, 409, 'Email already exists', 'email_taken');
-    throw e;
   }
 });
 
@@ -150,13 +140,6 @@ router.post('/logout', (req, res) => {
   }
   res.clearCookie('refreshToken', { path: '/api/auth' });
   res.json({ ok: true });
-  const token = jwt.sign(
-    { id: user.id, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-
-  res.json({ success: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role, publicKey: user.stellar_public_key } });
 });
 
 module.exports = router;

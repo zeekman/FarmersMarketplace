@@ -97,20 +97,55 @@ describe('POST /api/orders', () => {
 });
 
 describe('GET /api/orders', () => {
-  it('returns buyer order history', async () => {
+  it('returns paginated buyer order history', async () => {
+    mockGet.mockReturnValueOnce({ count: 1 });
     mockAll.mockReturnValueOnce([{ id: 1, product_name: 'Apples' }]);
     const res = await request(app).get('/api/orders').set('Authorization', `Bearer ${buyerToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.length).toBe(1);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.total).toBe(1);
+    expect(res.body.page).toBe(1);
+    expect(res.body.limit).toBe(20);
+    expect(res.body.totalPages).toBe(1);
+  });
+
+  it('respects page and limit query params', async () => {
+    mockGet.mockReturnValueOnce({ count: 50 });
+    mockAll.mockReturnValueOnce([]);
+    const res = await request(app).get('/api/orders?page=2&limit=10').set('Authorization', `Bearer ${buyerToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.page).toBe(2);
+    expect(res.body.limit).toBe(10);
+    expect(res.body.totalPages).toBe(5);
+  });
+
+  it('clamps limit to 100', async () => {
+    mockGet.mockReturnValueOnce({ count: 0 });
+    mockAll.mockReturnValueOnce([]);
+    const res = await request(app).get('/api/orders?limit=999').set('Authorization', `Bearer ${buyerToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.limit).toBe(100);
+  });
+
+  it('defaults to page 1 when page param is omitted', async () => {
+    mockGet.mockReturnValueOnce({ count: 0 });
+    mockAll.mockReturnValueOnce([]);
+    const res = await request(app).get('/api/orders').set('Authorization', `Bearer ${buyerToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.page).toBe(1);
   });
 });
 
 describe('GET /api/orders/sales', () => {
-  it('returns farmer sales', async () => {
+  it('returns paginated farmer sales', async () => {
+    mockGet.mockReturnValueOnce({ count: 1 });
     mockAll.mockReturnValueOnce([{ id: 1, product_name: 'Apples' }]);
     const res = await request(app).get('/api/orders/sales').set('Authorization', `Bearer ${farmerToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.length).toBe(1);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.total).toBe(1);
+    expect(res.body.page).toBe(1);
+    expect(res.body.totalPages).toBe(1);
   });
 
   it('returns 403 for buyers', async () => {

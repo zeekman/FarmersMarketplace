@@ -8,12 +8,42 @@ const farmerToken = jwt.sign({ id: 1, role: 'farmer' }, SECRET);
 const buyerToken  = jwt.sign({ id: 2, role: 'buyer'  }, SECRET);
 
 describe('GET /api/products', () => {
-  it('returns paginated product list', async () => {
+  it('returns paginated product list with pagination metadata', async () => {
     mockGet.mockReturnValueOnce({ count: 0 });
     mockAll.mockReturnValueOnce([]);
     const res = await request(app).get('/api/products');
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual([]);
+    expect(res.body.total).toBe(0);
+    expect(res.body.page).toBe(1);
+    expect(res.body.limit).toBe(20);
+    expect(res.body.totalPages).toBe(0);
+  });
+
+  it('respects page and limit query params', async () => {
+    mockGet.mockReturnValueOnce({ count: 30 });
+    mockAll.mockReturnValueOnce([]);
+    const res = await request(app).get('/api/products?page=2&limit=10');
+    expect(res.status).toBe(200);
+    expect(res.body.page).toBe(2);
+    expect(res.body.limit).toBe(10);
+    expect(res.body.totalPages).toBe(3);
+  });
+
+  it('clamps limit to 100', async () => {
+    mockGet.mockReturnValueOnce({ count: 0 });
+    mockAll.mockReturnValueOnce([]);
+    const res = await request(app).get('/api/products?limit=500');
+    expect(res.status).toBe(200);
+    expect(res.body.limit).toBe(100);
+  });
+
+  it('defaults to page 1 when page param is omitted', async () => {
+    mockGet.mockReturnValueOnce({ count: 0 });
+    mockAll.mockReturnValueOnce([]);
+    const res = await request(app).get('/api/products');
+    expect(res.status).toBe(200);
+    expect(res.body.page).toBe(1);
   });
 });
 

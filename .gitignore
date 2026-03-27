@@ -2,3 +2,8 @@ node_modules/
 *.db
 .env
 dist/
+
+# Playwright
+frontend/playwright-report/
+frontend/test-results/
+frontend/.playwright/

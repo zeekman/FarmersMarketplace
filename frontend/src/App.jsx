@@ -11,6 +11,7 @@ import Marketplace from './pages/Marketplace';
 import ProductDetail from './pages/ProductDetail';
 import Wallet from './pages/Wallet';
 import Orders from './pages/Orders';
+import FarmerProfile from './pages/FarmerProfile';
 
 import AdminDashboard from './pages/AdminDashboard';
 
@@ -54,6 +55,7 @@ function AppContent() {
           <Route path="/wallet" element={<PrivateRoute><Wallet /></PrivateRoute>} />
           <Route path="/orders" element={<PrivateRoute><Orders /></PrivateRoute>} />
           <Route path="/admin" element={<PrivateRoute role="admin"><AdminDashboard /></PrivateRoute>} />
+          <Route path="/farmer/:id" element={<FarmerProfile />} />
         </Routes>
       </div>
     </>

@@ -4,6 +4,7 @@ const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { sendPayment, getBalance } = require('../utils/stellar');
 const { sendOrderEmails, sendStatusUpdateEmail } = require('../utils/mailer');
+const { sendOrderEmails, sendLowStockAlert } = require('../utils/mailer');
 const { err } = require('../middleware/error');
 
 // POST /api/orders - buyer places + pays for an order
@@ -75,6 +76,15 @@ router.post('/', auth, validate.order, async (req, res) => {
       product, buyer, farmer,
     }).catch(e => console.error('Email notification failed:', e.message));
 
+    // Low-stock check — send alert once per threshold crossing
+    const updated = db.prepare('SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = ?').get(product_id);
+    if (updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
+      db.prepare('UPDATE products SET low_stock_alerted = 1 WHERE id = ?').run(product_id);
+      sendLowStockAlert({ product: { ...product, quantity: updated.quantity }, farmer })
+        .catch(e => console.error('Low-stock alert failed:', e.message));
+    }
+    // Reset alert flag if stock was replenished above threshold (handled on edit)
+
     res.json({ success: true, orderId, status: 'paid', txHash, totalPrice });
   } catch (e) {
     db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?').run(quantity, product_id);
@@ -84,45 +94,87 @@ router.post('/', auth, validate.order, async (req, res) => {
 });
 
 // GET /api/orders - buyer's order history
-// Query params: status (pending | paid | failed)
+// Query params: status (pending | paid | failed), page, limit
 router.get('/', auth, (req, res) => {
   const { status } = req.query;
   const VALID_STATUSES = ['pending', 'paid', 'failed'];
+  const page   = Math.max(1, parseInt(req.query.page)  || 1);
+  const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+  const offset = (page - 1) * limit;
 
-  let sql = `
-    SELECT o.*, p.name as product_name, p.unit, u.name as farmer_name
-    FROM orders o
-    JOIN products p ON o.product_id = p.id
-    JOIN users u ON p.farmer_id = u.id
-    WHERE o.buyer_id = ?
-  `;
+  const conditions = ['o.buyer_id = ?'];
   const params = [req.user.id];
 
   if (status && VALID_STATUSES.includes(status)) {
-    sql += ` AND o.status = ?`;
+    conditions.push('o.status = ?');
     params.push(status);
   }
 
-  sql += ` ORDER BY o.created_at DESC`;
+  const where = `WHERE ${conditions.join(' AND ')}`;
 
-  const orders = db.prepare(sql).all(...params);
-  res.json({ success: true, data: orders });
+  const total = db.prepare(
+    `SELECT COUNT(*) as count FROM orders o ${where}`
+  ).get(...params).count;
+
+  const data = db.prepare(
+    `SELECT o.*, p.name as product_name, p.unit, u.name as farmer_name
+     FROM orders o
+     JOIN products p ON o.product_id = p.id
+     JOIN users u ON p.farmer_id = u.id
+     ${where}
+     ORDER BY o.created_at DESC LIMIT ? OFFSET ?`
+  ).all(...params, limit, offset);
+
+  res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
+});
+
+// PATCH /api/orders/:id/status - farmer updates delivery status
+const FARMER_STATUSES = ['processing', 'shipped', 'delivered'];
+
+router.patch('/:id/status', auth, (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
+
+  const { status } = req.body;
+  if (!FARMER_STATUSES.includes(status))
+    return err(res, 400, `Status must be one of: ${FARMER_STATUSES.join(', ')}`, 'invalid_status');
+
+  // Verify the order belongs to this farmer's product
+  const order = db.prepare(`
+    SELECT o.* FROM orders o
+    JOIN products p ON o.product_id = p.id
+    WHERE o.id = ? AND p.farmer_id = ?
+  `).get(req.params.id, req.user.id);
+
+  if (!order) return err(res, 403, 'Order not found or not yours', 'forbidden');
+
+  db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, req.params.id);
+  res.json({ success: true, message: `Order status updated to ${status}` });
 });
 
 // GET /api/orders/sales - farmer's incoming orders
+// Query params: page, limit
 router.get('/sales', auth, (req, res) => {
   if (req.user.role !== 'farmer')
     return err(res, 403, 'Farmers only', 'forbidden');
 
-  const sales = db.prepare(`
-    SELECT o.*, p.name as product_name, u.name as buyer_name
-    FROM orders o
-    JOIN products p ON o.product_id = p.id
-    JOIN users u ON o.buyer_id = u.id
-    WHERE p.farmer_id = ?
-    ORDER BY o.created_at DESC
-  `).all(req.user.id);
-  res.json({ success: true, data: sales });
+  const page   = Math.max(1, parseInt(req.query.page)  || 1);
+  const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+  const offset = (page - 1) * limit;
+
+  const total = db.prepare(
+    `SELECT COUNT(*) as count FROM orders o JOIN products p ON o.product_id = p.id WHERE p.farmer_id = ?`
+  ).get(req.user.id).count;
+
+  const data = db.prepare(
+    `SELECT o.*, p.name as product_name, u.name as buyer_name
+     FROM orders o
+     JOIN products p ON o.product_id = p.id
+     JOIN users u ON o.buyer_id = u.id
+     WHERE p.farmer_id = ?
+     ORDER BY o.created_at DESC LIMIT ? OFFSET ?`
+  ).all(req.user.id, limit, offset);
+
+  res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
 });
 
 // PATCH /api/orders/:id/status - farmer updates order status

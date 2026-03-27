@@ -44,13 +44,50 @@ router.get('/', (req, res) => {
   ).get(...countParams).count;
 
   const products = db.prepare(
-    `SELECT p.*, u.name as farmer_name
-     FROM products p JOIN users u ON p.farmer_id = u.id
+    `SELECT p.*, u.name as farmer_name,
+            ROUND(AVG(r.rating), 1) as avg_rating,
+            COUNT(r.id) as review_count
+     FROM products p
+     JOIN users u ON p.farmer_id = u.id
+     LEFT JOIN reviews r ON r.product_id = p.id
      ${where}
+     GROUP BY p.id
      ORDER BY p.created_at DESC LIMIT ? OFFSET ?`
   ).all(...dataParams, limit, offset);
 
-  res.json({ success: true, data: products, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } });
+  res.json({ success: true, data: products, total, page, limit, totalPages: Math.ceil(total / limit) });
+});
+
+// GET /api/products/search?q=tomato - FTS5 full-text search
+router.get('/search', (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) {
+    // Empty query returns all products
+    const products = db.prepare(
+      `SELECT p.*, u.name as farmer_name FROM products p JOIN users u ON p.farmer_id = u.id ORDER BY p.created_at DESC LIMIT 100`
+    ).all();
+    return res.json({ success: true, data: products });
+  }
+  try {
+    const products = db.prepare(`
+      SELECT p.*, u.name as farmer_name, fts.rank
+      FROM products_fts fts
+      JOIN products p ON p.id = fts.rowid
+      JOIN users u ON p.farmer_id = u.id
+      WHERE products_fts MATCH ?
+      ORDER BY fts.rank
+      LIMIT 100
+    `).all(q);
+    res.json({ success: true, data: products });
+  } catch {
+    // Fallback to LIKE search if FTS fails (e.g. special chars)
+    const like = `%${q}%`;
+    const products = db.prepare(
+      `SELECT p.*, u.name as farmer_name FROM products p JOIN users u ON p.farmer_id = u.id
+       WHERE p.name LIKE ? OR p.description LIKE ? ORDER BY p.created_at DESC LIMIT 100`
+    ).all(like, like);
+    res.json({ success: true, data: products });
+  }
 });
 
 // GET /api/products/categories
@@ -85,11 +122,31 @@ router.post('/upload-image', auth, (req, res) => {
 // GET /api/products/:id
 router.get('/:id', (req, res) => {
   const product = db.prepare(`
-    SELECT p.*, u.name as farmer_name, u.stellar_public_key as farmer_wallet
-    FROM products p JOIN users u ON p.farmer_id = u.id WHERE p.id = ?
+    SELECT p.*, u.name as farmer_name, u.stellar_public_key as farmer_wallet,
+           ROUND(AVG(r.rating), 1) as avg_rating,
+           COUNT(r.id) as review_count
+    FROM products p
+    JOIN users u ON p.farmer_id = u.id
+    LEFT JOIN reviews r ON r.product_id = p.id
+    WHERE p.id = ?
+    GROUP BY p.id
   `).get(req.params.id);
   if (!product) return err(res, 404, 'Product not found', 'not_found');
   res.json({ success: true, data: product });
+});
+
+// PATCH /api/products/:id/restock - farmer only
+router.patch('/:id/restock', auth, (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can restock products', 'forbidden');
+  
+  const quantity = parseInt(req.body.quantity, 10);
+  if (isNaN(quantity) || quantity <= 0) return err(res, 400, 'Quantity must be a positive integer', 'validation_error');
+
+  const product = db.prepare('SELECT * FROM products WHERE id = ? AND farmer_id = ?').get(req.params.id, req.user.id);
+  if (!product) return err(res, 404, 'Product not found or not yours', 'not_found');
+
+  db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?').run(quantity, req.params.id);
+  res.json({ success: true, message: 'Restocked successfully' });
 });
 
 // POST /api/products - farmer only
@@ -110,10 +167,48 @@ router.post('/', auth, validate.product, (req, res) => {
     : null;
 
   const result = db.prepare(
-    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(req.user.id, name.trim(), description || '', category || 'other', price, quantity, unit || 'unit', safeImageUrl);
+    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(req.user.id, name.trim(), description || '', category || 'other', price, quantity, unit || 'unit', safeImageUrl, parseInt(req.body.low_stock_threshold) || 5);
 
   res.json({ success: true, id: result.lastInsertRowid, message: 'Product listed' });
+});
+
+// PATCH /api/products/:id - farmer updates own product
+router.patch('/:id', auth, (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can edit products', 'forbidden');
+
+  const product = db.prepare('SELECT * FROM products WHERE id = ? AND farmer_id = ?').get(req.params.id, req.user.id);
+  if (!product) return err(res, 404, 'Not found or not yours', 'not_found');
+
+  const allowed = ['name', 'description', 'price', 'quantity', 'unit', 'category', 'low_stock_threshold'];
+  const updates = {};
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key];
+  }
+  if (Object.keys(updates).length === 0) return err(res, 400, 'No valid fields to update', 'validation_error');
+
+  if (updates.price !== undefined) {
+    updates.price = parseFloat(updates.price);
+    if (isNaN(updates.price) || updates.price <= 0) return err(res, 400, 'Price must be positive', 'validation_error');
+  }
+  if (updates.quantity !== undefined) {
+    updates.quantity = parseInt(updates.quantity, 10);
+    if (isNaN(updates.quantity) || updates.quantity < 0) return err(res, 400, 'Quantity must be non-negative', 'validation_error');
+  }
+  if (updates.low_stock_threshold !== undefined) {
+    updates.low_stock_threshold = parseInt(updates.low_stock_threshold, 10);
+    if (isNaN(updates.low_stock_threshold) || updates.low_stock_threshold < 0) return err(res, 400, 'Threshold must be non-negative', 'validation_error');
+  }
+
+  // Reset low_stock_alerted if quantity is being raised above threshold
+  const newQty = updates.quantity ?? product.quantity;
+  const newThreshold = updates.low_stock_threshold ?? product.low_stock_threshold ?? 5;
+  if (newQty > newThreshold) updates.low_stock_alerted = 0;
+
+  const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+  db.prepare(`UPDATE products SET ${setClauses} WHERE id = ?`).run(...Object.values(updates), req.params.id);
+
+  res.json({ success: true, message: 'Product updated' });
 });
 
 // DELETE /api/products/:id

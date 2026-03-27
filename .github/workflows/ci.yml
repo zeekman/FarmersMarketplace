@@ -10,57 +10,60 @@ jobs:
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: backend
-
+    env:
+      NODE_ENV: test
+      JWT_SECRET: ci-test-secret
+      STELLAR_NETWORK: testnet
+      SMTP_HOST: ""
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
-        # better-sqlite3 requires native build tools; ubuntu-latest has Python + gcc pre-installed
         run: npm ci
 
       - name: Run tests
         run: npm test
-        env:
-          NODE_ENV: test
-          JWT_SECRET: ci-test-secret
-      - name: Install backend dependencies
-        run: npm ci
-        working-directory: backend
 
-      - name: Run backend tests
+  frontend-unit:
+    name: Frontend Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
         run: npm test
-        working-directory: backend
-        env:
-          JWT_SECRET: test-secret-for-ci
-          STELLAR_NETWORK: testnet
-          NODE_ENV: test
 
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: frontend
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
@@ -71,11 +74,3 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Install frontend dependencies
-        run: npm install
-        working-directory: frontend
-
-      - name: Build frontend
-        run: npm run build
-        working-directory: frontend

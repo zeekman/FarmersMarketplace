@@ -59,3 +59,4 @@ async function sendStatusUpdateEmail({ order, product, buyer, newStatus }) {
 }
 
 module.exports = { sendOrderEmails, sendLowStockAlert, sendStatusUpdateEmail };
+module.exports = { sendOrderEmails, sendLowStockAlert };
