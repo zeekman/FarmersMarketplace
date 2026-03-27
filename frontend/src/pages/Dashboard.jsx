@@ -8,6 +8,7 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE_MB = 5;
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
 const FARMER_STATUSES = ['processing', 'shipped', 'delivered'];
+const MAX_IMAGES = 5;
 
 const STATUS_ICON = { pending: '⏳', paid: '✅', processing: '⚙️', shipped: '🚚', delivered: '📦', failed: '❌' };
 const STATUS_COLOR = { paid: '#2d6a4f', pending: '#856404', processing: '#004085', shipped: '#0c5460', delivered: '#155724', failed: '#c0392b' };
@@ -42,6 +43,14 @@ const s = {
   csvInput: { display: 'none' },
   csvResult: { padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 14 },
   productThumb: { width: 36, height: 36, objectFit: 'cover', borderRadius: 6, marginRight: 10, verticalAlign: 'middle' },
+  // gallery manager
+  galleryPanel: { background: '#f8fdf9', border: '1px solid #b7e4c7', borderRadius: 10, padding: 14, marginTop: 10 },
+  galleryThumb: { width: 72, height: 72, objectFit: 'cover', borderRadius: 6, border: '2px solid #ddd', display: 'block' },
+  galleryThumbFirst: { border: '2px solid #2d6a4f' },
+  galleryItem: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, position: 'relative' },
+  galleryGrid: { display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 },
+  imgDelBtn: { background: '#fee', color: '#c0392b', border: 'none', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: 11 },
+  arrowBtn: { background: 'none', border: '1px solid #ddd', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: 12 },
 };
 
 const EMPTY_FORM = { name: '', description: '', price: '', quantity: '', unit: 'kg', category: 'other' };
@@ -80,6 +89,69 @@ export default function Dashboard() {
   const [csvUploading, setCsvUploading] = useState(false);
   const [csvResult, setCsvResult] = useState(null);
   const csvInputRef = useRef(null);
+
+  // per-product image gallery state
+  const [galleryProductId, setGalleryProductId] = useState(null);
+  const [galleryImages, setGalleryImages] = useState([]);
+  const [galleryUploading, setGalleryUploading] = useState(false);
+  const [galleryErr, setGalleryErr] = useState('');
+  const galleryInputRef = useRef(null);
+
+  async function openGallery(productId) {
+    setGalleryProductId(productId);
+    setGalleryErr('');
+    try {
+      const res = await api.getProductImages(productId);
+      setGalleryImages(res.data ?? []);
+    } catch { setGalleryImages([]); }
+  }
+
+  function closeGallery() {
+    setGalleryProductId(null);
+    setGalleryImages([]);
+    setGalleryErr('');
+  }
+
+  async function handleGalleryUpload(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    const invalid = files.find(f => !ALLOWED_TYPES.includes(f.type) || f.size > MAX_SIZE_BYTES);
+    if (invalid) return setGalleryErr('Only JPEG/PNG/WebP up to 5 MB each.');
+    if (galleryImages.length + files.length > MAX_IMAGES)
+      return setGalleryErr(`Max ${MAX_IMAGES} images. You have ${galleryImages.length}.`);
+    setGalleryUploading(true);
+    setGalleryErr('');
+    try {
+      const res = await api.uploadProductImages(galleryProductId, files);
+      setGalleryImages(res.data ?? []);
+      load();
+    } catch (e) { setGalleryErr(e.message); }
+    setGalleryUploading(false);
+  }
+
+  async function handleGalleryDelete(imgId) {
+    if (!confirm('Delete this image?')) return;
+    try {
+      await api.deleteProductImage(galleryProductId, imgId);
+      const res = await api.getProductImages(galleryProductId);
+      setGalleryImages(res.data ?? []);
+      load();
+    } catch (e) { setGalleryErr(e.message); }
+  }
+
+  async function handleGalleryMove(index, dir) {
+    const imgs = [...galleryImages];
+    const swapIdx = index + dir;
+    if (swapIdx < 0 || swapIdx >= imgs.length) return;
+    [imgs[index], imgs[swapIdx]] = [imgs[swapIdx], imgs[index]];
+    const order = imgs.map((img, i) => ({ id: img.id, sort_order: i }));
+    try {
+      const res = await api.reorderProductImages(galleryProductId, order);
+      setGalleryImages(res.data ?? imgs);
+      load();
+    } catch (e) { setGalleryErr(e.message); }
+  }
 
   async function load() {
     try {
@@ -419,34 +491,78 @@ export default function Dashboard() {
           <h3 style={{ marginBottom: 16, color: '#333' }}>My Listings ({products.length})</h3>
           {products.length === 0 && <p style={{ color: '#888', fontSize: 14 }}>No products yet. Add your first listing.</p>}
           {products.map(p => (
-            <div key={p.id} style={s.product}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                {p.image_url
-                  ? <img src={p.image_url} alt={p.name} style={s.productThumb} />
-                  : <span style={{ fontSize: 28, marginRight: 10 }}>🥬</span>
-                }
-                <div>
-                  <div style={{ fontWeight: 600 }}>{p.name}</div>
-                  <div style={{ fontSize: 13, color: '#666' }}>{p.price} XLM · {p.quantity} {p.unit}</div>
+            <div key={p.id} style={{ ...s.product, flexDirection: 'column', alignItems: 'stretch' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {p.image_url
+                    ? <img src={p.image_url} alt={p.name} style={s.productThumb} />
+                    : <span style={{ fontSize: 28, marginRight: 10 }}>🥬</span>
+                  }
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{p.name}</div>
+                    <div style={{ fontSize: 13, color: '#666' }}>{p.price} XLM · {p.quantity} {p.unit}</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#555' }}
+                    onClick={() => galleryProductId === p.id ? closeGallery() : openGallery(p.id)}
+                  >
+                    📷 Photos
+                  </button>
+                  <input
+                    type="number" min="1" placeholder="+Qty"
+                    style={{ ...s.input, width: 70, marginBottom: 0, padding: '4px 8px' }}
+                    value={restockVals[p.id] || ''}
+                    onChange={e => setRestockVals({ ...restockVals, [p.id]: e.target.value })}
+                  />
+                  <button style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#218c74' }} onClick={() => handleRestock(p.id)}>Restock</button>
+                  <button style={s.del} onClick={() => handleDelete(p.id)}>Remove</button>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="+Qty"
-                  style={{ ...s.input, width: 70, marginBottom: 0, padding: '4px 8px' }}
-                  value={restockVals[p.id] || ''}
-                  onChange={e => setRestockVals({ ...restockVals, [p.id]: e.target.value })}
-                />
-                <button
-                  style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#218c74' }}
-                  onClick={() => handleRestock(p.id)}
-                >
-                  Restock
-                </button>
-                <button style={s.del} onClick={() => handleDelete(p.id)}>Remove</button>
-              </div>
+
+              {/* Inline gallery manager */}
+              {galleryProductId === p.id && (
+                <div style={s.galleryPanel}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#2d6a4f' }}>
+                    Product Photos ({galleryImages.length}/{MAX_IMAGES})
+                    <span style={{ fontWeight: 400, color: '#888', marginLeft: 8 }}>First image is shown on marketplace cards</span>
+                  </div>
+                  {galleryErr && <div style={{ color: '#c0392b', fontSize: 12, marginBottom: 8 }}>{galleryErr}</div>}
+                  <div style={s.galleryGrid}>
+                    {galleryImages.map((img, i) => (
+                      <div key={img.id} style={s.galleryItem}>
+                        <img src={img.url} alt={`Photo ${i + 1}`} style={{ ...s.galleryThumb, ...(i === 0 ? s.galleryThumbFirst : {}) }} />
+                        {i === 0 && <span style={{ fontSize: 10, color: '#2d6a4f', fontWeight: 600 }}>Primary</span>}
+                        <div style={{ display: 'flex', gap: 3 }}>
+                          <button style={s.arrowBtn} onClick={() => handleGalleryMove(i, -1)} disabled={i === 0} aria-label="Move left">◀</button>
+                          <button style={s.arrowBtn} onClick={() => handleGalleryMove(i, 1)} disabled={i === galleryImages.length - 1} aria-label="Move right">▶</button>
+                          <button style={s.imgDelBtn} onClick={() => handleGalleryDelete(img.id)} aria-label="Delete image">✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {galleryImages.length < MAX_IMAGES && (
+                    <>
+                      <button
+                        style={{ ...s.btn, fontSize: 12, padding: '6px 14px', background: '#218c74' }}
+                        onClick={() => galleryInputRef.current?.click()}
+                        disabled={galleryUploading}
+                      >
+                        {galleryUploading ? 'Uploading...' : '+ Add Photos'}
+                      </button>
+                      <input
+                        ref={galleryInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        multiple
+                        style={{ display: 'none' }}
+                        onChange={handleGalleryUpload}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

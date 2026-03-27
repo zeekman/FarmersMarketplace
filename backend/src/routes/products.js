@@ -423,4 +423,133 @@ router.delete("/:id", auth, (req, res) => {
   res.json({ success: true, message: "Deleted" });
 });
 
+// GET /api/products/:id/images
+router.get("/:id/images", (req, res) => {
+  const images = db
+    .prepare("SELECT * FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC")
+    .all(req.params.id);
+  res.json({ success: true, data: images });
+});
+
+// POST /api/products/:id/images - upload up to 5 images (farmer only)
+router.post("/:id/images", auth, (req, res) => {
+  if (req.user.role !== "farmer")
+    return err(res, 403, "Only farmers can upload images", "forbidden");
+
+  const product = db
+    .prepare("SELECT * FROM products WHERE id = ? AND farmer_id = ?")
+    .get(req.params.id, req.user.id);
+  if (!product) return err(res, 404, "Product not found or not yours", "not_found");
+
+  upload.array("images", 5)(req, res, (uploadErr) => {
+    if (uploadErr) {
+      if (uploadErr.code === "LIMIT_FILE_SIZE")
+        return err(res, 400, "Each image must be 5 MB or smaller", "file_too_large");
+      if (uploadErr.code === "LIMIT_UNEXPECTED_FILE")
+        return err(res, 400, "Maximum 5 images allowed", "too_many_files");
+      if (uploadErr.code === "INVALID_TYPE")
+        return err(res, 400, uploadErr.message, "invalid_file_type");
+      return err(res, 400, "Upload failed", "upload_error");
+    }
+    if (!req.files || req.files.length === 0)
+      return err(res, 400, "No image files provided", "no_file");
+
+    // Check existing count
+    const existing = db
+      .prepare("SELECT COUNT(*) as count FROM product_images WHERE product_id = ?")
+      .get(req.params.id).count;
+
+    if (existing + req.files.length > 5)
+      return err(res, 400, `Cannot exceed 5 images. Currently have ${existing}.`, "too_many_files");
+
+    const maxOrder = db
+      .prepare("SELECT MAX(sort_order) as m FROM product_images WHERE product_id = ?")
+      .get(req.params.id).m ?? -1;
+
+    const insert = db.prepare(
+      "INSERT INTO product_images (product_id, url, sort_order) VALUES (?, ?, ?)"
+    );
+    const insertMany = db.transaction((files) => {
+      files.forEach((f, i) => {
+        insert.run(req.params.id, `/uploads/${f.filename}`, maxOrder + 1 + i);
+      });
+    });
+    insertMany(req.files);
+
+    const images = db
+      .prepare("SELECT * FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC")
+      .all(req.params.id);
+
+    // Keep product.image_url in sync with first image
+    if (images.length > 0) {
+      db.prepare("UPDATE products SET image_url = ? WHERE id = ?").run(images[0].url, req.params.id);
+    }
+
+    res.json({ success: true, data: images });
+  });
+});
+
+// DELETE /api/products/:id/images/:imgId - farmer only
+router.delete("/:id/images/:imgId", auth, (req, res) => {
+  if (req.user.role !== "farmer")
+    return err(res, 403, "Only farmers can delete images", "forbidden");
+
+  const product = db
+    .prepare("SELECT * FROM products WHERE id = ? AND farmer_id = ?")
+    .get(req.params.id, req.user.id);
+  if (!product) return err(res, 404, "Product not found or not yours", "not_found");
+
+  const image = db
+    .prepare("SELECT * FROM product_images WHERE id = ? AND product_id = ?")
+    .get(req.params.imgId, req.params.id);
+  if (!image) return err(res, 404, "Image not found", "not_found");
+
+  db.prepare("DELETE FROM product_images WHERE id = ?").run(req.params.imgId);
+
+  // Try to delete file from disk
+  const fs = require("fs");
+  const filePath = require("path").join(__dirname, "../../uploads", require("path").basename(image.url));
+  try { fs.unlinkSync(filePath); } catch {}
+
+  // Sync product.image_url to new first image
+  const first = db
+    .prepare("SELECT url FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC LIMIT 1")
+    .get(req.params.id);
+  db.prepare("UPDATE products SET image_url = ? WHERE id = ?").run(first?.url ?? null, req.params.id);
+
+  res.json({ success: true, message: "Image deleted" });
+});
+
+// PATCH /api/products/:id/images/reorder - update sort_order for all images
+router.patch("/:id/images/reorder", auth, (req, res) => {
+  if (req.user.role !== "farmer")
+    return err(res, 403, "Only farmers can reorder images", "forbidden");
+
+  const product = db
+    .prepare("SELECT * FROM products WHERE id = ? AND farmer_id = ?")
+    .get(req.params.id, req.user.id);
+  if (!product) return err(res, 404, "Product not found or not yours", "not_found");
+
+  // Expect body: { order: [{ id, sort_order }, ...] }
+  const { order } = req.body;
+  if (!Array.isArray(order)) return err(res, 400, "order must be an array", "validation_error");
+
+  const update = db.prepare("UPDATE product_images SET sort_order = ? WHERE id = ? AND product_id = ?");
+  const reorder = db.transaction((items) => {
+    items.forEach(({ id, sort_order }) => update.run(sort_order, id, req.params.id));
+  });
+  reorder(order);
+
+  // Sync product.image_url to new first image
+  const first = db
+    .prepare("SELECT url FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC LIMIT 1")
+    .get(req.params.id);
+  if (first) db.prepare("UPDATE products SET image_url = ? WHERE id = ?").run(first.url, req.params.id);
+
+  const images = db
+    .prepare("SELECT * FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC")
+    .all(req.params.id);
+  res.json({ success: true, data: images });
+});
+
 module.exports = router;

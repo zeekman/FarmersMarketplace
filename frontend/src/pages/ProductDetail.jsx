@@ -29,6 +29,13 @@ const s = {
   label:      { fontSize: 13, color: '#555', marginBottom: 6, display: 'block' },
   empty:      { color: '#aaa', fontSize: 14, textAlign: 'center', padding: '24px 0' },
   select:     { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 12 },
+  // gallery
+  galleryMain:   { width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 10, marginBottom: 10, display: 'block' },
+  thumbRow:      { display: 'flex', gap: 8, marginBottom: 16, overflowX: 'auto' },
+  thumb:         { width: 64, height: 64, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', border: '2px solid transparent', flexShrink: 0 },
+  thumbActive:   { border: '2px solid #2d6a4f' },
+  galleryNav:    { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  navBtn:        { background: 'rgba(0,0,0,0.35)', color: '#fff', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' },
 };
 
 export default function ProductDetail() {
@@ -58,6 +65,8 @@ export default function ProductDetail() {
 
   // Review form state
   const [paidOrders, setPaidOrders] = useState([]);
+  const [images, setImages] = useState([]);
+  const [activeImg, setActiveImg] = useState(0);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [reviewOrderId, setReviewOrderId] = useState('');
@@ -77,6 +86,11 @@ export default function ProductDetail() {
       .then(res => setProduct(res.data ?? res))
       .catch(() => navigate('/marketplace'));
     loadReviews();
+    api.getProductImages(id).then(res => {
+      const imgs = res.data ?? [];
+      setImages(imgs);
+      if (imgs.length > 0) setActiveImg(0);
+    }).catch(() => {});
   }, [id, loadReviews, navigate]);
 
   // Load buyer's addresses
@@ -251,10 +265,41 @@ export default function ProductDetail() {
     <div style={s.page}>
       {/* Product card */}
       <div style={s.card}>
-        {product.image_url
-          ? <img src={product.image_url} alt={product.name} style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 10, marginBottom: 16 }} />
-          : <div style={{ fontSize: 48, marginBottom: 12 }}>🥬</div>
-        }
+        {/* Image gallery */}
+        {images.length > 0 ? (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ position: 'relative' }}>
+              <img
+                src={images[activeImg].url}
+                alt={`${product.name} photo ${activeImg + 1}`}
+                style={s.galleryMain}
+              />
+              {images.length > 1 && (
+                <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: '100%', display: 'flex', justifyContent: 'space-between', padding: '0 8px', boxSizing: 'border-box', pointerEvents: 'none' }}>
+                  <button style={{ ...s.navBtn, pointerEvents: 'all' }} onClick={() => setActiveImg(i => (i - 1 + images.length) % images.length)} aria-label="Previous image">‹</button>
+                  <button style={{ ...s.navBtn, pointerEvents: 'all' }} onClick={() => setActiveImg(i => (i + 1) % images.length)} aria-label="Next image">›</button>
+                </div>
+              )}
+            </div>
+            {images.length > 1 && (
+              <div style={s.thumbRow}>
+                {images.map((img, i) => (
+                  <img
+                    key={img.id}
+                    src={img.url}
+                    alt={`Thumbnail ${i + 1}`}
+                    style={{ ...s.thumb, ...(i === activeImg ? s.thumbActive : {}) }}
+                    onClick={() => setActiveImg(i)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : product.image_url ? (
+          <img src={product.image_url} alt={product.name} style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 10, marginBottom: 16 }} />
+        ) : (
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🥬</div>
+        )}
         <div style={s.name}>{product.name}</div>
         <div style={s.farmer}>
           Sold by{' '}
