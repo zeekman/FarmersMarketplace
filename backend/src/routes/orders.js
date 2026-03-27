@@ -3,6 +3,7 @@ const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { sendPayment, getBalance } = require('../utils/stellar');
+const { sendOrderEmails, sendLowStockAlert, sendStatusUpdateEmail } = require('../utils/mailer');
 const { sendPayment, getBalance, createClaimableBalance, claimBalance } = require('../utils/stellar');
 const { sendOrderEmails, sendStatusUpdateEmail, sendLowStockAlert } = require('../utils/mailer');
 const { err } = require('../middleware/error');
@@ -119,12 +120,11 @@ router.post('/', auth, validate.order, async (req, res) => {
 
     // Low-stock check — send alert once per threshold crossing
     const updated = db.prepare('SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = ?').get(product_id);
-    if (updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
+    if (updated && updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
       db.prepare('UPDATE products SET low_stock_alerted = 1 WHERE id = ?').run(product_id);
       sendLowStockAlert({ product: { ...product, quantity: updated.quantity }, farmer })
         .catch(e => console.error('Low-stock alert failed:', e.message));
     }
-    // Reset alert flag if stock was replenished above threshold (handled on edit)
 
     const responseData = { success: true, orderId, status: 'paid', txHash, totalPrice };
     cacheResponse(idempotencyKey, responseData);
@@ -139,7 +139,6 @@ router.post('/', auth, validate.order, async (req, res) => {
 });
 
 // GET /api/orders - buyer's order history
-// Query params: status (pending | paid | failed), page, limit
 router.get('/', auth, (req, res) => {
   const { status } = req.query;
   const VALID_STATUSES = ['pending', 'paid', 'failed'];
@@ -176,31 +175,7 @@ router.get('/', auth, (req, res) => {
   res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
 });
 
-// PATCH /api/orders/:id/status - farmer updates delivery status
-const FARMER_STATUSES = ['processing', 'shipped', 'delivered'];
-
-router.patch('/:id/status', auth, (req, res) => {
-  if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
-
-  const { status } = req.body;
-  if (!FARMER_STATUSES.includes(status))
-    return err(res, 400, `Status must be one of: ${FARMER_STATUSES.join(', ')}`, 'invalid_status');
-
-  // Verify the order belongs to this farmer's product
-  const order = db.prepare(`
-    SELECT o.* FROM orders o
-    JOIN products p ON o.product_id = p.id
-    WHERE o.id = ? AND p.farmer_id = ?
-  `).get(req.params.id, req.user.id);
-
-  if (!order) return err(res, 403, 'Order not found or not yours', 'forbidden');
-
-  db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, req.params.id);
-  res.json({ success: true, message: `Order status updated to ${status}` });
-});
-
 // GET /api/orders/sales - farmer's incoming orders
-// Query params: page, limit
 router.get('/sales', auth, (req, res) => {
   if (req.user.role !== 'farmer')
     return err(res, 403, 'Farmers only', 'forbidden');

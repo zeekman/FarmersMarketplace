@@ -20,7 +20,7 @@ function validate(schema) {
         details,
       });
     }
-    req.body = result.data; // use coerced/parsed values
+    req.body = result.data;
     next();
   };
 }
@@ -78,6 +78,18 @@ const schemas = {
     status: z.enum(['processing', 'shipped', 'delivered'], {
       errorMap: () => ({ message: 'status must be one of: processing, shipped, delivered' }),
     }),
+  })),
+
+  farmerProfile: validate(z.object({
+    bio: z.string().max(500, 'bio must be 500 characters or fewer').optional(),
+    location: z.string().max(100, 'location must be 100 characters or fewer').optional(),
+    avatar_url: z.string().optional().nullable(),
+  })),
+
+  review: validate(z.object({
+    order_id: z.coerce.number().int().positive('order_id must be a positive integer'),
+    rating: z.coerce.number().int().min(1).max(5, 'rating must be an integer between 1 and 5'),
+    comment: z.string().max(1000, 'comment must be 1000 characters or fewer').optional(),
   })),
   register: [
     body('name').trim().notEmpty().withMessage('name is required'),

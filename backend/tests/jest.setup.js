@@ -26,6 +26,9 @@ jest.mock('../src/utils/stellar', () => ({
 
 // --- Mailer mock ---
 jest.mock('../src/utils/mailer', () => ({
+  sendOrderEmails:      jest.fn().mockResolvedValue({}),
+  sendLowStockAlert:    jest.fn().mockResolvedValue({}),
+  sendStatusUpdateEmail: jest.fn().mockResolvedValue({}),
   sendOrderEmails:       jest.fn().mockResolvedValue({}),
   sendLowStockAlert:     jest.fn().mockResolvedValue({}),
   sendStatusUpdateEmail: jest.fn().mockResolvedValue({}),

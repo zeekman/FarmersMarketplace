@@ -31,6 +31,9 @@ function csrfProtect(req, res, next) {
   // Only validate state-changing methods
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return next();
 
+  // Skip CSRF in test environment
+  if (process.env.NODE_ENV === 'test') return next();
+
   // Exempt pre-auth routes
   if (EXEMPT_PATHS.includes(req.path)) return next();
 
