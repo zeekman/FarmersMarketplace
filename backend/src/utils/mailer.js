@@ -48,4 +48,15 @@ async function sendLowStockAlert({ product, farmer }) {
   });
 }
 
+async function sendStatusUpdateEmail({ order, product, buyer, newStatus }) {
+  if (!process.env.SMTP_HOST) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: buyer.email,
+    subject: `Order #${order.id} Status Update – ${newStatus.toUpperCase()}`,
+    text: `Hi ${buyer.name},\n\nYour order status has been updated.\n\nOrder #${order.id}\nProduct: ${product.name}\nNew Status: ${newStatus}\n\nThank you for shopping at Farmers Marketplace!`,
+  });
+}
+
+module.exports = { sendOrderEmails, sendLowStockAlert, sendStatusUpdateEmail };
 module.exports = { sendOrderEmails, sendLowStockAlert };

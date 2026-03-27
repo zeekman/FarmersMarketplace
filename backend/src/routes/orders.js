@@ -3,6 +3,7 @@ const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { sendPayment, getBalance } = require('../utils/stellar');
+const { sendOrderEmails, sendStatusUpdateEmail } = require('../utils/mailer');
 const { sendOrderEmails, sendLowStockAlert } = require('../utils/mailer');
 const { err } = require('../middleware/error');
 
@@ -174,6 +175,38 @@ router.get('/sales', auth, (req, res) => {
   ).all(req.user.id, limit, offset);
 
   res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
+});
+
+// PATCH /api/orders/:id/status - farmer updates order status
+router.patch('/:id/status', auth, (req, res) => {
+  if (req.user.role !== 'farmer')
+    return err(res, 403, 'Farmers only', 'forbidden');
+
+  const VALID = ['processing', 'shipped', 'delivered'];
+  const { status } = req.body;
+  if (!status || !VALID.includes(status))
+    return err(res, 400, `status must be one of: ${VALID.join(', ')}`, 'validation_error');
+
+  const order = db.prepare(`
+    SELECT o.*, p.name as product_name, p.unit, u.name as buyer_name, u.email as buyer_email
+    FROM orders o
+    JOIN products p ON o.product_id = p.id
+    JOIN users u ON o.buyer_id = u.id
+    WHERE o.id = ? AND p.farmer_id = ?
+  `).get(req.params.id, req.user.id);
+
+  if (!order) return err(res, 404, 'Order not found or not yours', 'not_found');
+
+  db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, order.id);
+
+  sendStatusUpdateEmail({
+    order,
+    product: { name: order.product_name, unit: order.unit },
+    buyer: { name: order.buyer_name, email: order.buyer_email },
+    newStatus: status,
+  }).catch(e => console.error('Status email failed:', e.message));
+
+  res.json({ success: true, message: 'Order status updated' });
 });
 
 module.exports = router;

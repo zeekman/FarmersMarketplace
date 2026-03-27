@@ -12,7 +12,9 @@
     "testMatch": [
       "**/tests/**/*.test.js"
     ],
-    "setupFilesAfterEnv": ["<rootDir>/tests/jest.setup.js"]
+    "setupFilesAfterEnv": [
+      "<rootDir>/tests/jest.setup.js"
+    ]
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.1.0",
@@ -26,7 +28,8 @@
     "express-validator": "^7.3.1",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
-    "nodemailer": "^8.0.3"
+    "nodemailer": "^8.0.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "jest": "^30.3.0",

@@ -42,6 +42,7 @@ router.get('/farmer', auth, (req, res) => {
 
   res.json({
     success: true,
+    data: { total_revenue: totals.total_revenue, order_count: totals.order_count, top_products: topProducts, monthly },
     data: {
       total_revenue: totals.total_revenue,
       order_count: totals.order_count,

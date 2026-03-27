@@ -75,6 +75,15 @@ async function request(path, options = {}, retry = true) {
     throw new Error(data.error || 'Session expired');
   }
 
+  // Rate limited — surface a friendly message
+  if (res.status === 429) {
+    const retryAfter = res.headers.get('Retry-After');
+    const msg = retryAfter
+      ? `Too many requests. Please wait ${retryAfter} seconds and try again.`
+      : 'Too many requests. Please slow down and try again shortly.';
+    throw Object.assign(new Error(msg), { code: 'rate_limited', status: 429 });
+  }
+
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || data.error || 'Request failed');
   return data;
@@ -112,6 +121,15 @@ export const api = {
   getWallet: () => request('/wallet'),
   getTransactions: () => request('/wallet/transactions'),
   fundWallet: () => request('/wallet/fund', { method: 'POST' }),
+  getAnalytics: () => request('/analytics/farmer'),
+  updateProduct: (id, body) => request(`/products/${id}`, { method: 'PATCH', body }),
+  updateOrderStatus: (id, status) => request(`/orders/${id}/status`, { method: 'PATCH', body: { status } }),
+
+  // Admin
+  adminGetUsers: (page = 1) => request(`/admin/users?page=${page}`),
+  adminDeactivateUser: (id) => request(`/admin/users/${id}`, { method: 'DELETE' }),
+  adminGetStats: () => request('/admin/stats'),
+
 };
 const BASE = '/api';
 
