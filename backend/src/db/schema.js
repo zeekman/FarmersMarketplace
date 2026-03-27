@@ -126,6 +126,9 @@ try {
     db.exec(`ALTER TABLE orders_new RENAME TO orders`);
   } else {
     db.exec(`DROP TABLE orders_new`);
+  }
+} catch {}
+
 // SQLite doesn't support ALTER COLUMN, so we use a safe workaround via a new table
 try {
   const info = db.prepare(`PRAGMA table_info(orders)`).all();
@@ -187,6 +190,18 @@ try {
   `);
 } catch {}
 
+// Idempotency keys table
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS idempotency_keys (
+      key        TEXT PRIMARY KEY,
+      response   TEXT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+} catch (err) {
+  console.error('[DB] Failed to create idempotency_keys table:', err.message);
 // stock_alerts table
 try {
   db.exec(`

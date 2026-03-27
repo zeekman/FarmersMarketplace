@@ -2,14 +2,23 @@ const router = require('express').Router();
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
+const { sendPayment, getBalance } = require('../utils/stellar');
 const { sendPayment, getBalance, createClaimableBalance, claimBalance } = require('../utils/stellar');
 const { sendOrderEmails, sendStatusUpdateEmail, sendLowStockAlert } = require('../utils/mailer');
 const { err } = require('../middleware/error');
+const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
 
 // POST /api/orders - buyer places + pays for an order
 router.post('/', auth, validate.order, async (req, res) => {
   if (req.user.role !== 'buyer')
     return err(res, 403, 'Only buyers can place orders', 'forbidden');
+
+  const idempotencyKey = req.headers['x-idempotency-key'];
+  const cached = getCachedResponse(idempotencyKey);
+  if (cached) {
+    console.log(`[Idempotency] Returning cached response for key: ${idempotencyKey}`);
+    return res.status(cached.success ? 200 : (cached.code === 'payment_failed' ? 402 : 400)).json(cached);
+  }
 
   const { product_id } = req.body;
   const quantity = parseInt(req.body.quantity, 10);
@@ -107,11 +116,15 @@ router.post('/', auth, validate.order, async (req, res) => {
     }
     // Reset alert flag if stock was replenished above threshold (handled on edit)
 
-    res.json({ success: true, orderId, status: 'paid', txHash, totalPrice });
+    const responseData = { success: true, orderId, status: 'paid', txHash, totalPrice };
+    cacheResponse(idempotencyKey, responseData);
+    res.json(responseData);
   } catch (e) {
     db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?').run(quantity, product_id);
     db.prepare('UPDATE orders SET status = ? WHERE id = ?').run('failed', orderId);
-    res.status(402).json({ success: false, message: 'Payment failed: ' + e.message, code: 'payment_failed', orderId });
+    const errorData = { success: false, message: 'Payment failed: ' + e.message, code: 'payment_failed', orderId };
+    cacheResponse(idempotencyKey, errorData);
+    res.status(402).json(errorData);
   }
 });
 
