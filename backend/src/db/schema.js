@@ -68,6 +68,28 @@ try { db.exec(`ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'other'`); 
 try { db.exec(`ALTER TABLE products ADD COLUMN image_url TEXT`); } catch {}
 
 // Migrate orders: recreate with extended status CHECK if needed
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS orders_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      buyer_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      quantity INTEGER NOT NULL,
+      total_price REAL NOT NULL,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'paid', 'processing', 'shipped', 'delivered', 'failed')),
+      stellar_tx_hash TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (buyer_id) REFERENCES users(id),
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    );
+  `);
+  const count = db.prepare(`SELECT COUNT(*) as c FROM orders_new`).get().c;
+  if (count === 0) {
+    db.exec(`INSERT INTO orders_new SELECT * FROM orders`);
+    db.exec(`DROP TABLE orders`);
+    db.exec(`ALTER TABLE orders_new RENAME TO orders`);
+  } else {
+    db.exec(`DROP TABLE orders_new`);
 // SQLite doesn't support ALTER COLUMN, so we use a safe workaround via a new table
 try {
   const info = db.prepare(`PRAGMA table_info(orders)`).all();
