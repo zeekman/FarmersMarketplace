@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 
@@ -12,7 +12,6 @@ const s = {
   input: { padding: '9px 14px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 },
   select: { padding: '9px 14px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, background: '#fff' },
   priceRow: { display: 'flex', gap: 6, alignItems: 'center' },
-  priceInput: { padding: '9px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, width: 90 },
   resetBtn: { padding: '9px 14px', borderRadius: 8, border: '1px solid #ddd', background: '#f5f5f5', cursor: 'pointer', fontSize: 13 },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 20 },
   card: { background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 8px #0001', cursor: 'pointer', transition: 'transform 0.1s', border: '2px solid transparent' },
@@ -33,18 +32,26 @@ export default function Marketplace() {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const searchDebounce = useRef(null);
 
   const load = useCallback(async (f) => {
     setLoading(true);
     try {
-      const params = {};
-      if (f.category)  params.category = f.category;
-      if (f.minPrice)  params.minPrice = f.minPrice;
-      if (f.maxPrice && f.maxPrice < MAX_PRICE) params.maxPrice = f.maxPrice;
-      if (f.seller)    params.seller = f.seller;
-      if (f.available) params.available = f.available;
-      const res = await api.getProducts(params);
-      setProducts(res.data ?? res);
+      let data;
+      if (f.search && f.search.trim()) {
+        const res = await api.searchProducts(f.search.trim());
+        data = res.data ?? res;
+      } else {
+        const params = {};
+        if (f.category)  params.category = f.category;
+        if (f.minPrice)  params.minPrice = f.minPrice;
+        if (f.maxPrice && f.maxPrice < MAX_PRICE) params.maxPrice = f.maxPrice;
+        if (f.seller)    params.seller = f.seller;
+        if (f.available) params.available = f.available;
+        const res = await api.getProducts(params);
+        data = res.data ?? res;
+      }
+      setProducts(data);
     } catch {}
     setLoading(false);
   }, []);
@@ -52,7 +59,12 @@ export default function Marketplace() {
   useEffect(() => { load(filters); }, []); // initial load
 
   function set(key, val) {
-    setFilters(prev => ({ ...prev, [key]: val }));
+    const next = { ...filters, [key]: val };
+    setFilters(next);
+    if (key === 'search') {
+      clearTimeout(searchDebounce.current);
+      searchDebounce.current = setTimeout(() => load(next), 300);
+    }
   }
 
   function applyFilters() { load(filters); }
@@ -61,14 +73,6 @@ export default function Marketplace() {
     setFilters(EMPTY_FILTERS);
     load(EMPTY_FILTERS);
   }
-
-  // client-side text search on top of server results
-  const visible = filters.search
-    ? products.filter(p =>
-        p.name.toLowerCase().includes(filters.search.toLowerCase()) ||
-        (p.farmer_name || '').toLowerCase().includes(filters.search.toLowerCase())
-      )
-    : products;
 
   return (
     <div style={s.page}>
@@ -124,11 +128,11 @@ export default function Marketplace() {
 
       {loading ? (
         <div style={s.empty}>Loading...</div>
-      ) : visible.length === 0 ? (
+      ) : products.length === 0 ? (
         <div style={s.empty}>No products found.</div>
       ) : (
         <div style={s.grid}>
-          {visible.map(p => (
+          {products.map(p => (
             <div key={p.id} style={s.card} onClick={() => navigate(`/product/${p.id}`)}
               onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
               onMouseLeave={e => e.currentTarget.style.transform = ''}>

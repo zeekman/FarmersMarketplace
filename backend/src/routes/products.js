@@ -53,6 +53,38 @@ router.get('/', (req, res) => {
   res.json({ success: true, data: products, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } });
 });
 
+// GET /api/products/search?q=tomato - FTS5 full-text search
+router.get('/search', (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) {
+    // Empty query returns all products
+    const products = db.prepare(
+      `SELECT p.*, u.name as farmer_name FROM products p JOIN users u ON p.farmer_id = u.id ORDER BY p.created_at DESC LIMIT 100`
+    ).all();
+    return res.json({ success: true, data: products });
+  }
+  try {
+    const products = db.prepare(`
+      SELECT p.*, u.name as farmer_name, fts.rank
+      FROM products_fts fts
+      JOIN products p ON p.id = fts.rowid
+      JOIN users u ON p.farmer_id = u.id
+      WHERE products_fts MATCH ?
+      ORDER BY fts.rank
+      LIMIT 100
+    `).all(q);
+    res.json({ success: true, data: products });
+  } catch {
+    // Fallback to LIKE search if FTS fails (e.g. special chars)
+    const like = `%${q}%`;
+    const products = db.prepare(
+      `SELECT p.*, u.name as farmer_name FROM products p JOIN users u ON p.farmer_id = u.id
+       WHERE p.name LIKE ? OR p.description LIKE ? ORDER BY p.created_at DESC LIMIT 100`
+    ).all(like, like);
+    res.json({ success: true, data: products });
+  }
+});
+
 // GET /api/products/categories
 router.get('/categories', (_req, res) => {
   const rows = db.prepare(`SELECT DISTINCT category FROM products WHERE category IS NOT NULL ORDER BY category`).all();
