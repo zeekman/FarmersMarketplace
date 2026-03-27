@@ -22,20 +22,48 @@ process.env.RATE_LIMIT_ORDER_MAX   = '10000';
 
 // --- DB mock ---
 // Each test file can override these via jest.spyOn or by reassigning mockDb.*
-const mockRun  = jest.fn().mockReturnValue({ lastInsertRowid: 1, changes: 1 });
-const mockGet  = jest.fn();
-const mockAll  = jest.fn().mockReturnValue([]);
+const mockRun = jest.fn().mockReturnValue({ lastInsertRowid: 1, changes: 1 });
+const mockGet = jest.fn();
+const mockAll = jest.fn().mockReturnValue([]);
 const mockExec = jest.fn();
-const mockTransaction = jest.fn((fn) => (...args) => fn(...args));
-const mockPrepare     = jest.fn(() => ({ get: mockGet, all: mockAll, run: mockRun }));
+const mockTransaction = jest.fn(
+  (fn) =>
+    (...args) =>
+      fn(...args),
+);
+const mockPrepare = jest.fn(() => ({
+  get: mockGet,
+  all: mockAll,
+  run: mockRun,
+}));
 
 // Wire the handles into the already-registered mock module.
-const mockDb = jest.requireMock('../src/db/schema');
-mockDb.prepare     = mockPrepare;
-mockDb.exec        = mockExec;
+const mockDb = jest.requireMock("../src/db/schema");
+mockDb.prepare = mockPrepare;
+mockDb.exec = mockExec;
 mockDb.transaction = mockTransaction;
 
-const request = require('supertest');
-const app     = require('../src/app');
+const request = require("supertest");
+const app = require("../src/app");
 
-module.exports = { request, app, mockDb, mockRun, mockGet, mockAll, mockExec, mockPrepare, mockTransaction };
+// Helper: fetch a real CSRF token from the app
+async function getCsrf() {
+  const res = await request(app).get("/api/csrf-token");
+  const setCookie = res.headers["set-cookie"] || [];
+  const cookieStr = setCookie.find((c) => c.startsWith("csrf_token=")) || "";
+  const token = cookieStr.split(";")[0].split("=")[1];
+  return { token, cookieStr };
+}
+
+module.exports = {
+  request,
+  app,
+  mockDb,
+  mockRun,
+  mockGet,
+  mockAll,
+  mockExec,
+  mockPrepare,
+  mockTransaction,
+  getCsrf,
+};

@@ -1,15 +1,14 @@
-const router = require('express').Router();
-const rateLimit = require('express-rate-limit');
+const router = require("express").Router();
+const rateLimit = require("express-rate-limit");
 
-const authMax    = parseInt(process.env.RATE_LIMIT_AUTH_MAX    || '10');
-const generalMax = parseInt(process.env.RATE_LIMIT_GENERAL_MAX || '100');
+const authMax = parseInt(process.env.RATE_LIMIT_AUTH_MAX || "10");
+const generalMax = parseInt(process.env.RATE_LIMIT_GENERAL_MAX || "100");
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: authMax,
   standardHeaders: true, legacyHeaders: false,
   message: { success: false, error: 'Too many attempts, try again later', code: 'rate_limited' },
 });
-
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000, max: generalMax,
   standardHeaders: true, legacyHeaders: false,
@@ -26,15 +25,17 @@ const orderLimiter = rateLimit({
   max: orderMax,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { success: false, error: 'Too many orders, slow down', code: 'rate_limited' },
+  message: {
+    success: false,
+    error: "Too many orders, slow down",
+    code: "rate_limited",
+  },
 });
-
 const fundLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, max: 5,
   standardHeaders: true, legacyHeaders: false,
   message: { success: false, error: 'Funding limit reached, try again in an hour', code: 'rate_limited' },
 });
-
 const sendLimiter = rateLimit({
   windowMs: 60 * 1000, max: 5,
   standardHeaders: true, legacyHeaders: false,

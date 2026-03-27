@@ -10,9 +10,9 @@ const { err } = require('../middleware/error');
 const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
 
 // POST /api/orders - buyer places + pays for an order
-router.post('/', auth, validate.order, async (req, res) => {
-  if (req.user.role !== 'buyer')
-    return err(res, 403, 'Only buyers can place orders', 'forbidden');
+router.post("/", auth, validate.order, async (req, res) => {
+  if (req.user.role !== "buyer")
+    return err(res, 403, "Only buyers can place orders", "forbidden");
 
   const { product_id, address_id } = req.body;
   const idempotencyKey = req.headers['x-idempotency-key'];
@@ -37,10 +37,13 @@ router.post('/', auth, validate.order, async (req, res) => {
     SELECT p.*, u.stellar_public_key as farmer_wallet
     FROM products p JOIN users u ON p.farmer_id = u.id
     WHERE p.id = ?
-  `).get(product_id);
+  `,
+    )
+    .get(product_id);
 
-  if (!product) return err(res, 404, 'Product not found', 'not_found');
+  if (!product) return err(res, 404, "Product not found", "not_found");
 
+  const buyer = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
   const buyer = db.prepare('SELECT id, name, email, stellar_public_key, stellar_secret_key FROM users WHERE id = ?').get(req.user.id);
   const totalPrice = product.price * quantity;
 
@@ -49,8 +52,8 @@ router.post('/', auth, validate.order, async (req, res) => {
   if (balance < required)
     return res.status(402).json({
       success: false,
-      message: 'Insufficient XLM balance',
-      code: 'insufficient_balance',
+      message: "Insufficient XLM balance",
+      code: "insufficient_balance",
       required: required.toFixed(7),
       available: balance.toFixed(7),
     });
@@ -63,7 +66,7 @@ router.post('/', auth, validate.order, async (req, res) => {
       'UPDATE products SET quantity = quantity - ? WHERE id = ? AND quantity >= ?'
     ).run(qty, productId, qty);
 
-    if (deducted.changes === 0) throw new Error('Insufficient stock');
+    if (deducted.changes === 0) throw new Error("Insufficient stock");
 
     const order = db.prepare(
       'INSERT INTO orders (buyer_id, product_id, quantity, total_price, status, address_id) VALUES (?, ?, ?, ?, ?, ?)'
@@ -76,7 +79,7 @@ router.post('/', auth, validate.order, async (req, res) => {
   try {
     orderId = reserveStock(req.user.id, product_id, quantity, totalPrice);
   } catch (e) {
-    return err(res, 400, e.message, 'insufficient_stock');
+    return err(res, 400, e.message, "insufficient_stock");
   }
 
   try {
@@ -87,6 +90,9 @@ router.post('/', auth, validate.order, async (req, res) => {
       memo: `Order#${orderId}`,
     });
 
+    db.prepare(
+      "UPDATE orders SET status = ?, stellar_tx_hash = ? WHERE id = ?",
+    ).run("paid", txHash, orderId);
     // Transaction boundary: Update order status to 'paid' and save txHash
     // This ensures order status and txHash are updated atomically
     const markOrderPaid = db.transaction(() => {
@@ -120,9 +126,16 @@ router.post('/', auth, validate.order, async (req, res) => {
 
     const farmer = db.prepare('SELECT * FROM users WHERE id = ?').get(product.farmer_id);
     sendOrderEmails({
-      order: { id: orderId, quantity, total_price: totalPrice, stellar_tx_hash: txHash },
-      product, buyer, farmer,
-    }).catch(e => console.error('Email notification failed:', e.message));
+      order: {
+        id: orderId,
+        quantity,
+        total_price: totalPrice,
+        stellar_tx_hash: txHash,
+      },
+      product,
+      buyer,
+      farmer,
+    }).catch((e) => console.error("Email notification failed:", e.message));
 
     // Low-stock check — send alert once per threshold crossing
     const updated = db.prepare('SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = ?').get(product_id);
@@ -166,24 +179,24 @@ router.post('/', auth, validate.order, async (req, res) => {
 // GET /api/orders - buyer's order history
 router.get('/', auth, (req, res) => {
   const { status } = req.query;
-  const VALID_STATUSES = ['pending', 'paid', 'failed'];
-  const page   = Math.max(1, parseInt(req.query.page)  || 1);
-  const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+  const VALID_STATUSES = ["pending", "paid", "failed"];
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
   const offset = (page - 1) * limit;
 
-  const conditions = ['o.buyer_id = ?'];
+  const conditions = ["o.buyer_id = ?"];
   const params = [req.user.id];
 
   if (status && VALID_STATUSES.includes(status)) {
-    conditions.push('o.status = ?');
+    conditions.push("o.status = ?");
     params.push(status);
   }
 
-  const where = `WHERE ${conditions.join(' AND ')}`;
+  const where = `WHERE ${conditions.join(" AND ")}`;
 
-  const total = db.prepare(
-    `SELECT COUNT(*) as count FROM orders o ${where}`
-  ).get(...params).count;
+  const total = db
+    .prepare(`SELECT COUNT(*) as count FROM orders o ${where}`)
+    .get(...params).count;
 
   const data = db.prepare(
     `SELECT o.*, p.name as product_name, p.unit, u.name as farmer_name,
@@ -205,13 +218,15 @@ router.get('/sales', auth, (req, res) => {
   if (req.user.role !== 'farmer')
     return err(res, 403, 'Farmers only', 'forbidden');
 
-  const page   = Math.max(1, parseInt(req.query.page)  || 1);
-  const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
   const offset = (page - 1) * limit;
 
-  const total = db.prepare(
-    `SELECT COUNT(*) as count FROM orders o JOIN products p ON o.product_id = p.id WHERE p.farmer_id = ?`
-  ).get(req.user.id).count;
+  const total = db
+    .prepare(
+      `SELECT COUNT(*) as count FROM orders o JOIN products p ON o.product_id = p.id WHERE p.farmer_id = ?`,
+    )
+    .get(req.user.id).count;
 
   const data = db.prepare(
     `SELECT o.*, p.name as product_name, u.name as buyer_name,
@@ -222,42 +237,59 @@ router.get('/sales', auth, (req, res) => {
      JOIN users u ON o.buyer_id = u.id
      LEFT JOIN addresses a ON o.address_id = a.id
      WHERE p.farmer_id = ?
-     ORDER BY o.created_at DESC LIMIT ? OFFSET ?`
-  ).all(req.user.id, limit, offset);
+     ORDER BY o.created_at DESC LIMIT ? OFFSET ?`,
+    )
+    .all(req.user.id, limit, offset);
 
-  res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
+  res.json({
+    success: true,
+    data,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  });
 });
 
 // PATCH /api/orders/:id/status - farmer updates order status
-router.patch('/:id/status', auth, (req, res) => {
-  if (req.user.role !== 'farmer')
-    return err(res, 403, 'Farmers only', 'forbidden');
+router.patch("/:id/status", auth, (req, res) => {
+  if (req.user.role !== "farmer")
+    return err(res, 403, "Farmers only", "forbidden");
 
-  const VALID = ['processing', 'shipped', 'delivered'];
+  const VALID = ["processing", "shipped", "delivered"];
   const { status } = req.body;
   if (!status || !VALID.includes(status))
-    return err(res, 400, `status must be one of: ${VALID.join(', ')}`, 'validation_error');
+    return err(
+      res,
+      400,
+      `status must be one of: ${VALID.join(", ")}`,
+      "validation_error",
+    );
 
-  const order = db.prepare(`
+  const order = db
+    .prepare(
+      `
     SELECT o.*, p.name as product_name, p.unit, u.name as buyer_name, u.email as buyer_email
     FROM orders o
     JOIN products p ON o.product_id = p.id
     JOIN users u ON o.buyer_id = u.id
     WHERE o.id = ? AND p.farmer_id = ?
-  `).get(req.params.id, req.user.id);
+  `,
+    )
+    .get(req.params.id, req.user.id);
 
-  if (!order) return err(res, 404, 'Order not found or not yours', 'not_found');
+  if (!order) return err(res, 404, "Order not found or not yours", "not_found");
 
-  db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, order.id);
+  db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, order.id);
 
   sendStatusUpdateEmail({
     order,
     product: { name: order.product_name, unit: order.unit },
     buyer: { name: order.buyer_name, email: order.buyer_email },
     newStatus: status,
-  }).catch(e => console.error('Status email failed:', e.message));
+  }).catch((e) => console.error("Status email failed:", e.message));
 
-  res.json({ success: true, message: 'Order status updated' });
+  res.json({ success: true, message: "Order status updated" });
 });
 
 // POST /api/orders/:id/escrow — buyer funds escrow (claimable balance)

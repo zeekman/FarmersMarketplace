@@ -7,9 +7,9 @@
  */
 
 // --- DB mock ---
-jest.mock('../src/db/schema', () => ({
-  prepare:     jest.fn(),
-  exec:        jest.fn(),
+jest.mock("../src/db/schema", () => ({
+  prepare: jest.fn(),
+  exec: jest.fn(),
   transaction: jest.fn(),
 }));
 
