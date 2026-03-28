@@ -247,6 +247,39 @@ router.post('/send', auth, validate.sendXLM, async (req, res) => {
   }
 });
 
+// GET /api/wallet/assets — list buyer's non-native (custom asset) balances
+router.get('/assets', auth, async (req, res) => {
+  const { rows } = await db.query('SELECT stellar_public_key FROM users WHERE id = $1', [req.user.id]);
+  const balances = await getAllBalances(rows[0].stellar_public_key);
+  const assets = balances.filter(b => b.asset_type !== 'native');
+  res.json({ success: true, data: assets });
+});
+
+// GET /api/wallet/path-estimate?source_code=USDC&source_issuer=G...&dest_amount=10
+// Returns estimated source amount needed to deliver dest_amount XLM
+router.get('/path-estimate', auth, async (req, res) => {
+  const { source_code, source_issuer, dest_amount } = req.query;
+  if (!source_code || !source_issuer || !dest_amount)
+    return err(res, 400, 'source_code, source_issuer, and dest_amount are required', 'validation_error');
+  const destAmt = parseFloat(dest_amount);
+  if (isNaN(destAmt) || destAmt <= 0)
+    return err(res, 400, 'dest_amount must be a positive number', 'validation_error');
+
+  const { rows } = await db.query('SELECT stellar_public_key FROM users WHERE id = $1', [req.user.id]);
+  try {
+    const estimate = await stellar.getPathPaymentEstimate({
+      sourceAssetCode: source_code,
+      sourceAssetIssuer: source_issuer,
+      destPublicKey: rows[0].stellar_public_key,
+      destAmount: destAmt,
+    });
+    res.json({ success: true, sourceAmount: estimate.sourceAmount, sourceCode: source_code });
+  } catch (e) {
+    if (e.code === 'no_path') return err(res, 404, e.message, 'no_path');
+    err(res, 502, e.message, 'estimate_failed');
+  }
+});
+
 // POST /api/wallet/trustline — add a trustline for a custom asset
 router.post('/trustline', auth, async (req, res) => {
   const { asset_code, asset_issuer } = req.body;

@@ -425,6 +425,71 @@ function getPlatformFeeInfo(amount) {
   return { feePercent, feeAmount, farmerAmount, platformWallet };
 }
 
+/**
+ * Find the best path and return the estimated source amount needed.
+ * Uses Horizon's /paths/strict-send to find available paths.
+ */
+async function getPathPaymentEstimate({ sourceAssetCode, sourceAssetIssuer, destPublicKey, destAmount }) {
+  const sourceAsset = sourceAssetCode === 'XLM'
+    ? StellarSdk.Asset.native()
+    : new StellarSdk.Asset(sourceAssetCode, sourceAssetIssuer);
+
+  const destAsset = StellarSdk.Asset.native();
+
+  // Use strict-receive: find cheapest source amount to deliver destAmount XLM
+  const paths = await server
+    .strictReceivePaths(sourceAsset, destAsset, String(parseFloat(destAmount).toFixed(7)))
+    .call();
+
+  if (!paths.records || paths.records.length === 0) {
+    const e = new Error(`No payment path found from ${sourceAssetCode} to XLM`);
+    e.code = 'no_path';
+    throw e;
+  }
+
+  const best = paths.records[0];
+  return {
+    sourceAmount: parseFloat(best.source_amount),
+    path: best.path,
+  };
+}
+
+/**
+ * PathPaymentStrictReceive: buyer pays in sourceAsset, farmer receives exactly destAmount XLM.
+ * sendMax is the maximum source asset the buyer is willing to spend (slippage guard).
+ */
+async function pathPayment({ senderSecret, sourceAssetCode, sourceAssetIssuer, sendMax, receiverPublicKey, destAmount, memo }) {
+  const keypair = StellarSdk.Keypair.fromSecret(senderSecret);
+  const account = await server.loadAccount(keypair.publicKey());
+
+  const sourceAsset = sourceAssetCode === 'XLM'
+    ? StellarSdk.Asset.native()
+    : new StellarSdk.Asset(sourceAssetCode, sourceAssetIssuer);
+
+  const destAsset = StellarSdk.Asset.native();
+
+  const tx = new StellarSdk.TransactionBuilder(account, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(
+      StellarSdk.Operation.pathPaymentStrictReceive({
+        sendAsset: sourceAsset,
+        sendMax: parseFloat(sendMax).toFixed(7),
+        destination: receiverPublicKey,
+        destAsset,
+        destAmount: parseFloat(destAmount).toFixed(7),
+      }),
+    )
+    .addMemo(StellarSdk.Memo.text(memo || 'FarmersMarket'))
+    .setTimeout(30)
+    .build();
+
+  tx.sign(keypair);
+  const result = await server.submitTransaction(tx);
+  return result.hash;
+}
+
 module.exports = {
   isTestnet,
   server,
@@ -435,6 +500,8 @@ module.exports = {
   getBalance,
   getAllBalances,
   sendPayment,
+  pathPayment,
+  getPathPaymentEstimate,
   getPlatformFeeInfo,
   getTransactions,
   addTrustline,

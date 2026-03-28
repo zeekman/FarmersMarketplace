@@ -45,7 +45,7 @@ router.post('/', auth, validate.order, async (req, res) => {
     return err(res, 403, 'Only buyers can place orders', 'forbidden');
   }
 
-const { sendPayment, getBalance, createClaimableBalance, claimBalance } = require('../utils/stellar');
+const { sendPayment, pathPayment, getPathPaymentEstimate, getBalance, createClaimableBalance, claimBalance } = require('../utils/stellar');
 const { sendOrderEmails, sendStatusUpdateEmail, sendLowStockAlert } = require('../utils/mailer');
 const { err } = require('../middleware/error');
 const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
@@ -191,6 +191,47 @@ router.post('/', auth, validate.order, async (req, res) => {
   if (balance < totalPrice + 0.00001)
     return res.status(402).json({ success: false, message: 'Insufficient XLM balance', code: 'insufficient_balance', required: (totalPrice + 0.00001).toFixed(7), available: balance.toFixed(7) });
 
+  // PostgreSQL: fetch product, buyer, compute total
+  const { rows: pRows } = await db.query(
+    `SELECT p.*, u.stellar_public_key as farmer_wallet FROM products p JOIN users u ON p.farmer_id = u.id WHERE p.id = $1`,
+    [product_id]
+  );
+  if (!pRows[0]) return err(res, 404, 'Product not found', 'not_found');
+  const product = pRows[0];
+
+  const { rows: bRows } = await db.query(
+    'SELECT id, name, email, stellar_public_key, stellar_secret_key, referred_by, referral_bonus_sent FROM users WHERE id = $1',
+    [req.user.id]
+  );
+  const buyer = bRows[0];
+
+  const subtotal = product.price * quantity;
+  let discount = 0;
+  let appliedCoupon = null;
+  if (coupon_code) {
+    const { rows: cRows } = await db.query(
+      `SELECT * FROM coupons WHERE code = $1 AND farmer_id = $2 AND (expires_at IS NULL OR expires_at > NOW()) AND (max_uses IS NULL OR used_count < max_uses)`,
+      [coupon_code.trim().toUpperCase(), product.farmer_id]
+    );
+    if (!cRows[0]) return err(res, 400, 'Invalid or expired coupon', 'invalid_coupon');
+    appliedCoupon = cRows[0];
+    discount = appliedCoupon.discount_type === 'percent'
+      ? parseFloat((subtotal * appliedCoupon.discount_value / 100).toFixed(7))
+      : Math.min(parseFloat(appliedCoupon.discount_value), subtotal);
+  }
+  const totalPrice = parseFloat((subtotal - discount).toFixed(7));
+
+  // Parse optional source asset for path payment
+  const sourceAsset = req.body.source_asset || null; // { code, issuer } or null for XLM
+  const usePathPayment = sourceAsset && sourceAsset.code && sourceAsset.code !== 'XLM';
+
+  // For XLM payments, check balance upfront
+  if (!usePathPayment) {
+    const balance = await getBalance(buyer.stellar_public_key);
+    if (balance < totalPrice + 0.00001)
+      return res.status(402).json({ success: false, message: 'Insufficient XLM balance', code: 'insufficient_balance', required: (totalPrice + 0.00001).toFixed(7), available: balance.toFixed(7) });
+  }
+
   // Atomic stock decrement
   const { rowCount } = await db.query(
     'UPDATE products SET quantity = quantity - $1 WHERE id = $2 AND quantity >= $1',
@@ -206,26 +247,26 @@ router.post('/', auth, validate.order, async (req, res) => {
 
   try {
     let txHash;
-    let balanceId = null;
 
-    if (product.is_preorder && product.preorder_delivery_date) {
-      const unlockAtUnix = parsePreorderUnlockUnix(product.preorder_delivery_date);
-      if (!unlockAtUnix) {
-        throw new Error('Invalid pre-order delivery date on product');
-      }
-
-      const hold = await createPreorderClaimableBalance({
-        senderSecret: buyer.stellar_secret_key,
-        farmerPublicKey: product.farmer_wallet,
-        amount: totalPrice,
-        unlockAtUnix,
+    if (usePathPayment) {
+      // Path payment: buyer pays in sourceAsset, farmer receives XLM
+      const estimate = await getPathPaymentEstimate({
+        sourceAssetCode: sourceAsset.code,
+        sourceAssetIssuer: sourceAsset.issuer,
+        destPublicKey: product.farmer_wallet,
+        destAmount: totalPrice,
       });
-      txHash = hold.txHash;
-      balanceId = hold.balanceId;
-
-      db.prepare(
-        'UPDATE orders SET status = ?, stellar_tx_hash = ?, escrow_balance_id = ?, escrow_status = ? WHERE id = ?'
-      ).run('paid', txHash, balanceId, 'funded', orderId);
+      // Add 1% slippage tolerance
+      const sendMax = (estimate.sourceAmount * 1.01).toFixed(7);
+      txHash = await pathPayment({
+        senderSecret: buyer.stellar_secret_key,
+        sourceAssetCode: sourceAsset.code,
+        sourceAssetIssuer: sourceAsset.issuer,
+        sendMax,
+        receiverPublicKey: product.farmer_wallet,
+        destAmount: totalPrice,
+        memo: `Order#${orderId}`,
+      });
     } else {
       txHash = await sendPayment({
         senderSecret: buyer.stellar_secret_key,
@@ -318,14 +359,6 @@ router.post('/', auth, validate.order, async (req, res) => {
       });
     }
 
-    const errorData = {
-      success: false,
-      message: 'Payment failed: ' + e.message,
-      code: 'payment_failed',
-      orderId,
-    };
-    if (idempotencyKey) cacheResponse(idempotencyKey, errorData);
-    return res.status(402).json(errorData);
     await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
 
     // Referral bonus
@@ -352,16 +385,21 @@ router.post('/', auth, validate.order, async (req, res) => {
         .catch(e => console.error('Low-stock alert failed:', e.message));
     }
 
-    const responseData = { success: true, orderId, status: 'paid', txHash, totalPrice };
-    await cacheResponse(idempotencyKey, responseData);
+    const responseData = {
+      success: true, orderId, status: 'paid', txHash, totalPrice,
+      sourceAsset: usePathPayment ? sourceAsset.code : 'XLM',
+    };
+    if (idempotencyKey) await cacheResponse(idempotencyKey, responseData);
     res.json(responseData);
   } catch (e) {
     await db.query('UPDATE orders SET status = $1 WHERE id = $2', ['failed', orderId]);
     await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [quantity, product_id]);
+    if (e.code === 'no_path')
+      return res.status(402).json({ success: false, message: e.message, code: 'no_path', orderId });
     if (e.code === 'account_not_found')
       return res.status(402).json({ success: false, message: 'Please fund your wallet before purchasing', code: 'unfunded_account', orderId });
     const errorData = { success: false, message: 'Payment failed: ' + e.message, code: 'payment_failed', orderId };
-    await cacheResponse(idempotencyKey, errorData);
+    if (idempotencyKey) await cacheResponse(idempotencyKey, errorData);
     res.status(402).json(errorData);
   }
 });
