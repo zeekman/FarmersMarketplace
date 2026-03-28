@@ -124,6 +124,11 @@ export const api = {
   purchaseBundle: (bundle_id) => request('/bundles/purchase', { method: 'POST', body: { bundle_id } }),
   getBundleOrders: () => request('/bundles/orders'),
 
+  // Price tiers
+  getProductTiers: (id) => request(`/products/${id}/tiers`),
+  updateProductTiers: (id, tiers) => request(`/products/${id}/tiers`, { method: 'POST', body: { tiers } }),
+
+  // Upload a product image — returns { imageUrl }
   uploadProductImage: (file) => {
     const form = new FormData();
     form.append('image', file);

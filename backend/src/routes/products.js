@@ -502,7 +502,7 @@ router.get('/:id/alert/status', auth, async (req, res) => {
 router.post('/', auth, validate.product, (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can list products', 'forbidden');
 
-  const { name, description, unit, category, image_url } = req.body;
+  const { name, description, unit, category, image_url, nutrition } = req.body;
   const price = parseFloat(req.body.price);
   const quantity = parseInt(req.body.quantity, 10);
 
@@ -524,7 +524,7 @@ router.post('/', auth, validate.product, (req, res) => {
       : null;
 
   const result = db.prepare(
-    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, is_preorder, preorder_delivery_date, low_stock_threshold) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, is_preorder, preorder_delivery_date, low_stock_threshold, nutrition) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     req.user.id,
     safeName,
@@ -537,6 +537,7 @@ router.post('/', auth, validate.product, (req, res) => {
     preorder.isPreorder ? 1 : 0,
     preorder.preorderDeliveryDate,
     parseInt(req.body.low_stock_threshold, 10) || 5,
+    nutrition ? JSON.stringify(nutrition) : null,
   );
 
   res.json({ success: true, id: result.lastInsertRowid, message: 'Product listed' });
@@ -559,13 +560,14 @@ router.patch('/:id', auth, (req, res) => {
     'low_stock_threshold',
     'is_preorder',
     'preorder_delivery_date',
+    'nutrition',
   ];
 
 // POST /api/products
 router.post('/', auth, validate.product, async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can list products', 'forbidden');
 
-  const { name, description, unit, category, image_url } = req.body;
+  const { name, description, unit, category, image_url, nutrition } = req.body;
   const price    = parseFloat(req.body.price);
   const quantity = parseInt(req.body.quantity, 10);
 
@@ -580,8 +582,8 @@ router.post('/', auth, validate.product, async (req, res) => {
   const safeImageUrl    = image_url && /^\/uploads\/[a-f0-9]+\.(jpg|jpeg|png|webp)$/i.test(image_url) ? image_url : null;
 
   const { rows } = await db.query(
-    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',
-    [req.user.id, safeName, safeDescription, safeCategory, price, quantity, safeUnit, safeImageUrl, parseInt(req.body.low_stock_threshold) || 5]
+    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold, nutrition) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id',
+    [req.user.id, safeName, safeDescription, safeCategory, price, quantity, safeUnit, safeImageUrl, parseInt(req.body.low_stock_threshold) || 5, nutrition ? JSON.stringify(nutrition) : null]
   );
   res.json({ success: true, id: rows[0].id, message: 'Product listed' });
 });
@@ -594,7 +596,7 @@ router.patch('/:id', auth, async (req, res) => {
   const product = rows[0];
   if (!product) return err(res, 404, 'Not found or not yours', 'not_found');
 
-  const allowed = ['name', 'description', 'price', 'quantity', 'unit', 'category', 'low_stock_threshold'];
+  const allowed = ['name', 'description', 'price', 'quantity', 'unit', 'category', 'low_stock_threshold', 'nutrition'];
   const updates = {};
   for (const key of allowed) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
@@ -632,6 +634,10 @@ router.patch('/:id', auth, async (req, res) => {
     }
   }
 
+  if (updates.nutrition !== undefined) {
+    updates.nutrition = updates.nutrition ? JSON.stringify(updates.nutrition) : null;
+  }
+
   const nextIsPreorder = updates.is_preorder !== undefined
     ? (updates.is_preorder === true || updates.is_preorder === 1 || updates.is_preorder === '1')
     : !!product.is_preorder;
@@ -663,6 +669,10 @@ router.patch('/:id', auth, async (req, res) => {
   const newQty       = updates.quantity ?? product.quantity;
   const newThreshold = updates.low_stock_threshold ?? product.low_stock_threshold ?? 5;
   if (newQty > newThreshold) updates.low_stock_alerted = 0;
+
+  if (updates.nutrition !== undefined) {
+    updates.nutrition = updates.nutrition ? JSON.stringify(updates.nutrition) : null;
+  }
 
   const keys   = Object.keys(updates);
   const values = Object.values(updates);

@@ -84,6 +84,17 @@ describe('POST /api/products', () => {
     const res = await createProduct({ quantity: 0 });
     expect(res.status).toBe(400);
   });
+
+  it('accepts valid nutrition data', async () => {
+    mockDb.query.mockResolvedValueOnce({ rows: [{ id: 5 }], rowCount: 1 });
+    const res = await createProduct({ nutrition: { calories: 50, protein: 2.5 } });
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 400 when nutrition has negative values', async () => {
+    const res = await createProduct({ nutrition: { calories: -10 } });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('GET /api/products/:id', () => {

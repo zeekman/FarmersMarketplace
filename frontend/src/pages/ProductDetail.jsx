@@ -83,12 +83,17 @@ export default function ProductDetail() {
   const [reviewError, setReviewError] = useState('');
   const [reviewSuccess, setReviewSuccess] = useState('');
 
+  // Price tiers state
+  const [tiers, setTiers] = useState([]);
+
   // Coupon state
   const [couponCode, setCouponCode] = useState('');
   const [couponResult, setCouponResult] = useState(null); // { discount, final_total, discount_type, discount_value }
   const [couponError, setCouponError] = useState('');
   const [couponLoading, setCouponLoading] = useState(false);
 
+  // Nutrition state
+  const [nutritionExpanded, setNutritionExpanded] = useState(false);
   // Path payment state
   const [buyerAssets, setBuyerAssets] = useState([]);
   const [sourceAsset, setSourceAsset] = useState(null); // null = XLM (default)
@@ -114,6 +119,7 @@ export default function ProductDetail() {
       setImages(imgs);
       if (imgs.length > 0) setActiveImg(0);
     }).catch(() => {});
+    api.getProductTiers(id).then(res => setTiers(res.data ?? [])).catch(() => setTiers([]));
     api.getCalendar(id).then(res => {
       const weeks = res.data ?? [];
       setCalendar(weeks);
@@ -176,7 +182,20 @@ export default function ProductDetail() {
 
   if (!product) return <Spinner />;
 
-  const subtotal = (product.price * qty).toFixed(2);
+  // Get the best matching tier price for the current quantity
+  const getTierPrice = (quantity) => {
+    if (!tiers.length) return product.price;
+    // Find the highest min_quantity that is <= quantity
+    for (let i = tiers.length - 1; i >= 0; i--) {
+      if (quantity >= tiers[i].min_quantity) {
+        return tiers[i].price_per_unit;
+      }
+    }
+    return product.price;
+  };
+
+  const unitPrice = getTierPrice(qty);
+  const subtotal = (unitPrice * qty).toFixed(2);
   const total = couponResult ? couponResult.final_total.toFixed(2) : subtotal;
 
   // Fetch fee info whenever total changes
@@ -340,22 +359,115 @@ export default function ProductDetail() {
         <div style={s.desc}>
           {product.description || "Fresh from the farm."}
         </div>
+
+        {product.nutrition && (
+          <div style={{ marginBottom: 16 }}>
+            <button
+              onClick={() => setNutritionExpanded(!nutritionExpanded)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#2d6a4f',
+                cursor: 'pointer',
+                fontSize: 16,
+                fontWeight: 600,
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}
+            >
+              Nutritional Information {nutritionExpanded ? '▼' : '▶'}
+            </button>
+            {nutritionExpanded && (
+              <div style={{ marginTop: 8, padding: 12, background: '#f8fdf9', border: '1px solid #b7e4c7', borderRadius: 8 }}>
+                {(() => {
+                  try {
+                    const nutrition = JSON.parse(product.nutrition);
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+                        {nutrition.calories !== undefined && (
+                          <div><strong>Calories:</strong> {nutrition.calories}</div>
+                        )}
+                        {nutrition.protein !== undefined && (
+                          <div><strong>Protein:</strong> {nutrition.protein}g</div>
+                        )}
+                        {nutrition.carbs !== undefined && (
+                          <div><strong>Carbs:</strong> {nutrition.carbs}g</div>
+                        )}
+                        {nutrition.fat !== undefined && (
+                          <div><strong>Fat:</strong> {nutrition.fat}g</div>
+                        )}
+                        {nutrition.fiber !== undefined && (
+                          <div><strong>Fiber:</strong> {nutrition.fiber}g</div>
+                        )}
+                        {nutrition.vitamins && Object.keys(nutrition.vitamins).length > 0 && (
+                          <div style={{ gridColumn: '1 / -1' }}>
+                            <strong>Vitamins:</strong>
+                            <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                              {Object.entries(nutrition.vitamins).map(([vitamin, amount]) => (
+                                <span key={vitamin} style={{ fontSize: 13, background: '#e8f5e8', padding: '2px 6px', borderRadius: 4 }}>
+                                  {vitamin}: {amount}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  } catch {
+                    return <div style={{ color: '#888', fontSize: 14 }}>Invalid nutritional data</div>;
+                  }
+                })()}
+              </div>
+            )}
+          </div>
+        )}
+
         {product.is_preorder ? (
           <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 600, color: '#856404', background: '#fff3cd', display: 'inline-block', padding: '4px 10px', borderRadius: 20 }}>
             Pre-Order{product.preorder_delivery_date ? ` · Expected delivery ${product.preorder_delivery_date}` : ''}
           </div>
         ) : null}
         <div style={s.price}>
-          {product.price} XLM{" "}
+          {unitPrice} XLM{" "}
           <span style={{ fontSize: 14, fontWeight: 400 }}>
             / {product.unit}
           </span>
+          {tiers.length > 0 && (
+            <span style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>
+              (bulk pricing available)
+            </span>
+          )}
         </div>
-        {usd(product.price) && (
+        {usd(unitPrice) && (
           <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
-            {usd(product.price)} {t('productDetail.perUnit', { unit: product.unit })} <span style={{ fontSize: 11, color: '#bbb' }}>{t('productDetail.approxRate')}</span>
+            {usd(unitPrice)} {t('productDetail.perUnit', { unit: product.unit })} <span style={{ fontSize: 11, color: '#bbb' }}>{t('productDetail.approxRate')}</span>
           </div>
         )}
+
+        {tiers.length > 0 && (
+          <div style={{ marginBottom: 16, padding: 12, background: '#f8fdf9', border: '1px solid #b7e4c7', borderRadius: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#2d6a4f', marginBottom: 8 }}>Bulk Pricing Tiers</div>
+            <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #ddd' }}>
+                  <th style={{ textAlign: 'left', padding: '4px 0', fontWeight: 600 }}>Min Quantity</th>
+                  <th style={{ textAlign: 'left', padding: '4px 0', fontWeight: 600 }}>Price per Unit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tiers.map((tier, index) => (
+                  <tr key={tier.id} style={{ borderBottom: index < tiers.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
+                    <td style={{ padding: '4px 0' }}>{tier.min_quantity}+ {product.unit}</td>
+                    <td style={{ padding: '4px 0' }}>{tier.price_per_unit} XLM</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         <div style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
           {t('productDetail.inStock', { qty: product.quantity, unit: product.unit })}
         </div>
@@ -363,7 +475,11 @@ export default function ProductDetail() {
         <div style={s.row}>
           <label style={{ fontSize: 14 }}>{t('productDetail.quantity')}</label>
           <input style={s.input} type="number" min={1} max={product.quantity} value={qty}
-            onChange={e => setQty(Math.max(1, Math.min(product.quantity, parseInt(e.target.value) || 1)))} />
+            onChange={e => {
+              setQty(Math.max(1, Math.min(product.quantity, parseInt(e.target.value) || 1)));
+              setCouponResult(null); // Clear coupon when quantity changes
+              setCouponError('');
+            }} />
           <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
         </div>
 
