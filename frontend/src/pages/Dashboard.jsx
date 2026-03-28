@@ -64,6 +64,14 @@ const EMPTY_FORM = {
   category: 'other',
   is_preorder: false,
   preorder_delivery_date: '',
+  nutrition: {
+    calories: '',
+    protein: '',
+    carbs: '',
+    fat: '',
+    fiber: '',
+    vitamins: {},
+  },
 };
 
 import { useAuth } from '../context/AuthContext';
@@ -124,6 +132,53 @@ export default function Dashboard() {
   const [coupons, setCoupons] = useState([]);
   const [couponForm, setCouponForm] = useState({ code: '', discount_type: 'percent', discount_value: '', max_uses: '', expires_at: '' });
   const [couponMsg, setCouponMsg] = useState(null);
+
+  // Price tiers state
+  const [tiersProductId, setTiersProductId] = useState(null);
+  const [tiers, setTiers] = useState([]);
+  const [tiersMsg, setTiersMsg] = useState(null);
+
+  async function openTiers(productId) {
+    setTiersProductId(productId);
+    setTiersMsg(null);
+    try {
+      const res = await api.getProductTiers(productId);
+      setTiers(res.data ?? []);
+    } catch {
+      setTiers([]);
+    }
+  }
+
+  function closeTiers() {
+    setTiersProductId(null);
+    setTiers([]);
+    setTiersMsg(null);
+  }
+
+  async function handleSaveTiers() {
+    if (!tiersProductId) return;
+    setTiersMsg({ type: 'info', text: 'Saving...' });
+    try {
+      await api.updateProductTiers(tiersProductId, tiers);
+      setTiersMsg({ type: 'ok', text: 'Tiers updated successfully' });
+    } catch (e) {
+      setTiersMsg({ type: 'error', text: e.message || 'Failed to update tiers' });
+    }
+  }
+
+  function addTier() {
+    setTiers([...tiers, { min_quantity: (tiers.length > 0 ? tiers[tiers.length - 1].min_quantity + 1 : 2), price_per_unit: 0 }]);
+  }
+
+  function updateTier(index, field, value) {
+    const newTiers = [...tiers];
+    newTiers[index] = { ...newTiers[index], [field]: parseFloat(value) || 0 };
+    setTiers(newTiers);
+  }
+
+  function removeTier(index) {
+    setTiers(tiers.filter((_, i) => i !== index));
+  }
 
   async function openGallery(productId) {
     setGalleryProductId(productId);
@@ -400,6 +455,15 @@ export default function Dashboard() {
     }
 
     try {
+      // Prepare nutrition data
+      const nutritionData = {};
+      if (form.nutrition.calories) nutritionData.calories = parseFloat(form.nutrition.calories);
+      if (form.nutrition.protein) nutritionData.protein = parseFloat(form.nutrition.protein);
+      if (form.nutrition.carbs) nutritionData.carbs = parseFloat(form.nutrition.carbs);
+      if (form.nutrition.fat) nutritionData.fat = parseFloat(form.nutrition.fat);
+      if (form.nutrition.fiber) nutritionData.fiber = parseFloat(form.nutrition.fiber);
+      // Vitamins can be added later if needed
+
       await api.createProduct({
         ...form,
         price: parseFloat(form.price),
@@ -407,6 +471,7 @@ export default function Dashboard() {
         is_preorder: form.is_preorder ? 1 : 0,
         preorder_delivery_date: form.is_preorder ? form.preorder_delivery_date : null,
         image_url: finalImageUrl || undefined,
+        nutrition: Object.keys(nutritionData).length > 0 ? nutritionData : undefined,
       });
       setMsg({ type: 'ok', text: t('dashboard.productListedOk') });
       setForm(EMPTY_FORM);
@@ -597,6 +662,134 @@ export default function Dashboard() {
               ))}
             </select>
 
+            <details style={{ marginTop: 16 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#2d6a4f', marginBottom: 8 }}>
+                Nutritional Information (Optional)
+              </summary>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginTop: 8 }}>
+                <div>
+                  <label style={s.label}>Calories</label>
+                  <input
+                    style={{ ...s.input, borderColor: formErrors.nutrition?.calories ? '#c0392b' : '#ddd' }}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.nutrition.calories}
+                    onChange={e => {
+                      setForm({
+                        ...form,
+                        nutrition: { ...form.nutrition, calories: e.target.value }
+                      });
+                      if (formErrors.nutrition?.calories) {
+                        setFormErrors({
+                          ...formErrors,
+                          nutrition: { ...formErrors.nutrition, calories: undefined }
+                        });
+                      }
+                    }}
+                    placeholder="e.g. 50"
+                  />
+                  {formErrors.nutrition?.calories && <div style={s.fieldErr}>{formErrors.nutrition.calories}</div>}
+                </div>
+                <div>
+                  <label style={s.label}>Protein (g)</label>
+                  <input
+                    style={{ ...s.input, borderColor: formErrors.nutrition?.protein ? '#c0392b' : '#ddd' }}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.nutrition.protein}
+                    onChange={e => {
+                      setForm({
+                        ...form,
+                        nutrition: { ...form.nutrition, protein: e.target.value }
+                      });
+                      if (formErrors.nutrition?.protein) {
+                        setFormErrors({
+                          ...formErrors,
+                          nutrition: { ...formErrors.nutrition, protein: undefined }
+                        });
+                      }
+                    }}
+                    placeholder="e.g. 2.5"
+                  />
+                  {formErrors.nutrition?.protein && <div style={s.fieldErr}>{formErrors.nutrition.protein}</div>}
+                </div>
+                <div>
+                  <label style={s.label}>Carbs (g)</label>
+                  <input
+                    style={{ ...s.input, borderColor: formErrors.nutrition?.carbs ? '#c0392b' : '#ddd' }}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.nutrition.carbs}
+                    onChange={e => {
+                      setForm({
+                        ...form,
+                        nutrition: { ...form.nutrition, carbs: e.target.value }
+                      });
+                      if (formErrors.nutrition?.carbs) {
+                        setFormErrors({
+                          ...formErrors,
+                          nutrition: { ...formErrors.nutrition, carbs: undefined }
+                        });
+                      }
+                    }}
+                    placeholder="e.g. 10"
+                  />
+                  {formErrors.nutrition?.carbs && <div style={s.fieldErr}>{formErrors.nutrition.carbs}</div>}
+                </div>
+                <div>
+                  <label style={s.label}>Fat (g)</label>
+                  <input
+                    style={{ ...s.input, borderColor: formErrors.nutrition?.fat ? '#c0392b' : '#ddd' }}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.nutrition.fat}
+                    onChange={e => {
+                      setForm({
+                        ...form,
+                        nutrition: { ...form.nutrition, fat: e.target.value }
+                      });
+                      if (formErrors.nutrition?.fat) {
+                        setFormErrors({
+                          ...formErrors,
+                          nutrition: { ...formErrors.nutrition, fat: undefined }
+                        });
+                      }
+                    }}
+                    placeholder="e.g. 1.2"
+                  />
+                  {formErrors.nutrition?.fat && <div style={s.fieldErr}>{formErrors.nutrition.fat}</div>}
+                </div>
+                <div>
+                  <label style={s.label}>Fiber (g)</label>
+                  <input
+                    style={{ ...s.input, borderColor: formErrors.nutrition?.fiber ? '#c0392b' : '#ddd' }}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.nutrition.fiber}
+                    onChange={e => {
+                      setForm({
+                        ...form,
+                        nutrition: { ...form.nutrition, fiber: e.target.value }
+                      });
+                      if (formErrors.nutrition?.fiber) {
+                        setFormErrors({
+                          ...formErrors,
+                          nutrition: { ...formErrors.nutrition, fiber: undefined }
+                        });
+                      }
+                    }}
+                    placeholder="e.g. 3"
+                  />
+                  {formErrors.nutrition?.fiber && <div style={s.fieldErr}>{formErrors.nutrition.fiber}</div>}
+                </div>
+              </div>
+            </details>
+
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0 10px', fontSize: 13, color: '#444' }}>
               <input
                 type="checkbox"
@@ -693,10 +886,10 @@ export default function Dashboard() {
                     {t('dashboard.photos')}
                   </button>
                   <button
-                    style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#6c3483' }}
-                    onClick={() => { setQrProductId(p.id); setQrProductName(p.name); }}
+                    style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#17a2b8' }}
+                    onClick={() => tiersProductId === p.id ? closeTiers() : openTiers(p.id)}
                   >
-                    {t('dashboard.qr')}
+                    {t('dashboard.tiers')}
                   </button>
                   <input
                     type="number" min="1" placeholder="+Qty"
@@ -749,6 +942,74 @@ export default function Dashboard() {
                       />
                     </>
                   )}
+                </div>
+              )}
+
+              {/* Inline tiers manager */}
+              {tiersProductId === p.id && (
+                <div style={s.galleryPanel}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#2d6a4f' }}>
+                    {t('dashboard.priceTiers')}
+                    <span style={{ fontWeight: 400, color: '#888', marginLeft: 8 }}>{t('dashboard.tiersHint')}</span>
+                  </div>
+                  {tiersMsg && <div style={{ fontSize: 12, color: tiersMsg.type === 'ok' ? '#2d6a4f' : tiersMsg.type === 'error' ? '#c0392b' : '#856404', marginBottom: 8 }}>{tiersMsg.text}</div>}
+                  <div style={{ marginBottom: 8 }}>
+                    {tiers.length === 0 ? (
+                      <div style={{ color: '#888', fontSize: 12 }}>{t('dashboard.noTiers')}</div>
+                    ) : (
+                      <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid #ddd' }}>
+                            <th style={{ textAlign: 'left', padding: '4px 0', fontWeight: 600 }}>{t('dashboard.minQuantity')}</th>
+                            <th style={{ textAlign: 'left', padding: '4px 0', fontWeight: 600 }}>{t('dashboard.pricePerUnit')}</th>
+                            <th style={{ width: 60 }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tiers.map((tier, index) => (
+                            <tr key={index} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                              <td style={{ padding: '4px 0' }}>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={tier.min_quantity}
+                                  onChange={e => updateTier(index, 'min_quantity', e.target.value)}
+                                  style={{ ...s.input, width: 80, marginBottom: 0, padding: '4px 6px', fontSize: 12 }}
+                                />
+                              </td>
+                              <td style={{ padding: '4px 0' }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={tier.price_per_unit}
+                                  onChange={e => updateTier(index, 'price_per_unit', e.target.value)}
+                                  style={{ ...s.input, width: 80, marginBottom: 0, padding: '4px 6px', fontSize: 12 }}
+                                /> XLM
+                              </td>
+                              <td style={{ padding: '4px 0' }}>
+                                <button style={s.imgDelBtn} onClick={() => removeTier(index)}>✕</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button
+                      style={{ ...s.btn, fontSize: 12, padding: '6px 14px', background: '#28a745' }}
+                      onClick={addTier}
+                    >
+                      {t('dashboard.addTier')}
+                    </button>
+                    <button
+                      style={{ ...s.btn, fontSize: 12, padding: '6px 14px', background: '#007bff' }}
+                      onClick={handleSaveTiers}
+                    >
+                      {t('dashboard.saveTiers')}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

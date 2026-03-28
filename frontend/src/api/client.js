@@ -159,6 +159,10 @@ export const api = {
   getProductReviews: (id) => request(`/products/${id}/reviews`),
   searchProducts: (q) => request(`/products/search?q=${encodeURIComponent(q)}`),
 
+  // Price tiers
+  getProductTiers: (id) => request(`/products/${id}/tiers`),
+  updateProductTiers: (id, tiers) => request(`/products/${id}/tiers`, { method: 'POST', body: { tiers } }),
+
   // Upload a product image — returns { imageUrl }
   uploadProductImage: (file) => {
     const form = new FormData();

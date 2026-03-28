@@ -47,6 +47,14 @@ module.exports = {
     low_stock_threshold: z.coerce.number().int().nonnegative().optional(),
     image_url: z.string().optional().or(z.literal('')),
     tags: z.array(z.string()).optional(),
+    nutrition: z.object({
+      calories: z.coerce.number().nonnegative('calories must be non-negative').optional(),
+      protein: z.coerce.number().nonnegative('protein must be non-negative').optional(),
+      carbs: z.coerce.number().nonnegative('carbs must be non-negative').optional(),
+      fat: z.coerce.number().nonnegative('fat must be non-negative').optional(),
+      fiber: z.coerce.number().nonnegative('fiber must be non-negative').optional(),
+      vitamins: z.record(z.coerce.number().nonnegative('vitamin values must be non-negative')).optional(),
+    }).optional(),
   })),
 
   order: validate(z.object({
