@@ -47,6 +47,14 @@ module.exports = {
     low_stock_threshold: z.coerce.number().int().nonnegative().optional(),
     image_url: z.string().optional().or(z.literal('')),
     tags: z.array(z.string()).optional(),
+    nutrition: z.object({
+      calories: z.coerce.number().nonnegative('calories must be non-negative').optional(),
+      protein: z.coerce.number().nonnegative('protein must be non-negative').optional(),
+      carbs: z.coerce.number().nonnegative('carbs must be non-negative').optional(),
+      fat: z.coerce.number().nonnegative('fat must be non-negative').optional(),
+      fiber: z.coerce.number().nonnegative('fiber must be non-negative').optional(),
+      vitamins: z.record(z.coerce.number().nonnegative('vitamin values must be non-negative')).optional(),
+    }).optional(),
   })),
 
   order: validate(z.object({
@@ -81,5 +89,15 @@ module.exports = {
     destination: z.string().regex(/^G[A-Z2-7]{55}$/, 'destination must be a valid Stellar public key'),
     amount: z.coerce.number().positive('amount must be a positive number').refine(v => v >= 0.0000001, 'amount too small'),
     memo: z.string().max(28, 'memo must be 28 characters or fewer').optional(),
+  })),
+
+  confirmPassword: validate(z.object({
+    password: z.string().min(1, 'password is required'),
+  })),
+
+  recover: validate(z.object({
+    email: z.string().email('valid email required'),
+    password: z.string().min(1, 'password is required'),
+    mnemonic: z.string().min(1, 'mnemonic is required'),
   })),
 };

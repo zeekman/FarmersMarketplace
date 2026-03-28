@@ -5,7 +5,7 @@ const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { getBalance, getTransactions, fundTestnetAccount, sendPayment, server } = require('../utils/stellar');
 const stellar = require('../utils/stellar');
-const { getBalance, getTransactions, fundTestnetAccount, sendPayment } = stellar;
+const { getBalance, getAllBalances, getTransactions, fundTestnetAccount, sendPayment, addTrustline, removeTrustline } = stellar;
 const { err } = require('../middleware/error');
 
 /**
@@ -40,8 +40,11 @@ const { err } = require('../middleware/error');
 router.get('/', auth, async (req, res) => {
   const { rows } = await db.query('SELECT stellar_public_key, referral_code FROM users WHERE id = $1', [req.user.id]);
   const user = rows[0];
-  const balance = await getBalance(user.stellar_public_key);
-  res.json({ success: true, publicKey: user.stellar_public_key, balance, referralCode: user.referral_code });
+  const [balance, balances] = await Promise.all([
+    getBalance(user.stellar_public_key),
+    getAllBalances(user.stellar_public_key),
+  ]);
+  res.json({ success: true, publicKey: user.stellar_public_key, balance, balances, referralCode: user.referral_code });
 });
 
 /**
@@ -241,6 +244,72 @@ router.post('/send', auth, validate.sendXLM, async (req, res) => {
   } catch (e) {
     const stellarMsg = e?.response?.data?.extras?.result_codes?.operations?.[0] || e.message;
     res.status(502).json({ error: `Stellar transaction failed: ${stellarMsg}` });
+  }
+});
+
+// GET /api/wallet/assets — list buyer's non-native (custom asset) balances
+router.get('/assets', auth, async (req, res) => {
+  const { rows } = await db.query('SELECT stellar_public_key FROM users WHERE id = $1', [req.user.id]);
+  const balances = await getAllBalances(rows[0].stellar_public_key);
+  const assets = balances.filter(b => b.asset_type !== 'native');
+  res.json({ success: true, data: assets });
+});
+
+// GET /api/wallet/path-estimate?source_code=USDC&source_issuer=G...&dest_amount=10
+// Returns estimated source amount needed to deliver dest_amount XLM
+router.get('/path-estimate', auth, async (req, res) => {
+  const { source_code, source_issuer, dest_amount } = req.query;
+  if (!source_code || !source_issuer || !dest_amount)
+    return err(res, 400, 'source_code, source_issuer, and dest_amount are required', 'validation_error');
+  const destAmt = parseFloat(dest_amount);
+  if (isNaN(destAmt) || destAmt <= 0)
+    return err(res, 400, 'dest_amount must be a positive number', 'validation_error');
+
+  const { rows } = await db.query('SELECT stellar_public_key FROM users WHERE id = $1', [req.user.id]);
+  try {
+    const estimate = await stellar.getPathPaymentEstimate({
+      sourceAssetCode: source_code,
+      sourceAssetIssuer: source_issuer,
+      destPublicKey: rows[0].stellar_public_key,
+      destAmount: destAmt,
+    });
+    res.json({ success: true, sourceAmount: estimate.sourceAmount, sourceCode: source_code });
+  } catch (e) {
+    if (e.code === 'no_path') return err(res, 404, e.message, 'no_path');
+    err(res, 502, e.message, 'estimate_failed');
+  }
+});
+
+// POST /api/wallet/trustline — add a trustline for a custom asset
+router.post('/trustline', auth, async (req, res) => {
+  const { asset_code, asset_issuer } = req.body;
+  if (!asset_code || !asset_issuer) return err(res, 400, 'asset_code and asset_issuer are required', 'validation_error');
+  if (!/^[A-Z0-9]{1,12}$/.test(asset_code)) return err(res, 400, 'Invalid asset_code', 'validation_error');
+  if (!/^G[A-Z2-7]{55}$/.test(asset_issuer)) return err(res, 400, 'Invalid asset_issuer', 'validation_error');
+
+  const { rows } = await db.query('SELECT stellar_secret_key FROM users WHERE id = $1', [req.user.id]);
+  try {
+    const txHash = await addTrustline({ secret: rows[0].stellar_secret_key, assetCode: asset_code, assetIssuer: asset_issuer });
+    res.json({ success: true, txHash });
+  } catch (e) {
+    const stellarMsg = e?.response?.data?.extras?.result_codes?.operations?.[0] || e.message;
+    err(res, 502, `Trustline failed: ${stellarMsg}`, 'trustline_failed');
+  }
+});
+
+// DELETE /api/wallet/trustline — remove a trustline (balance must be zero)
+router.delete('/trustline', auth, async (req, res) => {
+  const { asset_code, asset_issuer } = req.body;
+  if (!asset_code || !asset_issuer) return err(res, 400, 'asset_code and asset_issuer are required', 'validation_error');
+
+  const { rows } = await db.query('SELECT stellar_secret_key FROM users WHERE id = $1', [req.user.id]);
+  try {
+    const txHash = await removeTrustline({ secret: rows[0].stellar_secret_key, assetCode: asset_code, assetIssuer: asset_issuer });
+    res.json({ success: true, txHash });
+  } catch (e) {
+    if (e.code === 'non_zero_balance') return err(res, 400, e.message, 'non_zero_balance');
+    const stellarMsg = e?.response?.data?.extras?.result_codes?.operations?.[0] || e.message;
+    err(res, 502, `Remove trustline failed: ${stellarMsg}`, 'trustline_failed');
   }
 });
 

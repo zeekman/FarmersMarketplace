@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './browser-compat.css';
-import './i18n';
+import './responsive.css';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

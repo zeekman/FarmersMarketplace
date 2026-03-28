@@ -5,6 +5,7 @@ const validate = require('../middleware/validate');
 const {
   sendPayment,
   getBalance,
+  getPlatformFeeInfo,
   createClaimableBalance,
   createPreorderClaimableBalance,
   claimBalance,
@@ -32,13 +33,39 @@ function hasReachedDeliveryDate(preorderDeliveryDate) {
   return Math.floor(Date.now() / 1000) >= unlockUnix;
 }
 
+// Get the best matching tier price for a quantity, or base price if no tiers
+async function getTierPrice(productId, quantity) {
+  const { rows: tiers } = await db.query(
+    'SELECT min_quantity, price_per_unit FROM price_tiers WHERE product_id = $1 ORDER BY min_quantity DESC',
+    [productId]
+  );
+
+  // Find the highest min_quantity that is <= quantity
+  for (const tier of tiers) {
+    if (quantity >= tier.min_quantity) {
+      return tier.price_per_unit;
+    }
+  }
+
+  // No tier matches, return base price
+  const { rows: productRows } = await db.query('SELECT price FROM products WHERE id = $1', [productId]);
+  return productRows[0].price;
+}
+// GET /api/orders/fee-preview?amount=X — returns fee breakdown for a given amount
+router.get('/fee-preview', (req, res) => {
+  const amount = parseFloat(req.query.amount);
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'amount is required' });
+  const info = getPlatformFeeInfo(amount);
+  res.json({ success: true, total: amount, feePercent: info.feePercent, feeAmount: info.feeAmount, farmerAmount: info.farmerAmount });
+});
+
 // POST /api/orders - buyer places + pays for an order
 router.post('/', auth, validate.order, async (req, res) => {
   if (req.user.role !== 'buyer') {
     return err(res, 403, 'Only buyers can place orders', 'forbidden');
   }
 
-const { sendPayment, getBalance, createClaimableBalance, claimBalance } = require('../utils/stellar');
+const { sendPayment, pathPayment, getPathPaymentEstimate, getBalance, createClaimableBalance, claimBalance } = require('../utils/stellar');
 const { sendOrderEmails, sendStatusUpdateEmail, sendLowStockAlert } = require('../utils/mailer');
 const { err } = require('../middleware/error');
 const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
@@ -120,26 +147,25 @@ router.post('/', auth, validate.order, async (req, res) => {
   }
 
   if (address_id) {
-    const address = db
-      .prepare('SELECT * FROM addresses WHERE id = ? AND user_id = ?')
-      .get(address_id, req.user.id);
-    if (!address) return err(res, 400, 'Invalid address_id', 'validation_error');
+    const { rows: addrRows } = await db.query('SELECT * FROM addresses WHERE id = $1 AND user_id = $2', [address_id, req.user.id]);
+    if (!addrRows[0]) return err(res, 400, 'Invalid address_id', 'validation_error');
   }
 
-  const product = db.prepare(`
-    SELECT p.*, u.stellar_public_key as farmer_wallet
-    FROM products p
-    JOIN users u ON p.farmer_id = u.id
-    WHERE p.id = ?
-  `).get(product_id);
-
+  const { rows: prodRows } = await db.query(
+    'SELECT p.*, u.stellar_public_key as farmer_wallet FROM products p JOIN users u ON p.farmer_id = u.id WHERE p.id = $1',
+    [product_id]
+  );
+  const product = prodRows[0];
   if (!product) return err(res, 404, 'Product not found', 'not_found');
 
-  const buyer = db
-    .prepare('SELECT id, name, email, stellar_public_key, stellar_secret_key, referred_by, referral_bonus_sent FROM users WHERE id = ?')
-    .get(req.user.id);
+  const { rows: buyerRows } = await db.query(
+    'SELECT id, name, email, stellar_public_key, stellar_secret_key, referred_by, referral_bonus_sent FROM users WHERE id = $1',
+    [req.user.id]
+  );
+  const buyer = buyerRows[0];
 
-  const subtotal = product.price * quantity;
+  const unitPrice = await getTierPrice(product_id, quantity);
+  const subtotal = unitPrice * quantity;
   let discount = 0;
   let appliedCoupon = null;
 
@@ -186,6 +212,47 @@ router.post('/', auth, validate.order, async (req, res) => {
   if (balance < totalPrice + 0.00001)
     return res.status(402).json({ success: false, message: 'Insufficient XLM balance', code: 'insufficient_balance', required: (totalPrice + 0.00001).toFixed(7), available: balance.toFixed(7) });
 
+  // PostgreSQL: fetch product, buyer, compute total
+  const { rows: pRows } = await db.query(
+    `SELECT p.*, u.stellar_public_key as farmer_wallet FROM products p JOIN users u ON p.farmer_id = u.id WHERE p.id = $1`,
+    [product_id]
+  );
+  if (!pRows[0]) return err(res, 404, 'Product not found', 'not_found');
+  const product = pRows[0];
+
+  const { rows: bRows } = await db.query(
+    'SELECT id, name, email, stellar_public_key, stellar_secret_key, referred_by, referral_bonus_sent FROM users WHERE id = $1',
+    [req.user.id]
+  );
+  const buyer = bRows[0];
+
+  const subtotal = product.price * quantity;
+  let discount = 0;
+  let appliedCoupon = null;
+  if (coupon_code) {
+    const { rows: cRows } = await db.query(
+      `SELECT * FROM coupons WHERE code = $1 AND farmer_id = $2 AND (expires_at IS NULL OR expires_at > NOW()) AND (max_uses IS NULL OR used_count < max_uses)`,
+      [coupon_code.trim().toUpperCase(), product.farmer_id]
+    );
+    if (!cRows[0]) return err(res, 400, 'Invalid or expired coupon', 'invalid_coupon');
+    appliedCoupon = cRows[0];
+    discount = appliedCoupon.discount_type === 'percent'
+      ? parseFloat((subtotal * appliedCoupon.discount_value / 100).toFixed(7))
+      : Math.min(parseFloat(appliedCoupon.discount_value), subtotal);
+  }
+  const totalPrice = parseFloat((subtotal - discount).toFixed(7));
+
+  // Parse optional source asset for path payment
+  const sourceAsset = req.body.source_asset || null; // { code, issuer } or null for XLM
+  const usePathPayment = sourceAsset && sourceAsset.code && sourceAsset.code !== 'XLM';
+
+  // For XLM payments, check balance upfront
+  if (!usePathPayment) {
+    const balance = await getBalance(buyer.stellar_public_key);
+    if (balance < totalPrice + 0.00001)
+      return res.status(402).json({ success: false, message: 'Insufficient XLM balance', code: 'insufficient_balance', required: (totalPrice + 0.00001).toFixed(7), available: balance.toFixed(7) });
+  }
+
   // Atomic stock decrement
   const { rowCount } = await db.query(
     'UPDATE products SET quantity = quantity - $1 WHERE id = $2 AND quantity >= $1',
@@ -227,18 +294,32 @@ router.post('/', auth, validate.order, async (req, res) => {
         throw new Error('Invalid pre-order delivery date on product');
       }
 
-      const hold = await createPreorderClaimableBalance({
+    if (usePathPayment) {
+      // Path payment: buyer pays in sourceAsset, farmer receives XLM
+      const estimate = await getPathPaymentEstimate({
+        sourceAssetCode: sourceAsset.code,
+        sourceAssetIssuer: sourceAsset.issuer,
+        destPublicKey: product.farmer_wallet,
+        destAmount: totalPrice,
+      });
+      // Add 1% slippage tolerance
+      const sendMax = (estimate.sourceAmount * 1.01).toFixed(7);
+      txHash = await pathPayment({
         senderSecret: buyer.stellar_secret_key,
-        farmerPublicKey: product.farmer_wallet,
-        amount: totalPrice,
-        unlockAtUnix,
+        sourceAssetCode: sourceAsset.code,
+        sourceAssetIssuer: sourceAsset.issuer,
+        sendMax,
+        receiverPublicKey: product.farmer_wallet,
+        destAmount: totalPrice,
+        memo: `Order#${orderId}`,
       });
       txHash = hold.txHash;
       balanceId = hold.balanceId;
 
-      db.prepare(
-        'UPDATE orders SET status = ?, stellar_tx_hash = ?, escrow_balance_id = ?, escrow_status = ? WHERE id = ?'
-      ).run('paid', txHash, balanceId, 'funded', orderId);
+      await db.query(
+        'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4 WHERE id = $5',
+        ['paid', txHash, balanceId, 'funded', orderId]
+      );
     } else {
       txHash = await sendPayment({
         senderSecret: buyer.stellar_secret_key,
@@ -247,8 +328,7 @@ router.post('/', auth, validate.order, async (req, res) => {
         memo: `Order#${orderId}`,
       });
 
-      db.prepare('UPDATE orders SET status = ?, stellar_tx_hash = ? WHERE id = ?')
-        .run('paid', txHash, orderId);
+      await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
     }
 
     const farmer = db.prepare('SELECT id, name, email, stellar_public_key FROM users WHERE id = ?')
@@ -267,7 +347,7 @@ router.post('/', auth, validate.order, async (req, res) => {
             amount: 1.0,
             memo: `Referral Bonus: ${buyer.name}`.slice(0, 28),
           });
-          db.prepare('UPDATE users SET referral_bonus_sent = 1 WHERE id = ?').run(buyer.id);
+          await db.query('UPDATE users SET referral_bonus_sent = 1 WHERE id = $1', [buyer.id]);
         } catch (bonusErr) {
           console.error('[Referral] Failed to send bonus:', bonusErr.message);
         }
@@ -295,13 +375,16 @@ router.post('/', auth, validate.order, async (req, res) => {
     const updated = db.prepare(
       'SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = ?'
     ).get(product_id);
+    const { rows: updRows } = await db.query('SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = $1', [product_id]);
+    const updated = updRows[0];
 
     if (updated && updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
-      db.prepare('UPDATE products SET low_stock_alerted = 1 WHERE id = ?').run(product_id);
+      await db.query('UPDATE products SET low_stock_alerted = 1 WHERE id = $1', [product_id]);
       sendLowStockAlert({ product: { ...product, quantity: updated.quantity }, farmer })
         .catch((lowStockErr) => console.error('Low-stock alert failed:', lowStockErr.message));
     }
 
+    const feeInfo = getPlatformFeeInfo(totalPrice);
     const responseData = {
       success: true,
       orderId,
@@ -310,6 +393,7 @@ router.post('/', auth, validate.order, async (req, res) => {
       totalPrice,
       sorobanEscrow: useSorobanEscrow,
       discount: discount > 0 ? discount : undefined,
+      fee: feeInfo.feeAmount > 0 ? { percent: feeInfo.feePercent, amount: feeInfo.feeAmount, farmerAmount: feeInfo.farmerAmount } : undefined,
       preorder: !!product.is_preorder,
       preorderDeliveryDate: product.preorder_delivery_date || null,
       claimableBalanceId: balanceId,
@@ -336,14 +420,6 @@ router.post('/', auth, validate.order, async (req, res) => {
       });
     }
 
-    const errorData = {
-      success: false,
-      message: 'Payment failed: ' + e.message,
-      code: 'payment_failed',
-      orderId,
-    };
-    if (idempotencyKey) cacheResponse(idempotencyKey, errorData);
-    return res.status(402).json(errorData);
     await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
 
     // Referral bonus
@@ -370,16 +446,21 @@ router.post('/', auth, validate.order, async (req, res) => {
         .catch(e => console.error('Low-stock alert failed:', e.message));
     }
 
-    const responseData = { success: true, orderId, status: 'paid', txHash, totalPrice };
-    await cacheResponse(idempotencyKey, responseData);
+    const responseData = {
+      success: true, orderId, status: 'paid', txHash, totalPrice,
+      sourceAsset: usePathPayment ? sourceAsset.code : 'XLM',
+    };
+    if (idempotencyKey) await cacheResponse(idempotencyKey, responseData);
     res.json(responseData);
   } catch (e) {
     await db.query('UPDATE orders SET status = $1 WHERE id = $2', ['failed', orderId]);
     await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [quantity, product_id]);
+    if (e.code === 'no_path')
+      return res.status(402).json({ success: false, message: e.message, code: 'no_path', orderId });
     if (e.code === 'account_not_found')
       return res.status(402).json({ success: false, message: 'Please fund your wallet before purchasing', code: 'unfunded_account', orderId });
     const errorData = { success: false, message: 'Payment failed: ' + e.message, code: 'payment_failed', orderId };
-    await cacheResponse(idempotencyKey, errorData);
+    if (idempotencyKey) await cacheResponse(idempotencyKey, errorData);
     res.status(402).json(errorData);
   }
 });

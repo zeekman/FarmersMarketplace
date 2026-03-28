@@ -1,4 +1,6 @@
 const StellarSdk = require("@stellar/stellar-sdk");
+const bip39 = require("bip39");
+const StellarHDWallet = require("stellar-hd-wallet");
 
 const STELLAR_NETWORK = (
   process.env.STELLAR_NETWORK || "testnet"
@@ -38,6 +40,34 @@ function createWallet() {
   return { publicKey: keypair.publicKey(), secretKey: keypair.secret() };
 }
 
+/**
+ * Generate a BIP39 mnemonic and derive a Stellar keypair from it.
+ * Returns { mnemonic, publicKey, secretKey }
+ */
+function createWalletFromMnemonic() {
+  const mnemonic = bip39.generateMnemonic(256); // 24-word phrase
+  const wallet = StellarHDWallet.fromMnemonic(mnemonic);
+  const keypair = StellarSdk.Keypair.fromSecret(wallet.getSecret(0));
+  return {
+    mnemonic,
+    publicKey: keypair.publicKey(),
+    secretKey: keypair.secret(),
+  };
+}
+
+/**
+ * Derive a Stellar keypair from an existing BIP39 mnemonic.
+ * Returns { publicKey, secretKey }
+ */
+function deriveKeypairFromMnemonic(mnemonic) {
+  if (!bip39.validateMnemonic(mnemonic)) {
+    throw new Error("Invalid mnemonic phrase");
+  }
+  const wallet = StellarHDWallet.fromMnemonic(mnemonic);
+  const keypair = StellarSdk.Keypair.fromSecret(wallet.getSecret(0));
+  return { publicKey: keypair.publicKey(), secretKey: keypair.secret() };
+}
+
 async function fundTestnetAccount(publicKey) {
   const response = await fetch(
     `https://friendbot.stellar.org?addr=${publicKey}`,
@@ -71,7 +101,17 @@ async function sendPayment({ senderSecret, receiverPublicKey, amount, memo }) {
     throw error;
   }
 
-  const transaction = new StellarSdk.TransactionBuilder(senderAccount, {
+  const feePercent = parseFloat(process.env.PLATFORM_FEE_PERCENT || '0');
+  const platformWallet = process.env.PLATFORM_WALLET_PUBLIC_KEY;
+
+  const farmerAmount = feePercent > 0 && platformWallet
+    ? parseFloat((amount * (1 - feePercent / 100)).toFixed(7))
+    : amount;
+  const feeAmount = feePercent > 0 && platformWallet
+    ? parseFloat((amount * (feePercent / 100)).toFixed(7))
+    : 0;
+
+  const txBuilder = new StellarSdk.TransactionBuilder(senderAccount, {
     fee: StellarSdk.BASE_FEE,
     networkPassphrase,
   })
@@ -79,13 +119,24 @@ async function sendPayment({ senderSecret, receiverPublicKey, amount, memo }) {
       StellarSdk.Operation.payment({
         destination: receiverPublicKey,
         asset: StellarSdk.Asset.native(),
-        amount: amount.toFixed(7),
+        amount: farmerAmount.toFixed(7),
       }),
     )
     .addMemo(StellarSdk.Memo.text(memo || "FarmersMarket"))
-    .setTimeout(30)
-    .build();
+    .setTimeout(30);
 
+  // Add platform fee operation atomically if configured
+  if (feeAmount > 0 && platformWallet) {
+    txBuilder.addOperation(
+      StellarSdk.Operation.payment({
+        destination: platformWallet,
+        asset: StellarSdk.Asset.native(),
+        amount: feeAmount.toFixed(7),
+      }),
+    );
+  }
+
+  const transaction = txBuilder.build();
   transaction.sign(senderKeypair);
   const result = await server.submitTransaction(transaction);
   return result.hash;
@@ -395,14 +446,157 @@ async function resolveFederationAddress(address, db) {
   }
 }
 
+async function getAllBalances(publicKey) {
+  try {
+    const account = await server.loadAccount(publicKey);
+    return account.balances.map((b) => ({
+      asset_type: b.asset_type,
+      asset_code: b.asset_type === 'native' ? 'XLM' : b.asset_code,
+      asset_issuer: b.asset_type === 'native' ? null : b.asset_issuer,
+      balance: parseFloat(b.balance),
+      limit: b.limit ? parseFloat(b.limit) : null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function addTrustline({ secret, assetCode, assetIssuer }) {
+  const keypair = StellarSdk.Keypair.fromSecret(secret);
+  const account = await server.loadAccount(keypair.publicKey());
+  const asset = new StellarSdk.Asset(assetCode, assetIssuer);
+
+  const tx = new StellarSdk.TransactionBuilder(account, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(StellarSdk.Operation.changeTrust({ asset }))
+    .setTimeout(30)
+    .build();
+
+  tx.sign(keypair);
+  const result = await server.submitTransaction(tx);
+  return result.hash;
+}
+
+async function removeTrustline({ secret, assetCode, assetIssuer }) {
+  const keypair = StellarSdk.Keypair.fromSecret(secret);
+  const account = await server.loadAccount(keypair.publicKey());
+  const asset = new StellarSdk.Asset(assetCode, assetIssuer);
+
+  // Check balance is zero before removing
+  const existing = account.balances.find(
+    (b) => b.asset_code === assetCode && b.asset_issuer === assetIssuer,
+  );
+  if (existing && parseFloat(existing.balance) > 0) {
+    const e = new Error('Cannot remove trustline with non-zero balance');
+    e.code = 'non_zero_balance';
+    throw e;
+  }
+
+  const tx = new StellarSdk.TransactionBuilder(account, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(StellarSdk.Operation.changeTrust({ asset, limit: '0' }))
+    .setTimeout(30)
+    .build();
+
+  tx.sign(keypair);
+  const result = await server.submitTransaction(tx);
+  return result.hash;
+function getPlatformFeeInfo(amount) {
+  const feePercent = parseFloat(process.env.PLATFORM_FEE_PERCENT || '0');
+  const platformWallet = process.env.PLATFORM_WALLET_PUBLIC_KEY || null;
+  if (!feePercent || !platformWallet) {
+    return { feePercent: 0, feeAmount: 0, farmerAmount: amount, platformWallet: null };
+  }
+  const feeAmount = parseFloat((amount * feePercent / 100).toFixed(7));
+  const farmerAmount = parseFloat((amount - feeAmount).toFixed(7));
+  return { feePercent, feeAmount, farmerAmount, platformWallet };
+}
+
+/**
+ * Find the best path and return the estimated source amount needed.
+ * Uses Horizon's /paths/strict-send to find available paths.
+ */
+async function getPathPaymentEstimate({ sourceAssetCode, sourceAssetIssuer, destPublicKey, destAmount }) {
+  const sourceAsset = sourceAssetCode === 'XLM'
+    ? StellarSdk.Asset.native()
+    : new StellarSdk.Asset(sourceAssetCode, sourceAssetIssuer);
+
+  const destAsset = StellarSdk.Asset.native();
+
+  // Use strict-receive: find cheapest source amount to deliver destAmount XLM
+  const paths = await server
+    .strictReceivePaths(sourceAsset, destAsset, String(parseFloat(destAmount).toFixed(7)))
+    .call();
+
+  if (!paths.records || paths.records.length === 0) {
+    const e = new Error(`No payment path found from ${sourceAssetCode} to XLM`);
+    e.code = 'no_path';
+    throw e;
+  }
+
+  const best = paths.records[0];
+  return {
+    sourceAmount: parseFloat(best.source_amount),
+    path: best.path,
+  };
+}
+
+/**
+ * PathPaymentStrictReceive: buyer pays in sourceAsset, farmer receives exactly destAmount XLM.
+ * sendMax is the maximum source asset the buyer is willing to spend (slippage guard).
+ */
+async function pathPayment({ senderSecret, sourceAssetCode, sourceAssetIssuer, sendMax, receiverPublicKey, destAmount, memo }) {
+  const keypair = StellarSdk.Keypair.fromSecret(senderSecret);
+  const account = await server.loadAccount(keypair.publicKey());
+
+  const sourceAsset = sourceAssetCode === 'XLM'
+    ? StellarSdk.Asset.native()
+    : new StellarSdk.Asset(sourceAssetCode, sourceAssetIssuer);
+
+  const destAsset = StellarSdk.Asset.native();
+
+  const tx = new StellarSdk.TransactionBuilder(account, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(
+      StellarSdk.Operation.pathPaymentStrictReceive({
+        sendAsset: sourceAsset,
+        sendMax: parseFloat(sendMax).toFixed(7),
+        destination: receiverPublicKey,
+        destAsset,
+        destAmount: parseFloat(destAmount).toFixed(7),
+      }),
+    )
+    .addMemo(StellarSdk.Memo.text(memo || 'FarmersMarket'))
+    .setTimeout(30)
+    .build();
+
+  tx.sign(keypair);
+  const result = await server.submitTransaction(tx);
+  return result.hash;
+}
+
 module.exports = {
   isTestnet,
   server,
   createWallet,
+  createWalletFromMnemonic,
+  deriveKeypairFromMnemonic,
   fundTestnetAccount,
   getBalance,
+  getAllBalances,
   sendPayment,
+  pathPayment,
+  getPathPaymentEstimate,
+  getPlatformFeeInfo,
   getTransactions,
+  addTrustline,
+  removeTrustline,
   createClaimableBalance,
   createPreorderClaimableBalance,
   claimBalance,

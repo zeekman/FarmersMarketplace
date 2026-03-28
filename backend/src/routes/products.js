@@ -130,7 +130,7 @@ router.get('/', async (req, res) => {
   const page   = Math.max(1, parseInt(req.query.page) || 1);
   const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
   const offset = (page - 1) * limit;
-  const { category, minPrice, maxPrice, seller, available = 'true' } = req.query;
+  const { category, minPrice, maxPrice, seller, available = 'true', lat, lng, radius } = req.query;
 
   const conditions = [];
   const params = [];
@@ -140,6 +140,19 @@ router.get('/', async (req, res) => {
   if (minPrice !== undefined) { const min = parseFloat(minPrice); if (!isNaN(min)) { conditions.push(`p.price >= $${params.length + 1}`); params.push(min); } }
   if (maxPrice !== undefined) { const max = parseFloat(maxPrice); if (!isNaN(max)) { conditions.push(`p.price <= $${params.length + 1}`); params.push(max); } }
   if (seller)     { conditions.push(`u.name ILIKE $${params.length + 1}`);         params.push(`%${seller}%`); }
+
+  // Haversine distance filter (radius in km)
+  const filterLat = parseFloat(lat);
+  const filterLng = parseFloat(lng);
+  const filterRadius = parseFloat(radius);
+  const hasGeoFilter = !isNaN(filterLat) && !isNaN(filterLng) && !isNaN(filterRadius) && filterRadius > 0;
+  if (hasGeoFilter) {
+    conditions.push(`u.latitude IS NOT NULL AND u.longitude IS NOT NULL`);
+    conditions.push(
+      `(6371 * acos(LEAST(1.0, cos(radians($${params.length + 1})) * cos(radians(u.latitude)) * cos(radians(u.longitude) - radians($${params.length + 2})) + sin(radians($${params.length + 1})) * sin(radians(u.latitude))))) <= $${params.length + 3}`
+    );
+    params.push(filterLat, filterLng, filterRadius);
+  }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -151,16 +164,17 @@ router.get('/', async (req, res) => {
 
   const dataParams = [...params, limit, offset];
   const { rows: products } = await db.query(
-    `SELECT p.*, u.name as farmer_name,
+    `SELECT p.*, u.name as farmer_name, u.latitude as farmer_lat, u.longitude as farmer_lng, u.farm_address as farmer_farm_address,
             ROUND(AVG(r.rating)::numeric, 1) as avg_rating,
             COUNT(r.id) as review_count
      FROM products p
      JOIN users u ON p.farmer_id = u.id
      LEFT JOIN reviews r ON r.product_id = p.id
      ${where}
-     GROUP BY p.id
-     ORDER BY p.created_at DESC LIMIT ? OFFSET ?`
-  ).all(...dataParams, limit, offset);
+     GROUP BY p.id, u.name, u.latitude, u.longitude, u.farm_address
+     ORDER BY p.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    dataParams
+  );
 
   res.json({
     success: true,
@@ -488,7 +502,7 @@ router.get('/:id/alert/status', auth, async (req, res) => {
 router.post('/', auth, validate.product, (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can list products', 'forbidden');
 
-  const { name, description, unit, category, image_url } = req.body;
+  const { name, description, unit, category, image_url, nutrition } = req.body;
   const price = parseFloat(req.body.price);
   const quantity = parseInt(req.body.quantity, 10);
 
@@ -510,7 +524,7 @@ router.post('/', auth, validate.product, (req, res) => {
       : null;
 
   const result = db.prepare(
-    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, is_preorder, preorder_delivery_date, low_stock_threshold) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, is_preorder, preorder_delivery_date, low_stock_threshold, nutrition) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     req.user.id,
     safeName,
@@ -523,6 +537,7 @@ router.post('/', auth, validate.product, (req, res) => {
     preorder.isPreorder ? 1 : 0,
     preorder.preorderDeliveryDate,
     parseInt(req.body.low_stock_threshold, 10) || 5,
+    nutrition ? JSON.stringify(nutrition) : null,
   );
 
   res.json({ success: true, id: result.lastInsertRowid, message: 'Product listed' });
@@ -545,13 +560,14 @@ router.patch('/:id', auth, (req, res) => {
     'low_stock_threshold',
     'is_preorder',
     'preorder_delivery_date',
+    'nutrition',
   ];
 
 // POST /api/products
 router.post('/', auth, validate.product, async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can list products', 'forbidden');
 
-  const { name, description, unit, category, image_url } = req.body;
+  const { name, description, unit, category, image_url, nutrition } = req.body;
   const price    = parseFloat(req.body.price);
   const quantity = parseInt(req.body.quantity, 10);
 
@@ -566,8 +582,8 @@ router.post('/', auth, validate.product, async (req, res) => {
   const safeImageUrl    = image_url && /^\/uploads\/[a-f0-9]+\.(jpg|jpeg|png|webp)$/i.test(image_url) ? image_url : null;
 
   const { rows } = await db.query(
-    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',
-    [req.user.id, safeName, safeDescription, safeCategory, price, quantity, safeUnit, safeImageUrl, parseInt(req.body.low_stock_threshold) || 5]
+    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold, nutrition) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id',
+    [req.user.id, safeName, safeDescription, safeCategory, price, quantity, safeUnit, safeImageUrl, parseInt(req.body.low_stock_threshold) || 5, nutrition ? JSON.stringify(nutrition) : null]
   );
   res.json({ success: true, id: rows[0].id, message: 'Product listed' });
 });
@@ -580,7 +596,7 @@ router.patch('/:id', auth, async (req, res) => {
   const product = rows[0];
   if (!product) return err(res, 404, 'Not found or not yours', 'not_found');
 
-  const allowed = ['name', 'description', 'price', 'quantity', 'unit', 'category', 'low_stock_threshold'];
+  const allowed = ['name', 'description', 'price', 'quantity', 'unit', 'category', 'low_stock_threshold', 'nutrition'];
   const updates = {};
   for (const key of allowed) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
@@ -618,6 +634,10 @@ router.patch('/:id', auth, async (req, res) => {
     }
   }
 
+  if (updates.nutrition !== undefined) {
+    updates.nutrition = updates.nutrition ? JSON.stringify(updates.nutrition) : null;
+  }
+
   const nextIsPreorder = updates.is_preorder !== undefined
     ? (updates.is_preorder === true || updates.is_preorder === 1 || updates.is_preorder === '1')
     : !!product.is_preorder;
@@ -649,6 +669,10 @@ router.patch('/:id', auth, async (req, res) => {
   const newQty       = updates.quantity ?? product.quantity;
   const newThreshold = updates.low_stock_threshold ?? product.low_stock_threshold ?? 5;
   if (newQty > newThreshold) updates.low_stock_alerted = 0;
+
+  if (updates.nutrition !== undefined) {
+    updates.nutrition = updates.nutrition ? JSON.stringify(updates.nutrition) : null;
+  }
 
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
@@ -866,6 +890,56 @@ router.patch('/:id/images/reorder', auth, async (req, res) => {
     [req.params.id]
   );
   res.json({ success: true, data: images });
+});
+
+// GET /api/products/:id/tiers - get price tiers for a product
+router.get('/:id/tiers', async (req, res) => {
+  const { rows } = await db.query(
+    'SELECT id, min_quantity, price_per_unit FROM price_tiers WHERE product_id = $1 ORDER BY min_quantity ASC',
+    [req.params.id]
+  );
+  res.json({ success: true, data: rows });
+});
+
+// POST /api/products/:id/tiers - add/update price tiers (farmer only)
+router.post('/:id/tiers', auth, async (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can manage price tiers', 'forbidden');
+
+  const { rows } = await db.query('SELECT * FROM products WHERE id = $1 AND farmer_id = $2', [req.params.id, req.user.id]);
+  if (!rows[0]) return err(res, 404, 'Product not found or not yours', 'not_found');
+
+  const { tiers } = req.body;
+  if (!Array.isArray(tiers)) return err(res, 400, 'tiers must be an array', 'validation_error');
+
+  // Validate tiers
+  const sortedTiers = tiers.sort((a, b) => a.min_quantity - b.min_quantity);
+  for (let i = 0; i < sortedTiers.length; i++) {
+    const tier = sortedTiers[i];
+    if (!tier.min_quantity || tier.min_quantity < 1 || !Number.isInteger(tier.min_quantity)) {
+      return err(res, 400, 'min_quantity must be a positive integer', 'validation_error');
+    }
+    if (!tier.price_per_unit || tier.price_per_unit <= 0) {
+      return err(res, 400, 'price_per_unit must be a positive number', 'validation_error');
+    }
+    if (i > 0 && tier.min_quantity <= sortedTiers[i-1].min_quantity) {
+      return err(res, 400, 'min_quantity values must be increasing', 'validation_error');
+    }
+  }
+
+  // Delete existing tiers and insert new ones
+  await db.query('DELETE FROM price_tiers WHERE product_id = $1', [req.params.id]);
+  for (const tier of sortedTiers) {
+    await db.query(
+      'INSERT INTO price_tiers (product_id, min_quantity, price_per_unit) VALUES ($1, $2, $3)',
+      [req.params.id, tier.min_quantity, tier.price_per_unit]
+    );
+  }
+
+  const { rows: newTiers } = await db.query(
+    'SELECT id, min_quantity, price_per_unit FROM price_tiers WHERE product_id = $1 ORDER BY min_quantity ASC',
+    [req.params.id]
+  );
+  res.json({ success: true, data: newTiers });
 });
 
 module.exports = router;

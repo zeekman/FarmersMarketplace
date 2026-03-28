@@ -1,0 +1,3 @@
+-- Undo Migration: 003_seed_phrase
+-- SQLite does not support DROP COLUMN in older versions; for Postgres:
+-- ALTER TABLE users DROP COLUMN IF EXISTS stellar_mnemonic;

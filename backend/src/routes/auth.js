@@ -3,12 +3,52 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const db = require('../db/schema');
-const { createWallet } = require('../utils/stellar');
+const { createWallet, getBalance } = require('../utils/stellar');
+const { createWalletFromMnemonic, deriveKeypairFromMnemonic } = require('../utils/stellar');
 const validate = require('../middleware/validate');
+const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 
 const ACCESS_TOKEN_TTL  = '15m';
 const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+
+// ── Mnemonic encryption helpers ──────────────────────────────────────────────
+// We derive a 32-byte key from the user's password using scrypt, then
+// AES-256-GCM encrypt the mnemonic. The salt + iv + authTag + ciphertext are
+// all stored together as a single hex string so the column is self-contained.
+
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, dkLen: 32 };
+
+async function encryptMnemonic(mnemonic, password) {
+  const salt = crypto.randomBytes(16);
+  const key  = await new Promise((resolve, reject) =>
+    crypto.scrypt(password, salt, SCRYPT_PARAMS.dkLen, { N: SCRYPT_PARAMS.N, r: SCRYPT_PARAMS.r, p: SCRYPT_PARAMS.p }, (e, k) => e ? reject(e) : resolve(k))
+  );
+  const iv     = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ct     = Buffer.concat([cipher.update(mnemonic, 'utf8'), cipher.final()]);
+  const tag    = cipher.getAuthTag();
+  // layout: salt(16) | iv(12) | tag(16) | ciphertext
+  return Buffer.concat([salt, iv, tag, ct]).toString('hex');
+}
+
+async function decryptMnemonic(encryptedHex, password) {
+  const buf  = Buffer.from(encryptedHex, 'hex');
+  const salt = buf.subarray(0, 16);
+  const iv   = buf.subarray(16, 28);
+  const tag  = buf.subarray(28, 44);
+  const ct   = buf.subarray(44);
+  const key  = await new Promise((resolve, reject) =>
+    crypto.scrypt(password, salt, SCRYPT_PARAMS.dkLen, { N: SCRYPT_PARAMS.N, r: SCRYPT_PARAMS.r, p: SCRYPT_PARAMS.p }, (e, k) => e ? reject(e) : resolve(k))
+  );
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  try {
+    return decipher.update(ct) + decipher.final('utf8');
+  } catch {
+    return null; // wrong password → auth tag mismatch
+  }
+}
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -104,7 +144,8 @@ router.post('/register', validate.register, async (req, res) => {
   const { name, email, password, role, ref } = req.body;
   try {
     const hashed = await bcrypt.hash(password, 12);
-    const wallet = createWallet();
+    const wallet = createWalletFromMnemonic();
+    const encryptedMnemonic = await encryptMnemonic(wallet.mnemonic, password);
     const referralCode = crypto.randomBytes(4).toString('hex').toUpperCase();
 
     let referredBy = null;
@@ -114,8 +155,8 @@ router.post('/register', validate.register, async (req, res) => {
     }
 
     const { rows } = await db.query(
-      'INSERT INTO users (name, email, password, role, stellar_public_key, stellar_secret_key, referral_code, referred_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
-      [name, email, hashed, role, wallet.publicKey, wallet.secretKey, referralCode, referredBy]
+      'INSERT INTO users (name, email, password, role, stellar_public_key, stellar_secret_key, stellar_mnemonic, referral_code, referred_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',
+      [name, email, hashed, role, wallet.publicKey, wallet.secretKey, encryptedMnemonic, referralCode, referredBy]
     );
     const userId = rows[0].id;
     const accessToken = signAccessToken({ id: userId, role });
@@ -256,6 +297,113 @@ router.post('/logout', async (req, res) => {
   }
   res.clearCookie('refreshToken', { path: '/api/auth' });
   res.json({ ok: true });
+});
+
+// DELETE /api/auth/account — self-service account deletion
+router.delete('/account', auth, async (req, res) => {
+  const force = req.query.force === 'true';
+
+  const { rows } = await db.query(
+    'SELECT stellar_public_key FROM users WHERE id = $1',
+    [req.user.id]
+  );
+  if (!rows[0]) return err(res, 404, 'User not found', 'not_found');
+
+  // Check Stellar balance — warn if above base reserve (1 XLM)
+  if (!force) {
+    const balance = await getBalance(rows[0].stellar_public_key);
+    if (balance > 1) {
+      return res.status(409).json({
+        success: false,
+        code: 'balance_warning',
+        message: 'Your Stellar wallet still has a balance. Withdraw your funds before deleting your account, or confirm deletion with ?force=true.',
+        balance,
+        publicKey: rows[0].stellar_public_key,
+      });
+    }
+  }
+
+  // Delete user — cascade handles related rows (orders, refresh_tokens, etc.)
+  await db.query('DELETE FROM users WHERE id = $1', [req.user.id]);
+
+  // Clear the refresh token cookie
+  res.clearCookie('refreshToken', { path: '/api/auth' });
+  res.json({ success: true, message: 'Account deleted' });
+/**
+ * POST /api/auth/seed-phrase  (password confirmation required)
+ * Returns the decrypted mnemonic ONCE per request. Never cached.
+ */
+router.post('/seed-phrase', auth, validate.confirmPassword, async (req, res) => {
+  const { password } = req.body;
+  const { rows } = await db.query(
+    'SELECT password, stellar_mnemonic FROM users WHERE id = $1',
+    [req.user.id]
+  );
+  const user = rows[0];
+  if (!user) return err(res, 404, 'User not found', 'not_found');
+
+  const valid = await bcrypt.compare(password, user.password);
+  if (!valid) return err(res, 401, 'Incorrect password', 'invalid_credentials');
+
+  if (!user.stellar_mnemonic) {
+    return err(res, 404, 'No seed phrase found for this account. It may have been created before this feature was added.', 'no_seed_phrase');
+  }
+
+  const mnemonic = await decryptMnemonic(user.stellar_mnemonic, password);
+  if (!mnemonic) return err(res, 500, 'Failed to decrypt seed phrase', 'decrypt_error');
+
+  // Never log or cache — return once
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ mnemonic });
+});
+
+/**
+ * POST /api/auth/recover
+ * Recover wallet access from a BIP39 seed phrase.
+ * Body: { email, password, mnemonic }
+ * - Verifies the derived public key matches the stored one
+ * - Issues a new session (access + refresh tokens)
+ */
+router.post('/recover', validate.recover, async (req, res) => {
+  const { email, password, mnemonic } = req.body;
+
+  const { rows } = await db.query(
+    'SELECT id, name, email, password, role, stellar_public_key, stellar_mnemonic FROM users WHERE email = $1',
+    [email]
+  );
+  const user = rows[0];
+  if (!user) return err(res, 401, 'Invalid credentials', 'invalid_credentials');
+
+  const validPassword = await bcrypt.compare(password, user.password);
+  if (!validPassword) return err(res, 401, 'Invalid credentials', 'invalid_credentials');
+
+  // Derive keypair from the provided mnemonic and verify it matches
+  let derived;
+  try {
+    derived = deriveKeypairFromMnemonic(mnemonic.trim());
+  } catch {
+    return err(res, 400, 'Invalid mnemonic phrase', 'invalid_mnemonic');
+  }
+
+  if (derived.publicKey !== user.stellar_public_key) {
+    return err(res, 401, 'Seed phrase does not match this account', 'mnemonic_mismatch');
+  }
+
+  // Re-encrypt mnemonic with current password (in case it was missing)
+  if (!user.stellar_mnemonic) {
+    const encryptedMnemonic = await encryptMnemonic(mnemonic.trim(), password);
+    await db.query('UPDATE users SET stellar_mnemonic = $1 WHERE id = $2', [encryptedMnemonic, user.id]);
+  }
+
+  const accessToken = signAccessToken({ id: user.id, role: user.role });
+  const rawRefresh = generateRefreshToken();
+  await storeRefreshToken(user.id, rawRefresh);
+
+  res.cookie('refreshToken', rawRefresh, COOKIE_OPTIONS);
+  res.json({
+    token: accessToken,
+    user: { id: user.id, name: user.name, email: user.email, role: user.role, publicKey: user.stellar_public_key },
+  });
 });
 
 module.exports = router;

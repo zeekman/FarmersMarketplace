@@ -15,16 +15,16 @@ const STATUS_ICON = { pending: '⏳', paid: '✅', processing: '⚙️', shipped
 const STATUS_COLOR = { paid: '#2d6a4f', pending: '#856404', processing: '#004085', shipped: '#0c5460', delivered: '#155724', failed: '#c0392b' };
 
 const s = {
-  page: { maxWidth: 900, margin: '0 auto', padding: 24 },
+  page: { maxWidth: 900, margin: '0 auto', padding: 16 },
   title: { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 24 },
-  grid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 24 },
   card: { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001' },
   label: { display: 'block', fontSize: 13, marginBottom: 4, color: '#555' },
-  input: { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 4, boxSizing: 'border-box' },
-  inputErr: { width: '100%', padding: '9px 12px', border: '1px solid #c0392b', borderRadius: 8, fontSize: 14, marginBottom: 4, boxSizing: 'border-box' },
+  input: { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, marginBottom: 4, boxSizing: 'border-box', minHeight: 44 },
+  inputErr: { width: '100%', padding: '9px 12px', border: '1px solid #c0392b', borderRadius: 8, fontSize: 16, marginBottom: 4, boxSizing: 'border-box', minHeight: 44 },
   fieldErr: { color: '#c0392b', fontSize: 12, marginBottom: 8 },
   textarea: { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 4, minHeight: 80, resize: 'vertical', boxSizing: 'border-box' },
-  btn: { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600 },
+  btn: { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, minHeight: 44 },
   product: { borderBottom: '1px solid #eee', padding: '12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   del: { background: '#fee', color: '#c0392b', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 },
   msg: { padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 14 },
@@ -64,6 +64,14 @@ const EMPTY_FORM = {
   category: 'other',
   is_preorder: false,
   preorder_delivery_date: '',
+  nutrition: {
+    calories: '',
+    protein: '',
+    carbs: '',
+    fat: '',
+    fiber: '',
+    vitamins: {},
+  },
 };
 
 import { useAuth } from '../context/AuthContext';
@@ -98,7 +106,7 @@ export default function Dashboard() {
   const fileInputRef = useRef(null);
 
   // profile state
-  const [profile, setProfile]       = useState({ bio: '', location: '', avatar_url: '', federation_name: '' });
+  const [profile, setProfile]       = useState({ bio: '', location: '', avatar_url: '', federation_name: '', latitude: '', longitude: '', farm_address: '' });
   const [profileMsg, setProfileMsg] = useState(null);
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState(null);
@@ -126,6 +134,62 @@ export default function Dashboard() {
   const [coupons, setCoupons] = useState([]);
   const [couponForm, setCouponForm] = useState({ code: '', discount_type: 'percent', discount_value: '', max_uses: '', expires_at: '' });
   const [couponMsg, setCouponMsg] = useState(null);
+
+  // Price tiers state
+  const [tiersProductId, setTiersProductId] = useState(null);
+  const [tiers, setTiers] = useState([]);
+  const [tiersMsg, setTiersMsg] = useState(null);
+
+  async function openTiers(productId) {
+    setTiersProductId(productId);
+    setTiersMsg(null);
+    try {
+      const res = await api.getProductTiers(productId);
+      setTiers(res.data ?? []);
+    } catch {
+      setTiers([]);
+    }
+  }
+
+  function closeTiers() {
+    setTiersProductId(null);
+    setTiers([]);
+    setTiersMsg(null);
+  }
+
+  async function handleSaveTiers() {
+    if (!tiersProductId) return;
+    setTiersMsg({ type: 'info', text: 'Saving...' });
+    try {
+      await api.updateProductTiers(tiersProductId, tiers);
+      setTiersMsg({ type: 'ok', text: 'Tiers updated successfully' });
+    } catch (e) {
+      setTiersMsg({ type: 'error', text: e.message || 'Failed to update tiers' });
+    }
+  }
+
+  function addTier() {
+    setTiers([...tiers, { min_quantity: (tiers.length > 0 ? tiers[tiers.length - 1].min_quantity + 1 : 2), price_per_unit: 0 }]);
+  }
+
+  function updateTier(index, field, value) {
+    const newTiers = [...tiers];
+    newTiers[index] = { ...newTiers[index], [field]: parseFloat(value) || 0 };
+    setTiers(newTiers);
+  }
+
+  function removeTier(index) {
+    setTiers(tiers.filter((_, i) => i !== index));
+  }
+  // Calendar editor state
+  const [calendarProductId, setCalendarProductId] = useState(null);
+  const [calendarProductName, setCalendarProductName] = useState('');
+  const [calendarWeeks, setCalendarWeeks] = useState([]);
+  const [calendarSaving, setCalendarSaving] = useState(false);
+  // Cooperative / multisig state
+  const [cooperatives, setCooperatives] = useState([]);
+  const [pendingTxs, setPendingTxs] = useState([]);
+  const [signingTxId, setSigningTxId] = useState(null);
 
   async function openGallery(productId) {
     setGalleryProductId(productId);
@@ -268,14 +332,16 @@ export default function Dashboard() {
     try {
       const [productsRes, salesRes, profileRes, bundlesRes, forecastRes] = await Promise.all([
       const [productsRes, salesRes, profileRes, bundlesRes, couponsRes] = await Promise.all([
+      const [productsRes, salesRes, profileRes, bundlesRes, couponsRes, coopsRes] = await Promise.all([
         api.getMyProducts().catch(() => ({ data: [] })),
         api.getSales().catch(() => ({ data: [] })),
         user?.id ? api.getFarmer(user.id).catch(() => ({})) : Promise.resolve({}),
         api.getBundles().catch(() => ({ data: [] })),
         api.getForecast().catch(() => ({ data: [] })),
         api.getMyCoupons().catch(() => ({ data: [] })),
+        api.getCooperatives().catch(() => ({ data: [] })),
       ]);
-      
+
       setProducts(productsRes.data ?? productsRes);
       setSales(salesRes.data ?? salesRes);
       setBundles((bundlesRes.data ?? []).filter(b => b.farmer_id === user?.id));
@@ -286,10 +352,18 @@ export default function Dashboard() {
       });
       setForecastByProduct(forecastMap);
       setCoupons(couponsRes.data ?? []);
-      
+      const coops = coopsRes.data ?? [];
+      setCooperatives(coops);
+
+      // Load pending transactions for all cooperatives
+      const allPending = await Promise.all(
+        coops.map(c => api.getPendingTxs(c.id).then(r => (r.data ?? []).map(t => ({ ...t, coopName: c.name }))).catch(() => []))
+      );
+      setPendingTxs(allPending.flat().filter(t => t.status === 'pending' && !t.alreadySigned));
+
       if (profileRes.data) {
         const d = profileRes.data;
-        setProfile({ bio: d.bio || '', location: d.location || '', avatar_url: d.avatar_url || '' });
+        setProfile({ bio: d.bio || '', location: d.location || '', avatar_url: d.avatar_url || '', federation_name: d.federation_name || '', latitude: d.latitude ?? '', longitude: d.longitude ?? '', farm_address: d.farm_address || '' });
         if (d.avatar_url) setAvatarPreview(d.avatar_url);
       }
     } catch (err) {
@@ -306,7 +380,7 @@ export default function Dashboard() {
       api.getFarmer(user.id)
         .then(res => {
           const d = res.data;
-          setProfile({ bio: d.bio || '', location: d.location || '', avatar_url: d.avatar_url || '', federation_name: d.federation_name || '' });
+          setProfile({ bio: d.bio || '', location: d.location || '', avatar_url: d.avatar_url || '', federation_name: d.federation_name || '', latitude: d.latitude ?? '', longitude: d.longitude ?? '', farm_address: d.farm_address || '' });
           if (d.avatar_url) setAvatarPreview(d.avatar_url);
         })
         .catch(() => {});
@@ -374,8 +448,12 @@ export default function Dashboard() {
         location: profile.location || undefined,
         avatar_url: finalAvatarUrl || undefined,
         federation_name: profile.federation_name || undefined,
+        latitude: profile.latitude !== '' ? parseFloat(profile.latitude) : null,
+        longitude: profile.longitude !== '' ? parseFloat(profile.longitude) : null,
+        farm_address: profile.farm_address || undefined,
       });
-      setProfile({ bio: res.data.bio || '', location: res.data.location || '', avatar_url: res.data.avatar_url || '', federation_name: res.data.federation_name || '' });
+      const d = res.data;
+      setProfile({ bio: d.bio || '', location: d.location || '', avatar_url: d.avatar_url || '', federation_name: d.federation_name || '', latitude: d.latitude ?? '', longitude: d.longitude ?? '', farm_address: d.farm_address || '' });
       setProfileMsg({ type: 'ok', text: t('dashboard.profileUpdated') });
     } catch (err) {
       setProfileMsg({ type: 'err', text: getErrorMessage(err) });
@@ -432,6 +510,15 @@ export default function Dashboard() {
     }
 
     try {
+      // Prepare nutrition data
+      const nutritionData = {};
+      if (form.nutrition.calories) nutritionData.calories = parseFloat(form.nutrition.calories);
+      if (form.nutrition.protein) nutritionData.protein = parseFloat(form.nutrition.protein);
+      if (form.nutrition.carbs) nutritionData.carbs = parseFloat(form.nutrition.carbs);
+      if (form.nutrition.fat) nutritionData.fat = parseFloat(form.nutrition.fat);
+      if (form.nutrition.fiber) nutritionData.fiber = parseFloat(form.nutrition.fiber);
+      // Vitamins can be added later if needed
+
       await api.createProduct({
         ...form,
         price: parseFloat(form.price),
@@ -439,6 +526,7 @@ export default function Dashboard() {
         is_preorder: form.is_preorder ? 1 : 0,
         preorder_delivery_date: form.is_preorder ? form.preorder_delivery_date : null,
         image_url: finalImageUrl || undefined,
+        nutrition: Object.keys(nutritionData).length > 0 ? nutritionData : undefined,
       });
       setMsg({ type: 'ok', text: t('dashboard.productListedOk') });
       setForm(EMPTY_FORM);
@@ -629,6 +717,134 @@ export default function Dashboard() {
               ))}
             </select>
 
+            <details style={{ marginTop: 16 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#2d6a4f', marginBottom: 8 }}>
+                Nutritional Information (Optional)
+              </summary>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginTop: 8 }}>
+                <div>
+                  <label style={s.label}>Calories</label>
+                  <input
+                    style={{ ...s.input, borderColor: formErrors.nutrition?.calories ? '#c0392b' : '#ddd' }}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.nutrition.calories}
+                    onChange={e => {
+                      setForm({
+                        ...form,
+                        nutrition: { ...form.nutrition, calories: e.target.value }
+                      });
+                      if (formErrors.nutrition?.calories) {
+                        setFormErrors({
+                          ...formErrors,
+                          nutrition: { ...formErrors.nutrition, calories: undefined }
+                        });
+                      }
+                    }}
+                    placeholder="e.g. 50"
+                  />
+                  {formErrors.nutrition?.calories && <div style={s.fieldErr}>{formErrors.nutrition.calories}</div>}
+                </div>
+                <div>
+                  <label style={s.label}>Protein (g)</label>
+                  <input
+                    style={{ ...s.input, borderColor: formErrors.nutrition?.protein ? '#c0392b' : '#ddd' }}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.nutrition.protein}
+                    onChange={e => {
+                      setForm({
+                        ...form,
+                        nutrition: { ...form.nutrition, protein: e.target.value }
+                      });
+                      if (formErrors.nutrition?.protein) {
+                        setFormErrors({
+                          ...formErrors,
+                          nutrition: { ...formErrors.nutrition, protein: undefined }
+                        });
+                      }
+                    }}
+                    placeholder="e.g. 2.5"
+                  />
+                  {formErrors.nutrition?.protein && <div style={s.fieldErr}>{formErrors.nutrition.protein}</div>}
+                </div>
+                <div>
+                  <label style={s.label}>Carbs (g)</label>
+                  <input
+                    style={{ ...s.input, borderColor: formErrors.nutrition?.carbs ? '#c0392b' : '#ddd' }}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.nutrition.carbs}
+                    onChange={e => {
+                      setForm({
+                        ...form,
+                        nutrition: { ...form.nutrition, carbs: e.target.value }
+                      });
+                      if (formErrors.nutrition?.carbs) {
+                        setFormErrors({
+                          ...formErrors,
+                          nutrition: { ...formErrors.nutrition, carbs: undefined }
+                        });
+                      }
+                    }}
+                    placeholder="e.g. 10"
+                  />
+                  {formErrors.nutrition?.carbs && <div style={s.fieldErr}>{formErrors.nutrition.carbs}</div>}
+                </div>
+                <div>
+                  <label style={s.label}>Fat (g)</label>
+                  <input
+                    style={{ ...s.input, borderColor: formErrors.nutrition?.fat ? '#c0392b' : '#ddd' }}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.nutrition.fat}
+                    onChange={e => {
+                      setForm({
+                        ...form,
+                        nutrition: { ...form.nutrition, fat: e.target.value }
+                      });
+                      if (formErrors.nutrition?.fat) {
+                        setFormErrors({
+                          ...formErrors,
+                          nutrition: { ...formErrors.nutrition, fat: undefined }
+                        });
+                      }
+                    }}
+                    placeholder="e.g. 1.2"
+                  />
+                  {formErrors.nutrition?.fat && <div style={s.fieldErr}>{formErrors.nutrition.fat}</div>}
+                </div>
+                <div>
+                  <label style={s.label}>Fiber (g)</label>
+                  <input
+                    style={{ ...s.input, borderColor: formErrors.nutrition?.fiber ? '#c0392b' : '#ddd' }}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={form.nutrition.fiber}
+                    onChange={e => {
+                      setForm({
+                        ...form,
+                        nutrition: { ...form.nutrition, fiber: e.target.value }
+                      });
+                      if (formErrors.nutrition?.fiber) {
+                        setFormErrors({
+                          ...formErrors,
+                          nutrition: { ...formErrors.nutrition, fiber: undefined }
+                        });
+                      }
+                    }}
+                    placeholder="e.g. 3"
+                  />
+                  {formErrors.nutrition?.fiber && <div style={s.fieldErr}>{formErrors.nutrition.fiber}</div>}
+                </div>
+              </div>
+            </details>
+
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0 10px', fontSize: 13, color: '#444' }}>
               <input
                 type="checkbox"
@@ -738,10 +954,21 @@ export default function Dashboard() {
                     {t('dashboard.photos')}
                   </button>
                   <button
-                    style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#6c3483' }}
-                    onClick={() => { setQrProductId(p.id); setQrProductName(p.name); }}
+                    style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#17a2b8' }}
+                    onClick={() => tiersProductId === p.id ? closeTiers() : openTiers(p.id)}
                   >
-                    {t('dashboard.qr')}
+                    {t('dashboard.tiers')}
+                  </button>
+                  <button
+                    style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#1a6b8a' }}
+                    onClick={async () => {
+                      const res = await api.getCalendar(p.id).catch(() => ({ data: [] }));
+                      setCalendarWeeks(res.data ?? []);
+                      setCalendarProductId(p.id);
+                      setCalendarProductName(p.name);
+                    }}
+                  >
+                    📅 Calendar
                   </button>
                   <label style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#1f6f8b', cursor: 'pointer' }}>
                     {videoUploadingByProduct[p.id] ? 'Uploading...' : '🎬 Video'}
@@ -807,6 +1034,74 @@ export default function Dashboard() {
                       />
                     </>
                   )}
+                </div>
+              )}
+
+              {/* Inline tiers manager */}
+              {tiersProductId === p.id && (
+                <div style={s.galleryPanel}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#2d6a4f' }}>
+                    {t('dashboard.priceTiers')}
+                    <span style={{ fontWeight: 400, color: '#888', marginLeft: 8 }}>{t('dashboard.tiersHint')}</span>
+                  </div>
+                  {tiersMsg && <div style={{ fontSize: 12, color: tiersMsg.type === 'ok' ? '#2d6a4f' : tiersMsg.type === 'error' ? '#c0392b' : '#856404', marginBottom: 8 }}>{tiersMsg.text}</div>}
+                  <div style={{ marginBottom: 8 }}>
+                    {tiers.length === 0 ? (
+                      <div style={{ color: '#888', fontSize: 12 }}>{t('dashboard.noTiers')}</div>
+                    ) : (
+                      <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid #ddd' }}>
+                            <th style={{ textAlign: 'left', padding: '4px 0', fontWeight: 600 }}>{t('dashboard.minQuantity')}</th>
+                            <th style={{ textAlign: 'left', padding: '4px 0', fontWeight: 600 }}>{t('dashboard.pricePerUnit')}</th>
+                            <th style={{ width: 60 }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tiers.map((tier, index) => (
+                            <tr key={index} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                              <td style={{ padding: '4px 0' }}>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={tier.min_quantity}
+                                  onChange={e => updateTier(index, 'min_quantity', e.target.value)}
+                                  style={{ ...s.input, width: 80, marginBottom: 0, padding: '4px 6px', fontSize: 12 }}
+                                />
+                              </td>
+                              <td style={{ padding: '4px 0' }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={tier.price_per_unit}
+                                  onChange={e => updateTier(index, 'price_per_unit', e.target.value)}
+                                  style={{ ...s.input, width: 80, marginBottom: 0, padding: '4px 6px', fontSize: 12 }}
+                                /> XLM
+                              </td>
+                              <td style={{ padding: '4px 0' }}>
+                                <button style={s.imgDelBtn} onClick={() => removeTier(index)}>✕</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button
+                      style={{ ...s.btn, fontSize: 12, padding: '6px 14px', background: '#28a745' }}
+                      onClick={addTier}
+                    >
+                      {t('dashboard.addTier')}
+                    </button>
+                    <button
+                      style={{ ...s.btn, fontSize: 12, padding: '6px 14px', background: '#007bff' }}
+                      onClick={handleSaveTiers}
+                    >
+                      {t('dashboard.saveTiers')}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1060,6 +1355,48 @@ export default function Dashboard() {
             maxLength={100}
           />
 
+          <label style={s.label}>Farm Address <span style={{ color: '#aaa', fontWeight: 400 }}>(optional · shown on map)</span></label>
+          <input
+            style={s.input}
+            placeholder="e.g. 123 Farm Road, Nairobi, Kenya"
+            value={profile.farm_address || ''}
+            onChange={e => setProfile(p => ({ ...p, farm_address: e.target.value }))}
+            maxLength={200}
+          />
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={s.label}>Latitude <span style={{ color: '#aaa', fontWeight: 400 }}>(optional)</span></label>
+              <input
+                style={s.input}
+                type="number"
+                step="any"
+                min="-90"
+                max="90"
+                placeholder="e.g. -1.2921"
+                value={profile.latitude}
+                onChange={e => setProfile(p => ({ ...p, latitude: e.target.value }))}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={s.label}>Longitude <span style={{ color: '#aaa', fontWeight: 400 }}>(optional)</span></label>
+              <input
+                style={s.input}
+                type="number"
+                step="any"
+                min="-180"
+                max="180"
+                placeholder="e.g. 36.8219"
+                value={profile.longitude}
+                onChange={e => setProfile(p => ({ ...p, longitude: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>
+            💡 Tip: Find your coordinates at{' '}
+            <a href="https://www.latlong.net" target="_blank" rel="noopener noreferrer" style={{ color: '#2d6a4f' }}>latlong.net</a>
+          </div>
+
           <label style={s.label}>{t('dashboard.bio')}</label>
           <textarea
             style={s.textarea}
@@ -1135,6 +1472,43 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Pending Multi-sig Signature Requests */}
+      {pendingTxs.length > 0 && (
+        <div style={{ ...s.card, border: '1px solid #f9a825', background: '#fffde7' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#e65100', marginBottom: 12 }}>
+            🔏 Pending Signature Requests ({pendingTxs.length})
+          </div>
+          {pendingTxs.map(tx => (
+            <div key={tx.id} style={{ borderBottom: '1px solid #ffe082', padding: '10px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{tx.coopName} — {tx.amount} XLM</div>
+                <div style={{ fontSize: 12, color: '#888' }}>To: {tx.destination?.slice(0, 12)}… · {tx.signatures.length} signature(s) collected</div>
+                <div style={{ fontSize: 11, color: '#aaa' }}>Expires: {new Date(tx.expires_at).toLocaleString()}</div>
+              </div>
+              <button
+                style={{ ...s.btn, fontSize: 13, padding: '6px 14px', background: signingTxId === tx.id ? '#888' : '#2d6a4f' }}
+                disabled={signingTxId === tx.id}
+                onClick={async () => {
+                  setSigningTxId(tx.id);
+                  try {
+                    const res = await api.signPendingTx(tx.id);
+                    if (res.submitted) alert(`✅ Transaction submitted! TX: ${res.txHash}`);
+                    else alert(`Signature added (${res.signaturesCollected}/${res.required} required)`);
+                    load();
+                  } catch (e) {
+                    alert(`Error: ${e.message}`);
+                  } finally {
+                    setSigningTxId(null);
+                  }
+                }}
+              >
+                {signingTxId === tx.id ? 'Signing…' : '✍️ Sign'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* QR Code Modal */}
       {qrProductId && (
         <div
@@ -1167,6 +1541,40 @@ export default function Dashboard() {
                 {t('dashboard.close')}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Availability Calendar Modal */}
+      {calendarProductId && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={() => setCalendarProductId(null)}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, maxWidth: 480, width: '95%', boxShadow: '0 8px 32px #0003' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: '#2d6a4f', marginBottom: 4 }}>📅 Availability Calendar</div>
+            <div style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>{calendarProductName}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+              {calendarWeeks.map(w => (
+                <button key={w.week_start}
+                  onClick={async () => {
+                    setCalendarSaving(true);
+                    const newAvail = !w.available;
+                    await api.setCalendarWeek(calendarProductId, { week_start: w.week_start, available: newAvail }).catch(() => {});
+                    setCalendarWeeks(prev => prev.map(x => x.week_start === w.week_start ? { ...x, available: newAvail } : x));
+                    setCalendarSaving(false);
+                  }}
+                  disabled={calendarSaving}
+                  style={{
+                    padding: '6px 12px', borderRadius: 8, fontSize: 12, cursor: 'pointer',
+                    border: '1px solid ' + (w.available ? '#2d6a4f' : '#ddd'),
+                    background: w.available ? '#d8f3dc' : '#f5f5f5',
+                    color: w.available ? '#2d6a4f' : '#aaa', fontWeight: 600,
+                  }}>
+                  {w.available ? '✓' : '✗'} {new Date(w.week_start + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>Click a week to toggle availability.</div>
+            <button style={{ ...s.btn, background: '#888', fontSize: 13, padding: '8px 18px' }} onClick={() => setCalendarProductId(null)}>Close</button>
           </div>
         </div>
       )}

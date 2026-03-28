@@ -86,6 +86,7 @@ try { db.exec(`ALTER TABLE users ADD COLUMN referral_code TEXT UNIQUE`); } catch
 try { db.exec(`ALTER TABLE users ADD COLUMN federation_name TEXT UNIQUE`); } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN referred_by INTEGER REFERENCES users(id)`); } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN referral_bonus_sent INTEGER DEFAULT 0`); } catch {}
+try { db.exec(`ALTER TABLE users ADD COLUMN stellar_mnemonic TEXT`); } catch {}
 try { db.exec(`ALTER TABLE products ADD COLUMN low_stock_threshold INTEGER DEFAULT 5`); } catch {}
 try { db.exec(`ALTER TABLE products ADD COLUMN low_stock_alerted INTEGER DEFAULT 0`); } catch {}
   module.exports = pg;
@@ -178,6 +179,7 @@ try { db.exec(`ALTER TABLE products ADD COLUMN low_stock_alerted INTEGER DEFAULT
     `ALTER TABLE users ADD COLUMN federation_name TEXT UNIQUE`,
     `ALTER TABLE users ADD COLUMN referred_by INTEGER REFERENCES users(id)`,
     `ALTER TABLE users ADD COLUMN referral_bonus_sent INTEGER DEFAULT 0`,
+    `ALTER TABLE users ADD COLUMN stellar_mnemonic TEXT`,
     `CREATE TABLE IF NOT EXISTS product_images (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       product_id INTEGER NOT NULL,
@@ -267,8 +269,15 @@ try {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(user_id, product_id),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
-    )`,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE    )`,
+    `CREATE TABLE IF NOT EXISTS price_tiers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      min_quantity INTEGER NOT NULL CHECK(min_quantity > 0),
+      price_per_unit REAL NOT NULL CHECK(price_per_unit > 0),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+      UNIQUE(product_id, min_quantity)    )`,
     `CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
       name, description, content='products', content_rowid='id'
     )`,
@@ -387,6 +396,75 @@ try {
   `);
 } catch (err) {
   console.error('[DB] Failed to create bundles tables:', err.message);
+}
+
+// account_alerts table — placeholder kept for branch compatibility
+// availability_calendar table
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS availability_calendar (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      week_start TEXT NOT NULL,
+      available  INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(product_id, week_start),
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    );
+  `);
+} catch (err) {
+  console.error('[DB] Failed to create availability_calendar table:', err.message);
+// cooperatives + multisig tables
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cooperatives (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      name               TEXT NOT NULL,
+      stellar_public_key TEXT,
+      stellar_secret_key TEXT,
+      multisig_threshold INTEGER NOT NULL DEFAULT 1,
+      created_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS cooperative_members (
+      cooperative_id INTEGER NOT NULL,
+      user_id        INTEGER NOT NULL,
+      PRIMARY KEY (cooperative_id, user_id),
+      FOREIGN KEY (cooperative_id) REFERENCES cooperatives(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id)        REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS pending_transactions (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      cooperative_id INTEGER NOT NULL,
+      initiator_id   INTEGER NOT NULL,
+      xdr            TEXT NOT NULL,
+      amount         REAL NOT NULL,
+      destination    TEXT NOT NULL,
+      memo           TEXT,
+      signatures     TEXT NOT NULL DEFAULT '[]',
+      status         TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','submitted','expired','cancelled')),
+      expires_at     DATETIME NOT NULL,
+      created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (cooperative_id) REFERENCES cooperatives(id) ON DELETE CASCADE,
+      FOREIGN KEY (initiator_id)   REFERENCES users(id)
+    );
+  `);
+} catch (err) {
+  console.error('[DB] Failed to create cooperative tables:', err.message);
+// account_alerts table
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS account_alerts (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      type       TEXT NOT NULL,
+      message    TEXT NOT NULL,
+      read_at    DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+} catch (err) {
+  console.error('[DB] Failed to create account_alerts table:', err.message);
 }
 
 module.exports = db;

@@ -3,6 +3,25 @@ const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 
+// Get the best matching tier price for a quantity, or base price if no tiers
+async function getTierPrice(productId, quantity) {
+  const { rows: tiers } = await db.query(
+    'SELECT min_quantity, price_per_unit FROM price_tiers WHERE product_id = $1 ORDER BY min_quantity DESC',
+    [productId]
+  );
+
+  // Find the highest min_quantity that is <= quantity
+  for (const tier of tiers) {
+    if (quantity >= tier.min_quantity) {
+      return tier.price_per_unit;
+    }
+  }
+
+  // No tier matches, return base price
+  const { rows: productRows } = await db.query('SELECT price FROM products WHERE id = $1', [productId]);
+  return productRows[0].price;
+}
+
 // Resolve a coupon row and validate it against a farmer + total
 function resolveCoupon(code, farmerId) {
   const coupon = db.prepare('SELECT * FROM coupons WHERE code = ?').get(code.toUpperCase());
@@ -63,15 +82,17 @@ router.delete('/:id', auth, (req, res) => {
 });
 
 // POST /api/coupons/validate — buyer checks a coupon for a product
-router.post('/validate', auth, (req, res) => {
+router.post('/validate', auth, async (req, res) => {
   const { code, product_id } = req.body;
   if (!code || !product_id) return err(res, 400, 'code and product_id are required', 'validation_error');
 
-  const product = db.prepare('SELECT id, price, farmer_id FROM products WHERE id = ?').get(product_id);
+  const { rows: prodRows } = await db.query('SELECT id, price, farmer_id FROM products WHERE id = $1', [product_id]);
+  const product = prodRows[0];
   if (!product) return err(res, 404, 'Product not found', 'not_found');
 
   const quantity = parseInt(req.body.quantity) || 1;
-  const subtotal = product.price * quantity;
+  const unitPrice = await getTierPrice(product_id, quantity);
+  const subtotal = unitPrice * quantity;
 
   const { coupon, error, code: errCode } = resolveCoupon(code, product.farmer_id);
   if (error) return err(res, 400, error, errCode);
