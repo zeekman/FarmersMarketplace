@@ -103,6 +103,8 @@ module.exports = {
 
   waitlist: validate(z.object({
     quantity: z.coerce.number().int().positive('quantity must be a positive integer').max(1000, 'quantity cannot exceed 1000 units'),
+  })),
+
   cropAlert: validate(z.object({
     alert_type: z.enum(['pest', 'disease', 'weather', 'other']),
     description: z.string().min(10, 'description must be at least 10 characters').max(1000, 'description must be 1000 characters or fewer'),
@@ -110,6 +112,8 @@ module.exports = {
     latitude: z.coerce.number().min(-90).max(90).optional(),
     longitude: z.coerce.number().min(-180).max(180).optional(),
     severity: z.enum(['low', 'medium', 'high']).optional(),
+  })),
+
   confirmPassword: validate(z.object({
     password: z.string().min(1, 'password is required'),
   })),

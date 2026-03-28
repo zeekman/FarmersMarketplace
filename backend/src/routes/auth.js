@@ -329,6 +329,8 @@ router.delete('/account', auth, async (req, res) => {
   // Clear the refresh token cookie
   res.clearCookie('refreshToken', { path: '/api/auth' });
   res.json({ success: true, message: 'Account deleted' });
+});
+
 /**
  * POST /api/auth/seed-phrase  (password confirmation required)
  * Returns the decrypted mnemonic ONCE per request. Never cached.

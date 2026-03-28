@@ -3,10 +3,8 @@ const jwt = require('jsonwebtoken');
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
-const { getBalance, getTransactions, fundTestnetAccount, sendPayment, server } = require('../utils/stellar');
 const stellar = require('../utils/stellar');
-const { getBalance, getAllBalances, getTransactions, fundTestnetAccount, sendPayment, addTrustline, removeTrustline } = stellar;
-const { lookupFederationAddress } = stellar;
+const { getBalance, getAllBalances, getTransactions, fundTestnetAccount, sendPayment, addTrustline, removeTrustline, lookupFederationAddress, server } = stellar;
 const { err } = require('../middleware/error');
 
 /**
@@ -188,36 +186,6 @@ router.get('/stream', (req, res) => {
   req.on('close', cleanup);
 });
 
-// POST /api/wallet/fund - testnet only
-router.post('/fund', auth, async (req, res) => {
-  if (process.env.STELLAR_NETWORK !== 'testnet') return err(res, 400, 'Only available on testnet', 'testnet_only');
-
-  const user = db.prepare('SELECT stellar_public_key FROM users WHERE id = ?').get(req.user.id);
-/**
- * @swagger
- * /api/wallet/fund:
- *   post:
- *     summary: Fund wallet via Stellar Friendbot (testnet only)
- *     tags: [Wallet]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Account funded with 10,000 XLM
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean }
- *                 message: { type: string }
- *                 balance: { type: number }
- *       400:
- *         description: Only available on testnet
- *         content:
- *           application/json:
- *             schema: { $ref: '#/components/schemas/Error' }
- */
 // POST /api/wallet/fund
 router.post('/fund', auth, async (req, res) => {
   if (!stellar.isTestnet) return err(res, 400, 'Only available on testnet', 'testnet_only');
@@ -254,7 +222,6 @@ router.post('/send', auth, validate.sendXLM, async (req, res) => {
       amount,
       memo: memo || '',
     });
-    const txHash = await sendPayment({ senderSecret: user.stellar_secret_key, receiverPublicKey: destination, amount, memo: memo || '' });
     res.json({ txHash, amount, destination, memo: memo || null });
   } catch (e) {
     const stellarMsg = e?.response?.data?.extras?.result_codes?.operations?.[0] || e.message;

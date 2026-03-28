@@ -61,15 +61,7 @@ router.get('/fee-preview', (req, res) => {
 });
 
 // POST /api/orders - buyer places + pays for an order
-router.post('/', auth, validate.order, async (req, res) => {
-  if (req.user.role !== 'buyer') {
-    return err(res, 403, 'Only buyers can place orders', 'forbidden');
-  }
-
-const { sendPayment, pathPayment, getPathPaymentEstimate, getBalance, createClaimableBalance, claimBalance } = require('../utils/stellar');
-const { sendOrderEmails, sendStatusUpdateEmail, sendLowStockAlert } = require('../utils/mailer');
-const { err } = require('../middleware/error');
-const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
+// (implementation below after swagger docs)
 
 /**
  * @swagger
@@ -130,13 +122,14 @@ const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
 router.post('/', auth, validate.order, async (req, res) => {
   if (req.user.role !== 'buyer') return err(res, 403, 'Only buyers can place orders', 'forbidden');
 
-  const { product_id, address_id } = req.body;
-  const useSorobanEscrow = Boolean(req.body.use_soroban_escrow);
   const { product_id, address_id, coupon_code } = req.body;
+  const useSorobanEscrow = Boolean(req.body.use_soroban_escrow);
   const quantity = parseInt(req.body.quantity, 10);
   if (!product_id || Number.isNaN(quantity) || quantity < 1) {
     return err(res, 400, 'product_id and a positive quantity are required', 'validation_error');
   }
+
+  const idempotencyKey = req.headers['x-idempotency-key'];
   if (idempotencyKey) {
     const cached = getCachedResponse(idempotencyKey);
     if (cached) {
@@ -163,53 +156,12 @@ router.post('/', auth, validate.order, async (req, res) => {
   );
   const buyer = buyerRows[0];
 
-  const unitPrice = await getTierPrice(product_id, quantity);
-  const subtotal = unitPrice * quantity;
-  let discount = 0;
-  let appliedCoupon = null;
-
-  if (coupon_code) {
-    const { coupon, error, code: errCode } = resolveCoupon(coupon_code, product.farmer_id);
-    if (error) return err(res, 400, error, errCode);
-    discount = calcDiscount(coupon, subtotal);
-    appliedCoupon = coupon;
-  }
-
-  const totalPrice = parseFloat((subtotal - discount).toFixed(7));
-  const balance = await getBalance(buyer.stellar_public_key);
-  const required = totalPrice + 0.00001;
-  if (balance < required) {
-    return res.status(402).json({
-      success: false,
-      message: 'Insufficient XLM balance',
-      code: 'insufficient_balance',
-      required: required.toFixed(7),
-      available: balance.toFixed(7),
-    });
-  }
-
-  const reserveStock = db.transaction((buyerId, productId, qty, total, addressId) => {
-    const deducted = db.prepare(
-      'UPDATE products SET quantity = quantity - ? WHERE id = ? AND quantity >= ?'
-    ).run(qty, productId, qty);
-
-    if (deducted.changes === 0) throw new Error('Insufficient stock');
-
-    const order = db.prepare(
-      'INSERT INTO orders (buyer_id, product_id, quantity, total_price, status, address_id) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(buyerId, productId, qty, total, 'pending', addressId || null);
-
-    return order.lastInsertRowid;
-  });
-
-  let orderId;
-  try {
-    orderId = reserveStock(req.user.id, product_id, quantity, totalPrice, address_id);
-  } catch (e) {
-    return err(res, 400, e.message, 'insufficient_stock');
-  }
-  if (balance < totalPrice + 0.00001)
-    return res.status(402).json({ success: false, message: 'Insufficient XLM balance', code: 'insufficient_balance', required: (totalPrice + 0.00001).toFixed(7), available: balance.toFixed(7) });
+  // PostgreSQL: fetch product, buyer, compute total
+  const { rows: buyerRows } = await db.query(
+    'SELECT id, name, email, stellar_public_key, stellar_secret_key, referred_by, referral_bonus_sent FROM users WHERE id = $1',
+    [req.user.id]
+  );
+  const buyer = buyerRows[0];
 
   // PostgreSQL: fetch product, buyer, compute total
   const { rows: pRows } = await db.query(

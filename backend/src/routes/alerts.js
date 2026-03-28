@@ -107,8 +107,6 @@ async function notifyNearbyFarmers(alert) {
   }
 }
 
-const { err } = require('../middleware/error');
-
 // GET /api/wallet/alerts — unread alerts for the authenticated user
 router.get('/alerts', auth, async (req, res) => {
   const { rows } = await db.query(

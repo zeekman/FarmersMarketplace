@@ -398,6 +398,7 @@ export const api = {
   adminGetUsers: (page = 1) => request(`/admin/users?page=${page}`),
   adminDeactivateUser: (id) => request(`/admin/users/${id}`, { method: 'DELETE' }),
   adminGetStats: () => request('/admin/stats'),
+  getContractState: (contractId, prefix) => request(`/contracts/${contractId}/state${prefix ? `?prefix=${encodeURIComponent(prefix)}` : ''}`),
   getWallet: function() { return request('/wallet'); },
   getTransactions: function() { return request('/wallet/transactions'); },
   fundWallet: function() { return request('/wallet/fund', { method: 'POST' }); },
