@@ -1,35 +1,23 @@
-const router = require("express").Router();
-const rateLimit = require("express-rate-limit");
-
-const authMax = parseInt(process.env.RATE_LIMIT_AUTH_MAX || "10");
-const generalMax = parseInt(process.env.RATE_LIMIT_GENERAL_MAX || "100");
+const router = require('express').Router();
+const rateLimit = require('express-rate-limit');
 
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, max: authMax,
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_AUTH_MAX || '10'),
   standardHeaders: true, legacyHeaders: false,
   message: { success: false, error: 'Too many attempts, try again later', code: 'rate_limited' },
 });
 const generalLimiter = rateLimit({
-  windowMs: 60 * 1000, max: generalMax,
+  windowMs: 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_GENERAL_MAX || '100'),
   standardHeaders: true, legacyHeaders: false,
   message: { success: false, error: 'Too many requests, slow down', code: 'rate_limited' },
 });
-
-const orderMax   = parseInt(process.env.RATE_LIMIT_ORDER_MAX   || '10');
-
 const orderLimiter = rateLimit({
-  windowMs: 60 * 1000, max: 10,
-  standardHeaders: true, legacyHeaders: false,
   windowMs: 60 * 1000,
   max: parseInt(process.env.RATE_LIMIT_ORDER_MAX || '10'),
-  max: orderMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: "Too many orders, slow down",
-    code: "rate_limited",
-  },
+  standardHeaders: true, legacyHeaders: false,
+  message: { success: false, error: 'Too many orders, slow down', code: 'rate_limited' },
 });
 const fundLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, max: 5,
@@ -37,42 +25,57 @@ const fundLimiter = rateLimit({
   message: { success: false, error: 'Funding limit reached, try again in an hour', code: 'rate_limited' },
 });
 const sendLimiter = rateLimit({
-  windowMs: 60 * 1000, max: 5,
+  windowMs: 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_SEND_MAX || '5'),
   standardHeaders: true, legacyHeaders: false,
   message: { success: false, error: 'Too many send requests, slow down', code: 'rate_limited' },
 });
 
-// Health checks — exempt from rate limiting
+// Health checks
 router.get('/api/health',    (_, res) => res.json({ status: 'ok' }));
 router.get('/api/v1/health', (_, res) => res.json({ status: 'ok', version: 'v1' }));
 
-// Apply general limiter to all /api/* routes
+// Rate limiters
 router.use('/api', generalLimiter);
-
-// Stricter auth limiter
-router.use('/api/v1/auth/login',    authLimiter);
-router.use('/api/v1/auth/register', authLimiter);
 router.use('/api/auth/login',       authLimiter);
 router.use('/api/auth/register',    authLimiter);
 router.use('/api/auth/refresh',     authLimiter);
+router.use('/api/v1/auth/login',    authLimiter);
+router.use('/api/v1/auth/register', authLimiter);
+router.use('/api/orders',           orderLimiter);
+router.use('/api/v1/orders',        orderLimiter);
+router.use('/api/wallet/fund',      fundLimiter);
+router.use('/api/v1/wallet/fund',   fundLimiter);
+router.use('/api/wallet/send',      sendLimiter);
 
-// Resource-specific limiters
-router.use('/api/v1/orders',      orderLimiter);
-router.use('/api/orders',         orderLimiter);
-router.use('/api/v1/wallet/fund', fundLimiter);
-router.use('/api/wallet/fund',    fundLimiter);
-router.use('/api/wallet/send',    sendLimiter);
+// Routes
+router.use('/api/auth',          require('./auth'));
+router.use('/api/products',      require('./products'));
+router.use('/api/orders',        require('./orders'));
+router.use('/api/wallet',        require('./wallet'));
+router.use('/api/analytics',     require('./analytics'));
+router.use('/api/admin',         require('./admin'));
+router.use('/api/farmers',       require('./farmers'));
+router.use('/api/rates',         require('./rates'));
+router.use('/api/favorites',     require('./favorites'));
+router.use('/api/addresses',     require('./addresses'));
+router.use('/api/messages',      require('./messages'));
+router.use('/api/contracts',     require('./contracts'));
+router.use('/api/products/bulk', require('./bulkUpload'));
+router.use('/api',               require('./reviews'));
 
-// Versioned routes
-router.use('/api/v1/auth',     require('./auth'));
-router.use('/api/v1/products', require('./products'));
-router.use('/api/v1/orders',   require('./orders'));
-router.use('/api/v1/wallet',   require('./wallet'));
-router.use('/api/v1/farmers',  require('./farmers'));
-router.use('/api/v1/rates',    require('./rates'));
-router.use('/api/v1',          require('./reviews'));
+// Versioned aliases
+router.use('/api/v1/auth',      require('./auth'));
+router.use('/api/v1/products',  require('./products'));
+router.use('/api/v1/orders',    require('./orders'));
+router.use('/api/v1/wallet',    require('./wallet'));
+router.use('/api/v1/farmers',   require('./farmers'));
+router.use('/api/v1/rates',     require('./rates'));
 router.use('/api/v1/favorites', require('./favorites'));
+router.use('/api/v1',           require('./reviews'));
 
+// QR code endpoint
+router.use('/api/products', require('./market'));
 // Non-versioned routes
 router.use('/api/auth',          require('./auth'));
 router.use('/api/products',      require('./products'));
@@ -103,15 +106,16 @@ router.use('/api',           require('./reviews'));
 router.use('/api/products',  require('./market'));
 
 // Stellar federation
-router.use('/federation',    require('./federation'));
+router.use('/federation', require('./federation'));
 
-// /.well-known/stellar.toml
 router.get('/.well-known/stellar.toml', (req, res) => {
-  const domain = process.env.FEDERATION_DOMAIN || process.env.FRONTEND_URL || 'http://localhost:5173';
   const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 4000}`;
+  const passphrase = process.env.STELLAR_NETWORK === 'mainnet'
+    ? 'Public Global Stellar Network ; September 2015'
+    : 'Test SDF Network ; September 2015';
   res.setHeader('Content-Type', 'text/plain');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.send(`# Farmers Marketplace Stellar TOML\nFEDERATION_SERVER="${backendUrl}/federation"\nNETWORK_PASSPHRASE="${process.env.STELLAR_NETWORK === 'mainnet' ? 'Public Global Stellar Network ; September 2015' : 'Test SDF Network ; September 2015'}"\n`);
+  res.send(`FEDERATION_SERVER="${backendUrl}/federation"\nNETWORK_PASSPHRASE="${passphrase}"\n`);
 });
 
 // Legacy routes

@@ -1,31 +1,29 @@
 const jwt = require('jsonwebtoken');
-const { request, app, mockGet, mockRun, mockAll, mockTransaction } = require('./setup');
+const { request, app, mockQuery, getCsrf } = require('./setup');
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+});
 
 const SECRET = process.env.JWT_SECRET || 'secret';
 const authToken = (id = 1, role = 'farmer') => jwt.sign({ id, role }, SECRET);
 
-// Helper: fetch a real CSRF token from the endpoint
 async function fetchCsrfToken() {
   const res = await request(app).get('/api/csrf-token');
   expect(res.status).toBe(200);
   expect(res.body.csrfToken).toBeDefined();
-  // Extract the Set-Cookie header value
   const setCookie = res.headers['set-cookie'] || [];
   const cookieStr = setCookie.find(c => c.startsWith('csrf_token=')) || '';
   const token = cookieStr.split(';')[0].split('=')[1];
   return { token, cookieStr };
 }
 
-// ─── GET /api/csrf-token ──────────────────────────────────────────────────────
-
 describe('GET /api/csrf-token', () => {
   it('returns a token in body and sets csrf_token cookie', async () => {
     const res = await request(app).get('/api/csrf-token');
     expect(res.status).toBe(200);
     expect(res.body.csrfToken).toMatch(/^[a-f0-9]{64}$/);
-
     const cookies = res.headers['set-cookie'] || [];
     expect(cookies.some(c => c.startsWith('csrf_token='))).toBe(true);
   });
@@ -45,28 +43,23 @@ describe('GET /api/csrf-token', () => {
   });
 });
 
-// ─── CSRF Exempt routes (auth) ────────────────────────────────────────────────
-
 describe('CSRF exempt routes', () => {
   it('POST /api/auth/register works without CSRF token', async () => {
-    mockRun.mockReturnValueOnce({ lastInsertRowid: 1 });
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
     const res = await request(app).post('/api/auth/register').send({
-      name: 'Test', email: 'test@test.com', password: 'secret1', role: 'buyer',
+      name: 'Test', email: 'test@test.com', password: 'Secure1pass', role: 'buyer',
     });
-    // Should not be blocked by CSRF (400 from validation or 200 from success, never 403)
     expect(res.status).not.toBe(403);
   });
 
   it('POST /api/auth/login works without CSRF token', async () => {
-    mockGet.mockReturnValueOnce(undefined); // unknown user → 401
-    const res = await request(app).post('/api/auth/login').send({
-      email: 'x@x.com', password: 'secret1',
-    });
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const res = await request(app).post('/api/auth/login').send({ email: 'x@x.com', password: 'secret1' });
     expect(res.status).not.toBe(403);
   });
 });
-
-// ─── Protected routes blocked without CSRF ───────────────────────────────────
 
 describe('CSRF protection — missing token', () => {
   const jwt_token = authToken(1, 'farmer');
@@ -81,9 +74,7 @@ describe('CSRF protection — missing token', () => {
   });
 
   it('DELETE /api/products/:id returns 403 without CSRF token', async () => {
-    const res = await request(app)
-      .delete('/api/products/1')
-      .set('Authorization', `Bearer ${jwt_token}`);
+    const res = await request(app).delete('/api/products/1').set('Authorization', `Bearer ${jwt_token}`);
     expect(res.status).toBe(403);
   });
 
@@ -96,14 +87,10 @@ describe('CSRF protection — missing token', () => {
   });
 
   it('POST /api/wallet/fund returns 403 without CSRF token', async () => {
-    const res = await request(app)
-      .post('/api/wallet/fund')
-      .set('Authorization', `Bearer ${jwt_token}`);
+    const res = await request(app).post('/api/wallet/fund').set('Authorization', `Bearer ${jwt_token}`);
     expect(res.status).toBe(403);
   });
 });
-
-// ─── Protected routes blocked with wrong CSRF token ──────────────────────────
 
 describe('CSRF protection — mismatched token', () => {
   it('POST /api/products returns 403 with wrong CSRF header', async () => {
@@ -129,73 +116,57 @@ describe('CSRF protection — mismatched token', () => {
   });
 });
 
-// ─── Protected routes succeed with valid CSRF token ──────────────────────────
-
 describe('CSRF protection — valid token passes through', () => {
   it('POST /api/products succeeds with matching CSRF token', async () => {
     const { token, cookieStr } = await fetchCsrfToken();
-
-    mockGet.mockReturnValueOnce(null); // no duplicate check needed
-    mockRun.mockReturnValueOnce({ lastInsertRowid: 42 });
-
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 42 }], rowCount: 1 });
     const res = await request(app)
       .post('/api/products')
       .set('Authorization', `Bearer ${authToken(1, 'farmer')}`)
       .set('Cookie', cookieStr)
       .set('X-CSRF-Token', token)
       .send({ name: 'Tomato', price: 5, quantity: 10 });
-
-    // 403 would mean CSRF blocked it; anything else means it passed CSRF validation
     expect(res.status).not.toBe(403);
   });
 
   it('DELETE /api/products/:id passes CSRF validation', async () => {
     const { token, cookieStr } = await fetchCsrfToken();
-
-    mockGet.mockReturnValueOnce({ id: 1, farmer_id: 1, name: 'Tomato' });
-    mockRun.mockReturnValueOnce({ changes: 1 });
-
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1, farmer_id: 1, name: 'Tomato' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
     const res = await request(app)
       .delete('/api/products/1')
       .set('Authorization', `Bearer ${authToken(1, 'farmer')}`)
       .set('Cookie', cookieStr)
       .set('X-CSRF-Token', token);
-
     expect(res.status).not.toBe(403);
   });
 
   it('POST /api/wallet/fund passes CSRF validation on testnet', async () => {
-    process.env.STELLAR_NETWORK = 'testnet';
     const { token, cookieStr } = await fetchCsrfToken();
-
-    mockGet.mockReturnValueOnce({ stellar_public_key: 'GPUB' });
+    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: 'GPUB' }], rowCount: 1 });
     const stellar = jest.requireMock('../src/utils/stellar');
     stellar.getBalance.mockResolvedValueOnce(10000);
-
     const res = await request(app)
       .post('/api/wallet/fund')
       .set('Authorization', `Bearer ${authToken(1, 'buyer')}`)
       .set('Cookie', cookieStr)
       .set('X-CSRF-Token', token);
-
     expect(res.status).not.toBe(403);
-    process.env.STELLAR_NETWORK = 'testnet';
   });
 });
 
-// ─── GET routes are never blocked ────────────────────────────────────────────
-
 describe('CSRF protection — GET routes are never blocked', () => {
   it('GET /api/products is accessible without CSRF token', async () => {
-    mockAll.mockReturnValueOnce([]);
-    mockGet.mockReturnValueOnce({ count: 0 });
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ count: '0' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
     const res = await request(app).get('/api/products');
     expect(res.status).not.toBe(403);
   });
 
   it('GET /api/wallet is accessible without CSRF token (auth still required)', async () => {
     const res = await request(app).get('/api/wallet');
-    // 401 (no JWT) not 403 (CSRF)
     expect(res.status).toBe(401);
   });
 });

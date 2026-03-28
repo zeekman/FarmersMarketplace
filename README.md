@@ -8,7 +8,7 @@ A minimal MVP marketplace where farmers list products and buyers pay using the *
 
 - Frontend: React + Vite
 - Backend: Node.js + Express
-- Database: SQLite (via better-sqlite3)
+- Database: SQLite (local dev, default) / PostgreSQL (production)
 - Payments: Stellar Testnet (XLM)
 
 ## Project Structure
@@ -93,9 +93,45 @@ Runs on http://localhost:3000
 | POST   | /api/wallet/fund                         | auth   | Fund via Friendbot (testnet)                                       |
 | GET    | /api/contracts/:contractId/state?prefix= | auth   | View Soroban contract storage entries (JSON: key, val, durability) |
 
+## PostgreSQL Setup
+
+The backend supports both SQLite (local dev) and PostgreSQL (production), controlled by the `DATABASE_URL` environment variable.
+
+### Local development (SQLite — default)
+
+No extra setup needed. SQLite is used automatically when `DATABASE_URL` is not set.
+
+### Production (PostgreSQL)
+
+1. Add `DATABASE_URL` to your `.env`:
+   ```
+   DATABASE_URL=postgresql://user:password@localhost:5432/farmersmarketplace
+   ```
+2. The schema is created automatically on first start.
+
+### Docker Compose (PostgreSQL + backend + frontend)
+
+```bash
+cp backend/.env.example backend/.env
+# Edit backend/.env — set JWT_SECRET etc.
+docker compose up
+```
+
+This starts:
+- `postgres` — PostgreSQL 16 on port 5432
+- `backend`  — Express API on port 4000 (connected to postgres)
+- `frontend` — React app on port 3000
+
+### Migrate existing SQLite data to PostgreSQL
+
+```bash
+DATABASE_URL=postgresql://user:pass@host:5432/dbname \
+  node backend/scripts/migrate-sqlite-to-pg.js
+```
+
 ## Notes
 
 - Stellar wallets are auto-created on registration
 - All payments use **XLM on Stellar Testnet** — no real money involved
-- SQLite database file (`market.db`) is created automatically on first run
-- To reset: delete `backend/market.db`
+- SQLite database file (`market.db`) is created automatically on first run (when `DATABASE_URL` is not set)
+- To reset SQLite: delete `backend/market.db`
