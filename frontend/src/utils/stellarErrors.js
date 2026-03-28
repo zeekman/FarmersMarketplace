@@ -11,6 +11,13 @@ const STELLAR_ERROR_MAP = [
 
 export function getStellarErrorMessage(err) {
   const raw = (err?.message || String(err));
+  const code = err?.code;
+  
+  // Special handling for unfunded account error
+  if (code === 'unfunded_account') {
+    return 'Please fund your wallet before purchasing. <a href="/wallet" style="color: #2d6a4f; text-decoration: underline;">Go to Wallet</a>';
+  }
+  
   for (const { match, message } of STELLAR_ERROR_MAP) {
     if (match.test(raw)) return message;
   }

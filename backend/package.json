@@ -5,16 +5,28 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "jest --forceExit"
+    "test": "jest --forceExit",
+    "migrate": "node migrate.js",
+    "migrate:rollback": "node migrate.js rollback"
   },
   "jest": {
     "testEnvironment": "node",
     "testMatch": [
-      "**/tests/**/*.test.js"
+      "**/tests/**/*.test.js",
+      "**/src/__tests__/**/*.test.js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "tests/schema.test.js"
     ],
     "setupFilesAfterEnv": [
       "<rootDir>/tests/jest.setup.js"
-    ]
+    ],
+    "testEnvironmentOptions": {
+      "env": {
+        "NODE_ENV": "test"
+      }
+    }
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.1.0",
@@ -22,13 +34,20 @@
     "better-sqlite3": "^9.4.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "csv-parse": "^6.2.1",
     "dotenv": "^16.4.5",
     "express": "^4.18.3",
     "express-rate-limit": "^8.3.1",
     "express-validator": "^7.3.1",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
+    "node-cron": "^4.2.1",
     "nodemailer": "^8.0.3",
+    "pg": "^8.20.0",
+    "qrcode": "^1.5.4",
+    "sanitize-html": "^2.17.2",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -58,5 +58,17 @@ async function sendStatusUpdateEmail({ order, product, buyer, newStatus }) {
   });
 }
 
-module.exports = { sendOrderEmails, sendLowStockAlert, sendStatusUpdateEmail };
-module.exports = { sendOrderEmails, sendLowStockAlert };
+async function sendBackInStockEmail({ email, name, productName }) {
+  if (!process.env.SMTP_HOST) {
+    console.warn('[mailer] SMTP not configured — skipping back-in-stock notification');
+    return;
+  }
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: email,
+    subject: `✅ Back in Stock – ${productName}`,
+    text: `Hi ${name},\n\nGreat news! "${productName}" is back in stock on Farmers Marketplace.\n\nHead over to the marketplace to place your order before it sells out!\n\nFarmers Marketplace`,
+  });
+}
+
+module.exports = { sendOrderEmails, sendLowStockAlert, sendStatusUpdateEmail, sendBackInStockEmail };

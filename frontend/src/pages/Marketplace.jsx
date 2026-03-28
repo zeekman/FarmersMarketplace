@@ -1,12 +1,17 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { useAuth } from '../context/AuthContext';
+import { useFavorites } from '../context/FavoritesContext';
 import { useXlmRate } from '../utils/useXlmRate';
+import { useDebounce } from '../utils/useDebounce';
 import StarRating from '../components/StarRating';
 import Pagination from '../components/Pagination';
+import Spinner from '../components/Spinner';
 
 const CATEGORIES = ['all', 'vegetables', 'fruits', 'grains', 'dairy', 'herbs', 'other'];
 const PAGE_SIZE = 20;
+const MAX_PRICE = 500;
 
 const s = {
   page:       { maxWidth: 1100, margin: '0 auto', padding: 24 },
@@ -16,26 +21,32 @@ const s = {
   input:      { padding: '9px 14px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 },
   select:     { padding: '9px 14px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, background: '#fff' },
   priceRow:   { display: 'flex', gap: 6, alignItems: 'center' },
-  priceInput: { padding: '9px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, width: 90 },
   resetBtn:   { padding: '9px 14px', borderRadius: 8, border: '1px solid #ddd', background: '#f5f5f5', cursor: 'pointer', fontSize: 13 },
   grid:       { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 20 },
-  card:       { background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 8px #0001', cursor: 'pointer', transition: 'transform 0.1s', border: '2px solid transparent' },
+  card:       { background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 8px #0001', cursor: 'pointer', transition: 'transform 0.1s', border: '2px solid transparent', position: 'relative' },
+  cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  favoriteBtn: { background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28 },
   name:       { fontWeight: 700, fontSize: 16, marginBottom: 4 },
   farmer:     { fontSize: 12, color: '#888', marginBottom: 8 },
   desc:       { fontSize: 13, color: '#555', marginBottom: 12, minHeight: 36 },
   price:      { fontWeight: 700, color: '#2d6a4f', fontSize: 18 },
   qty:        { fontSize: 12, color: '#888', marginTop: 4 },
   badge:      { display: 'inline-block', fontSize: 11, background: '#d8f3dc', color: '#2d6a4f', borderRadius: 4, padding: '2px 7px', marginBottom: 8 },
+  preorderBadge: { display: 'inline-block', fontSize: 11, background: '#fff3cd', color: '#856404', borderRadius: 4, padding: '2px 7px', marginBottom: 8, marginLeft: 6 },
+  bundleBadge:{ display: 'inline-block', fontSize: 11, background: '#fff3cd', color: '#856404', borderRadius: 4, padding: '2px 7px', marginBottom: 8, fontWeight: 700 },
   empty:      { textAlign: 'center', padding: 60, color: '#888' },
   sellerSection: { display: 'flex', gap: 10, alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid #eee' },
   sellerAvatar: { width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', background: '#d8f3dc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 },
   sellerInfo: { flex: 1, minWidth: 0 },
   sellerName: { fontWeight: 600, fontSize: 13, color: '#2d6a4f', cursor: 'pointer', textDecoration: 'underline', marginBottom: 2 },
   sellerLocation: { fontSize: 11, color: '#999' },
+  sectionTitle: { fontSize: 20, fontWeight: 700, color: '#2d6a4f', margin: '32px 0 16px' },
+  bundleCard: { background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 8px #0001', border: '2px solid #fff3cd' },
+  bundleItems:{ fontSize: 13, color: '#555', margin: '8px 0 12px', paddingLeft: 16 },
+  buyBtn:     { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14 },
 };
 
 const EMPTY_FILTERS = { search: '', category: '', minPrice: '', maxPrice: '', seller: '', available: 'true' };
-const MAX_PRICE = 500;
 
 export default function Marketplace() {
   const [products, setProducts]     = useState([]);
@@ -43,64 +54,90 @@ export default function Marketplace() {
   const [loading, setLoading]       = useState(false);
   const [page, setPage]             = useState(1);
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
+  const [bundles, setBundles]       = useState([]);
+  const [bundleMsg, setBundleMsg]   = useState({});
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { isFavorited, toggleFavorite } = useFavorites();
   const { usd } = useXlmRate();
-  const searchDebounce = useRef(null);
+
+  // Debounce text inputs that fire on every keystroke
+  const debouncedSearch = useDebounce(filters.search, 400);
+  const debouncedSeller = useDebounce(filters.seller, 400);
 
   const load = useCallback(async (f, p = 1) => {
     setLoading(true);
     try {
-      const params = { page: p, limit: PAGE_SIZE };
-      if (f.category)  params.category = f.category;
-      if (f.minPrice)  params.minPrice = f.minPrice;
-      if (f.maxPrice && f.maxPrice < MAX_PRICE) params.maxPrice = f.maxPrice;
-      if (f.seller)    params.seller = f.seller;
-      if (f.available) params.available = f.available;
-      const res = await api.getProducts(params);
-      setProducts(res.data ?? []);
-      setPagination({ total: res.total ?? 0, totalPages: res.totalPages ?? 1 });
+      let data;
+      let data, total = 0, totalPages = 1;
+
+      if (f.search && f.search.trim()) {
+        // Full-text search endpoint
+        const res = await api.searchProducts(f.search.trim());
+        data = res.data ?? res;
+        total = data.length;
+        totalPages = 1;
+      } else {
+        const params = { page: p, limit: PAGE_SIZE };
+        if (f.category)  params.category = f.category;
+        if (f.minPrice)  params.minPrice = f.minPrice;
+        // Filtered browse endpoint
+        const params = { page: p, limit: PAGE_SIZE };
+        if (f.category)                          params.category  = f.category;
+        if (f.minPrice)                          params.minPrice  = f.minPrice;
+        if (f.maxPrice && f.maxPrice < MAX_PRICE) params.maxPrice = f.maxPrice;
+        if (f.seller)                            params.seller    = f.seller;
+        if (f.available)                         params.available = f.available;
+        const res = await api.getProducts(params);
+        data = res.data ?? res;
+        setPagination({ total: res.total ?? 0, totalPages: res.totalPages ?? 1 });
+        data       = res.data ?? [];
+        total      = res.total ?? 0;
+        totalPages = res.totalPages ?? 1;
+      }
+
+      setProducts(data);
+    } catch {
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
+      setPagination({ total, totalPages });
     } catch {
       setProducts([]);
     }
-      let data;
-      if (f.search && f.search.trim()) {
-        const res = await api.searchProducts(f.search.trim());
-        data = res.data ?? res;
-      } else {
-        const params = {};
-        if (f.category)  params.category = f.category;
-        if (f.minPrice)  params.minPrice = f.minPrice;
-        if (f.maxPrice && f.maxPrice < MAX_PRICE) params.maxPrice = f.maxPrice;
-        if (f.seller)    params.seller = f.seller;
-        if (f.available) params.available = f.available;
-        const res = await api.getProducts(params);
-        data = res.data ?? res;
-      }
-      setProducts(data);
-    } catch {}
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(filters, 1); }, []); // initial load
+  // Re-run when debounced text values or non-text filters change
+  useEffect(() => {
+    setPage(1);
+    load({ ...filters, search: debouncedSearch, seller: debouncedSeller }, 1);
+  }, [debouncedSearch, debouncedSeller, filters.category, filters.minPrice, filters.maxPrice, filters.available]);
 
-  function set(key, val) {
-    const next = { ...filters, [key]: val };
-    setFilters(next);
-    if (key === 'search') {
-      clearTimeout(searchDebounce.current);
-      searchDebounce.current = setTimeout(() => load(next), 300);
+  useEffect(() => {
+    api.getBundles().then(res => setBundles(res.data ?? [])).catch(() => {});
+  }, []);
+
+  async function handleBuyBundle(bundleId) {
+    if (!user) return navigate('/auth');
+    setBundleMsg(m => ({ ...m, [bundleId]: { type: 'loading', text: 'Processing...' } }));
+    try {
+      const res = await api.purchaseBundle(bundleId);
+      setBundleMsg(m => ({ ...m, [bundleId]: { type: 'ok', text: `Paid! TX: ${res.txHash?.slice(0, 12)}…` } }));
+      api.getBundles().then(r => setBundles(r.data ?? [])).catch(() => {});
+    } catch (e) {
+      setBundleMsg(m => ({ ...m, [bundleId]: { type: 'err', text: e.message } }));
     }
   }
 
-  function applyFilters() {
-    setPage(1);
-    load(filters, 1);
+  function set(key, val) {
+    setFilters(f => ({ ...f, [key]: val }));
   }
 
   function reset() {
     setFilters(EMPTY_FILTERS);
     setPage(1);
-    load(EMPTY_FILTERS, 1);
   }
 
   function handlePageChange(newPage) {
@@ -120,6 +157,7 @@ export default function Marketplace() {
           placeholder="Search products..."
           value={filters.search}
           onChange={e => set('search', e.target.value)}
+          aria-label="Search products"
         />
 
         <select style={s.select} value={filters.category} onChange={e => set('category', e.target.value === 'all' ? '' : e.target.value)}>
@@ -131,6 +169,7 @@ export default function Marketplace() {
           placeholder="Seller name..."
           value={filters.seller}
           onChange={e => set('seller', e.target.value)}
+          aria-label="Filter by seller"
         />
 
         <div style={s.priceRow}>
@@ -139,6 +178,7 @@ export default function Marketplace() {
             type="range" min="0" max={MAX_PRICE} step="5"
             value={filters.minPrice || 0}
             onChange={e => set('minPrice', e.target.value === '0' ? '' : e.target.value)}
+            aria-label="Minimum price"
           />
           <span style={{ fontSize: 13, color: '#444', minWidth: 80 }}>
             {filters.minPrice || 0} – {filters.maxPrice || MAX_PRICE}+ XLM
@@ -147,6 +187,7 @@ export default function Marketplace() {
             type="range" min="0" max={MAX_PRICE} step="5"
             value={filters.maxPrice || MAX_PRICE}
             onChange={e => set('maxPrice', e.target.value)}
+            aria-label="Maximum price"
           />
         </div>
 
@@ -155,14 +196,11 @@ export default function Marketplace() {
           <option value="false">All (incl. sold out)</option>
         </select>
 
-        <button style={{ ...s.input, background: '#2d6a4f', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 }} onClick={applyFilters}>
-          Apply
-        </button>
         <button style={s.resetBtn} onClick={reset}>Reset</button>
       </div>
 
       {loading ? (
-        <div style={s.empty}>Loading...</div>
+        <Spinner />
       ) : products.length === 0 ? (
         <div style={s.empty}>No products found.</div>
       ) : (
@@ -171,11 +209,32 @@ export default function Marketplace() {
             <div key={p.id} style={s.card} onClick={() => navigate(`/product/${p.id}`)}
               onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
               onMouseLeave={e => e.currentTarget.style.transform = ''}>
-              {p.image_url
-                ? <img src={p.image_url} alt={p.name} style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 8, marginBottom: 10 }} />
-                : <div style={{ fontSize: 32, marginBottom: 8 }}>🥬</div>
-              }
+              <div style={s.cardHeader}>
+                <div style={{ flex: 1 }}>
+                  {p.image_url
+                    ? <img src={p.image_url} alt={p.name} style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 8, marginBottom: 10 }} />
+                    : <div style={{ fontSize: 32, marginBottom: 8 }}>🥬</div>
+                  }
+                </div>
+                {user && user.role === 'buyer' && (
+                  <button
+                    style={s.favoriteBtn}
+                    onClick={e => {
+                      e.stopPropagation();
+                      toggleFavorite(p.id).catch(() => {});
+                    }}
+                    title={isFavorited(p.id) ? 'Remove from favorites' : 'Add to favorites'}
+                  >
+                    {isFavorited(p.id) ? '❤️' : '🤍'}
+                  </button>
+                )}
+              </div>
               {p.category && p.category !== 'other' && <div style={s.badge}>{p.category}</div>}
+              {p.is_preorder ? (
+                <div style={s.preorderBadge}>
+                  Pre-Order{p.preorder_delivery_date ? ` · Delivers ${p.preorder_delivery_date}` : ''}
+                </div>
+              ) : null}
               <div style={s.name}>{p.name}</div>
               <div style={s.desc}>{p.description || 'Fresh from the farm'}</div>
               <div style={s.price}>{p.price} XLM <span style={{ fontSize: 13, fontWeight: 400 }}>/ {p.unit}</span></div>
@@ -216,6 +275,48 @@ export default function Marketplace() {
         limit={PAGE_SIZE}
         onChange={handlePageChange}
       />
+
+      {bundles.length > 0 && (
+        <div>
+          <div style={s.sectionTitle}>🎁 Bundle Deals</div>
+          <div style={s.grid}>
+            {bundles.map(b => {
+              const msg = bundleMsg[b.id];
+              const outOfStock = b.items?.some(i => i.stock < i.quantity);
+              return (
+                <div key={b.id} style={s.bundleCard}>
+                  <div style={s.bundleBadge}>Bundle</div>
+                  <div style={s.name}>{b.name}</div>
+                  <div style={s.farmer}>by {b.farmer_name}</div>
+                  {b.description && <div style={s.desc}>{b.description}</div>}
+                  <ul style={s.bundleItems}>
+                    {b.items?.map(i => (
+                      <li key={i.product_id}>{i.quantity} × {i.product_name} ({i.unit})</li>
+                    ))}
+                  </ul>
+                  <div style={s.price}>{b.price} XLM</div>
+                  {usd(b.price) && <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{usd(b.price)} <span style={{ fontSize: 10, color: '#aaa' }}>(approx.)</span></div>}
+                  {outOfStock && <div style={{ fontSize: 12, color: '#c0392b', marginTop: 6 }}>Some items out of stock</div>}
+                  {msg && (
+                    <div style={{ fontSize: 12, marginTop: 6, color: msg.type === 'ok' ? '#2d6a4f' : msg.type === 'err' ? '#c0392b' : '#888' }}>
+                      {msg.text}
+                    </div>
+                  )}
+                  {user?.role === 'buyer' && !outOfStock && (
+                    <button
+                      style={{ ...s.buyBtn, marginTop: 12, opacity: msg?.type === 'loading' ? 0.6 : 1 }}
+                      disabled={msg?.type === 'loading'}
+                      onClick={() => handleBuyBundle(b.id)}
+                    >
+                      Buy Bundle
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
