@@ -346,4 +346,16 @@ export const api = {
   // Availability calendar
   getCalendar: (productId) => request(`/products/${productId}/calendar`),
   setCalendarWeek: (productId, body) => request(`/products/${productId}/calendar`, { method: 'POST', body }),
+  // Cooperatives & multi-sig
+  createCooperative: (body) => request('/cooperatives', { method: 'POST', body }),
+  getCooperatives: () => request('/cooperatives'),
+  setupMultisig: (id, body) => request(`/cooperatives/${id}/multisig-setup`, { method: 'POST', body }),
+  initiateCoopTx: (id, body) => request(`/cooperatives/${id}/transactions`, { method: 'POST', body }),
+  signPendingTx: (txId) => request(`/cooperatives/transactions/${txId}/sign`, { method: 'POST' }),
+  getPendingTxs: (coopId) => request(`/cooperatives/${coopId}/pending`),
+  // Platform fee
+  getFeePreview: (amount) => request(`/orders/fee-preview?amount=${amount}`),
+  // Account alerts
+  getAlerts: () => request('/wallet/alerts'),
+  markAlertRead: (id) => request(`/wallet/alerts/${id}/read`, { method: 'PATCH' }),
 };

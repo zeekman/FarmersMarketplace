@@ -1,0 +1,60 @@
+/* ── Responsive layout helpers ── */
+
+/* Navbar */
+.nav-links { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.hamburger { display: none; background: none; border: none; cursor: pointer; padding: 8px; color: #fff; font-size: 22px; min-width: 44px; min-height: 44px; }
+
+/* Page containers */
+.page-container { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.page-container-sm { max-width: 800px; margin: 0 auto; padding: 16px; }
+.page-container-xs { max-width: 640px; margin: 0 auto; padding: 16px; }
+
+/* Dashboard two-column grid */
+.dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+
+/* Marketplace product grid */
+.product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+
+/* Filter row */
+.filter-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; align-items: center; }
+.filter-row input, .filter-row select { min-height: 44px; }
+
+/* Forms */
+.form-input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; /* 16px prevents iOS zoom */ box-sizing: border-box; min-height: 44px; }
+
+/* Buttons — ensure 44px touch targets */
+.btn-touch { min-height: 44px; min-width: 44px; padding: 10px 20px; }
+
+/* Wallet send row */
+.send-row { display: flex; gap: 12px; }
+
+@media (max-width: 600px) {
+  /* Navbar */
+  .nav-links { display: none; flex-direction: column; align-items: flex-start; width: 100%; padding: 12px 0 4px; gap: 8px; }
+  .nav-links.open { display: flex; }
+  .hamburger { display: flex; align-items: center; justify-content: center; }
+
+  /* Page padding */
+  .page-container, .page-container-sm, .page-container-xs { padding: 12px; }
+
+  /* Dashboard grid → single column */
+  .dashboard-grid { grid-template-columns: 1fr; }
+
+  /* Product grid → single column */
+  .product-grid { grid-template-columns: 1fr; }
+
+  /* Auth card — full width */
+  .auth-card { width: 100% !important; padding: 24px !important; }
+
+  /* Wallet send row → stack */
+  .send-row { flex-direction: column; }
+
+  /* Product detail card padding */
+  .detail-card { padding: 16px !important; }
+
+  /* Price row in filters */
+  .price-row { width: 100%; }
+
+  /* Restock row in dashboard listings */
+  .product-actions { flex-wrap: wrap; gap: 6px !important; }
+}

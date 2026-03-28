@@ -71,7 +71,17 @@ async function sendPayment({ senderSecret, receiverPublicKey, amount, memo }) {
     throw error;
   }
 
-  const transaction = new StellarSdk.TransactionBuilder(senderAccount, {
+  const feePercent = parseFloat(process.env.PLATFORM_FEE_PERCENT || '0');
+  const platformWallet = process.env.PLATFORM_WALLET_PUBLIC_KEY;
+
+  const farmerAmount = feePercent > 0 && platformWallet
+    ? parseFloat((amount * (1 - feePercent / 100)).toFixed(7))
+    : amount;
+  const feeAmount = feePercent > 0 && platformWallet
+    ? parseFloat((amount * (feePercent / 100)).toFixed(7))
+    : 0;
+
+  const txBuilder = new StellarSdk.TransactionBuilder(senderAccount, {
     fee: StellarSdk.BASE_FEE,
     networkPassphrase,
   })
@@ -79,13 +89,24 @@ async function sendPayment({ senderSecret, receiverPublicKey, amount, memo }) {
       StellarSdk.Operation.payment({
         destination: receiverPublicKey,
         asset: StellarSdk.Asset.native(),
-        amount: amount.toFixed(7),
+        amount: farmerAmount.toFixed(7),
       }),
     )
     .addMemo(StellarSdk.Memo.text(memo || "FarmersMarket"))
-    .setTimeout(30)
-    .build();
+    .setTimeout(30);
 
+  // Add platform fee operation atomically if configured
+  if (feeAmount > 0 && platformWallet) {
+    txBuilder.addOperation(
+      StellarSdk.Operation.payment({
+        destination: platformWallet,
+        asset: StellarSdk.Asset.native(),
+        amount: feeAmount.toFixed(7),
+      }),
+    );
+  }
+
+  const transaction = txBuilder.build();
   transaction.sign(senderKeypair);
   const result = await server.submitTransaction(transaction);
   return result.hash;
@@ -304,6 +325,17 @@ async function resolveFederationAddress(address, db) {
   }
 }
 
+function getPlatformFeeInfo(amount) {
+  const feePercent = parseFloat(process.env.PLATFORM_FEE_PERCENT || '0');
+  const platformWallet = process.env.PLATFORM_WALLET_PUBLIC_KEY || null;
+  if (!feePercent || !platformWallet) {
+    return { feePercent: 0, feeAmount: 0, farmerAmount: amount, platformWallet: null };
+  }
+  const feeAmount = parseFloat((amount * feePercent / 100).toFixed(7));
+  const farmerAmount = parseFloat((amount - feeAmount).toFixed(7));
+  return { feePercent, feeAmount, farmerAmount, platformWallet };
+}
+
 module.exports = {
   isTestnet,
   server,
@@ -311,6 +343,7 @@ module.exports = {
   fundTestnetAccount,
   getBalance,
   sendPayment,
+  getPlatformFeeInfo,
   getTransactions,
   createClaimableBalance,
   createPreorderClaimableBalance,

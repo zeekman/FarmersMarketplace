@@ -62,4 +62,10 @@ if (process.env.NODE_ENV !== 'test') {
 app.use(require('./routes'));
 app.use(errorHandler);
 
+// Start background jobs (skip in test to avoid open handles)
+if (process.env.NODE_ENV !== 'test') {
+  const { startActivityMonitor } = require('./jobs/activityMonitor');
+  startActivityMonitor();
+}
+
 module.exports = app;

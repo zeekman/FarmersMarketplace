@@ -11,9 +11,21 @@ import Spinner from '../components/Spinner';
 import { useTranslation } from 'react-i18next';
 
 const s = {
-  page: { maxWidth: 640, margin: '40px auto', padding: 24 },
-  card: { background: '#fff', borderRadius: 12, padding: 32, boxShadow: '0 1px 8px #0001', marginBottom: 24 },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 16 },
+  page: { maxWidth: 640, margin: "40px auto", padding: 16 },
+  card: {
+    background: "#fff",
+    borderRadius: 12,
+    padding: 24,
+    boxShadow: "0 1px 8px #0001",
+    marginBottom: 24,
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 16,
+    marginBottom: 16,
+  },
   headerContent: { flex: 1 },
   favoriteBtn: { background: 'none', border: 'none', fontSize: 32, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 48, height: 48, flexShrink: 0 },
   name:       { fontSize: 28, fontWeight: 700, color: '#2d6a4f', marginBottom: 4 },
@@ -22,8 +34,8 @@ const s = {
   price:      { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 8 },
   row:        { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 },
   input:      { width: 80, padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, textAlign: 'center' },
-  btn:        { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '12px 28px', cursor: 'pointer', fontWeight: 600, fontSize: 16 },
-  btnSm:      { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', cursor: 'pointer', fontWeight: 600, fontSize: 14 },
+  btn:        { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '12px 28px', cursor: 'pointer', fontWeight: 600, fontSize: 16, minHeight: 44 },
+  btnSm:      { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', cursor: 'pointer', fontWeight: 600, fontSize: 14, minHeight: 44 },
   total:      { background: '#f0faf4', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 15 },
   err:        { color: '#c0392b', fontSize: 14, marginTop: 8 },
   success:    { background: '#d8f3dc', borderRadius: 8, padding: 16, color: '#2d6a4f' },
@@ -80,6 +92,8 @@ export default function ProductDetail() {
   // Availability calendar
   const [calendar, setCalendar] = useState([]);
   const [selectedWeek, setSelectedWeek] = useState(null); // YYYY-MM-DD of chosen week
+  // Platform fee state
+  const [feeInfo, setFeeInfo] = useState(null); // { feePercent, feeAmount, farmerAmount }
 
   const loadReviews = useCallback(async () => {
     try { const res = await api.getProductReviews(id); setReviews(res.data ?? []); }
@@ -132,6 +146,13 @@ export default function ProductDetail() {
 
   const subtotal = (product.price * qty).toFixed(2);
   const total = couponResult ? couponResult.final_total.toFixed(2) : subtotal;
+
+  // Fetch fee info whenever total changes
+  const totalNum = parseFloat(total);
+  React.useEffect(() => {
+    if (!totalNum) return;
+    api.getFeePreview(totalNum).then(r => setFeeInfo(r)).catch(() => setFeeInfo(null));
+  }, [total]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleApplyCoupon() {
     if (!couponCode.trim()) return;
@@ -356,6 +377,13 @@ export default function ProductDetail() {
             </>
           ) : (
             <>Total: <strong>{total} XLM</strong></>
+          )}
+          {feeInfo && feeInfo.feeAmount > 0 && (
+            <div style={{ marginTop: 8, fontSize: 12, color: '#888', borderTop: '1px solid #e0e0e0', paddingTop: 6 }}>
+              <div>Subtotal: {total} XLM</div>
+              <div>Platform fee ({feeInfo.feePercent}%): −{feeInfo.feeAmount.toFixed(7)} XLM</div>
+              <div style={{ fontWeight: 600, color: '#2d6a4f' }}>Farmer receives: {feeInfo.farmerAmount.toFixed(7)} XLM</div>
+            </div>
           )}
         </div>
         {error && <div style={s.err}>{error}</div>}

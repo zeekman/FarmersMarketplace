@@ -17,7 +17,7 @@ const RECONNECT_MAX_MS = 30000;
 const DISCLAIMER_KEY = "testnet_disclaimer_dismissed";
 
 const s = {
-  page: { maxWidth: 800, margin: "0 auto", padding: 24 },
+  page: { maxWidth: 800, margin: "0 auto", padding: 16 },
   disclaimer: {
     background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 10,
     padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start',
@@ -73,6 +73,7 @@ const s = {
     cursor: "pointer",
     fontWeight: 600,
     marginTop: 16,
+    minHeight: 44,
   },
   btnDanger: {
     background: "#c0392b",
@@ -130,8 +131,9 @@ const s = {
     padding: "9px 12px",
     border: "1px solid #ddd",
     borderRadius: 8,
-    fontSize: 14,
+    fontSize: 16,
     boxSizing: "border-box",
+    minHeight: 44,
   },
   row: { display: "flex", gap: 12, alignItems: "flex-end", marginTop: 16 },
 };
@@ -169,6 +171,8 @@ export default function Wallet() {
   const [fundMsg, setFundMsg] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [toasts, setToasts] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const [sendForm, setSendForm] = useState({ destination: '', amount: '', currency: 'XLM', memo: '' });
 
@@ -214,6 +218,11 @@ export default function Wallet() {
     } finally {
       setLoading(false);
     }
+    // Load alerts (non-blocking)
+    api.getAlerts().then(res => {
+      setAlerts(res.data ?? []);
+      setUnreadCount(res.unreadCount ?? 0);
+    }).catch(() => {});
   }, []);
 
   // SSE connection management
@@ -466,7 +475,7 @@ export default function Wallet() {
           />
           <div style={{ display: 'flex', gap: 12 }}>
 
-          <div style={{ display: "flex", gap: 12 }}>
+          <div className="send-row" style={{ display: "flex", gap: 12 }}>
             <div style={{ flex: 1 }}>
               <label style={s.label}>Amount</label>
               <div style={{ display: "flex", gap: 8 }}>
@@ -573,6 +582,44 @@ export default function Wallet() {
               </div>
             )}
           </div>
+
+      <div style={s.card}>
+        <h3 style={{ marginBottom: 16, color: '#333', display: 'flex', alignItems: 'center', gap: 8 }}>
+          🔔 Activity Alerts
+          {unreadCount > 0 && (
+            <span style={{ background: '#c0392b', color: '#fff', borderRadius: 12, padding: '2px 8px', fontSize: 12, fontWeight: 700 }}>
+              {unreadCount}
+            </span>
+          )}
+        </h3>
+        {alerts.length === 0 ? (
+          <p style={{ color: '#888', fontSize: 14 }}>No alerts yet.</p>
+        ) : (
+          alerts.map((alert) => (
+            <div key={alert.id} style={{ borderBottom: '1px solid #eee', padding: '10px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', opacity: alert.read_at ? 0.6 : 1 }}>
+              <div>
+                <div style={{ fontSize: 14, color: alert.type === 'large_payment' ? '#c0392b' : '#856404', fontWeight: alert.read_at ? 400 : 600 }}>
+                  {alert.type === 'large_payment' ? '⚠️ Large Payment' : '❌ Failed Transactions'}
+                </div>
+                <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>{alert.message}</div>
+                <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{new Date(alert.created_at).toLocaleString()}</div>
+              </div>
+              {!alert.read_at && (
+                <button
+                  style={{ background: 'none', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: '#555', flexShrink: 0, marginLeft: 8 }}
+                  onClick={async () => {
+                    await api.markAlertRead(alert.id).catch(() => {});
+                    setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, read_at: new Date().toISOString() } : a));
+                    setUnreadCount(prev => Math.max(0, prev - 1));
+                  }}
+                >
+                  Mark read
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
 
       <div style={s.card}>
         <h3 style={{ marginBottom: 16, color: "#333" }}>Transaction History</h3>

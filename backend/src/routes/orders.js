@@ -5,6 +5,7 @@ const validate = require('../middleware/validate');
 const {
   sendPayment,
   getBalance,
+  getPlatformFeeInfo,
   createClaimableBalance,
   createPreorderClaimableBalance,
   claimBalance,
@@ -29,6 +30,14 @@ function hasReachedDeliveryDate(preorderDeliveryDate) {
   if (!unlockUnix) return false;
   return Math.floor(Date.now() / 1000) >= unlockUnix;
 }
+
+// GET /api/orders/fee-preview?amount=X — returns fee breakdown for a given amount
+router.get('/fee-preview', (req, res) => {
+  const amount = parseFloat(req.query.amount);
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'amount is required' });
+  const info = getPlatformFeeInfo(amount);
+  res.json({ success: true, total: amount, feePercent: info.feePercent, feeAmount: info.feeAmount, farmerAmount: info.farmerAmount });
+});
 
 // POST /api/orders - buyer places + pays for an order
 router.post('/', auth, validate.order, async (req, res) => {
@@ -274,6 +283,7 @@ router.post('/', auth, validate.order, async (req, res) => {
         .catch((lowStockErr) => console.error('Low-stock alert failed:', lowStockErr.message));
     }
 
+    const feeInfo = getPlatformFeeInfo(totalPrice);
     const responseData = {
       success: true,
       orderId,
@@ -281,6 +291,7 @@ router.post('/', auth, validate.order, async (req, res) => {
       txHash,
       totalPrice,
       discount: discount > 0 ? discount : undefined,
+      fee: feeInfo.feeAmount > 0 ? { percent: feeInfo.feePercent, amount: feeInfo.feeAmount, farmerAmount: feeInfo.farmerAmount } : undefined,
       preorder: !!product.is_preorder,
       preorderDeliveryDate: product.preorder_delivery_date || null,
       claimableBalanceId: balanceId,

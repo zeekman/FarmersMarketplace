@@ -130,7 +130,7 @@ router.get('/', async (req, res) => {
   const page   = Math.max(1, parseInt(req.query.page) || 1);
   const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
   const offset = (page - 1) * limit;
-  const { category, minPrice, maxPrice, seller, available = 'true' } = req.query;
+  const { category, minPrice, maxPrice, seller, available = 'true', lat, lng, radius } = req.query;
 
   const conditions = [];
   const params = [];
@@ -140,6 +140,19 @@ router.get('/', async (req, res) => {
   if (minPrice !== undefined) { const min = parseFloat(minPrice); if (!isNaN(min)) { conditions.push(`p.price >= $${params.length + 1}`); params.push(min); } }
   if (maxPrice !== undefined) { const max = parseFloat(maxPrice); if (!isNaN(max)) { conditions.push(`p.price <= $${params.length + 1}`); params.push(max); } }
   if (seller)     { conditions.push(`u.name ILIKE $${params.length + 1}`);         params.push(`%${seller}%`); }
+
+  // Haversine distance filter (radius in km)
+  const filterLat = parseFloat(lat);
+  const filterLng = parseFloat(lng);
+  const filterRadius = parseFloat(radius);
+  const hasGeoFilter = !isNaN(filterLat) && !isNaN(filterLng) && !isNaN(filterRadius) && filterRadius > 0;
+  if (hasGeoFilter) {
+    conditions.push(`u.latitude IS NOT NULL AND u.longitude IS NOT NULL`);
+    conditions.push(
+      `(6371 * acos(LEAST(1.0, cos(radians($${params.length + 1})) * cos(radians(u.latitude)) * cos(radians(u.longitude) - radians($${params.length + 2})) + sin(radians($${params.length + 1})) * sin(radians(u.latitude))))) <= $${params.length + 3}`
+    );
+    params.push(filterLat, filterLng, filterRadius);
+  }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -151,16 +164,17 @@ router.get('/', async (req, res) => {
 
   const dataParams = [...params, limit, offset];
   const { rows: products } = await db.query(
-    `SELECT p.*, u.name as farmer_name,
+    `SELECT p.*, u.name as farmer_name, u.latitude as farmer_lat, u.longitude as farmer_lng, u.farm_address as farmer_farm_address,
             ROUND(AVG(r.rating)::numeric, 1) as avg_rating,
             COUNT(r.id) as review_count
      FROM products p
      JOIN users u ON p.farmer_id = u.id
      LEFT JOIN reviews r ON r.product_id = p.id
      ${where}
-     GROUP BY p.id
-     ORDER BY p.created_at DESC LIMIT ? OFFSET ?`
-  ).all(...dataParams, limit, offset);
+     GROUP BY p.id, u.name, u.latitude, u.longitude, u.farm_address
+     ORDER BY p.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    dataParams
+  );
 
   res.json({
     success: true,
