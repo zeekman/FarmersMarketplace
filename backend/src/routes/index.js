@@ -90,6 +90,18 @@ router.use('/api',           require('./reviews'));
 // QR code endpoint (mounted under products so /:id/qr resolves correctly)
 router.use('/api/products',  require('./market'));
 
+// Stellar federation
+router.use('/federation',    require('./federation'));
+
+// /.well-known/stellar.toml
+router.get('/.well-known/stellar.toml', (req, res) => {
+  const domain = process.env.FEDERATION_DOMAIN || process.env.FRONTEND_URL || 'http://localhost:5173';
+  const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 4000}`;
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.send(`# Farmers Marketplace Stellar TOML\nFEDERATION_SERVER="${backendUrl}/federation"\nNETWORK_PASSPHRASE="${process.env.STELLAR_NETWORK === 'mainnet' ? 'Public Global Stellar Network ; September 2015' : 'Test SDF Network ; September 2015'}"\n`);
+});
+
 // Legacy routes
 router.use('/api/auth',     require('./auth'));
 router.use('/api/products', require('./products'));

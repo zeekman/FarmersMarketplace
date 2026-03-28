@@ -39,9 +39,8 @@ router.patch("/me", auth, validate.farmerProfile, (req, res) => {
       "forbidden",
     );
 
-  const { bio, location, avatar_url } = req.body;
+  const { bio, location, avatar_url, federation_name } = req.body;
 
-  // Build SET clause dynamically — only update provided fields
   const updates = [];
   const params = [];
 
@@ -57,13 +56,36 @@ router.patch("/me", auth, validate.farmerProfile, (req, res) => {
     updates.push("avatar_url = ?");
     params.push(avatar_url || null);
   }
+  if (federation_name !== undefined) {
+    const name = federation_name ? federation_name.toLowerCase().trim() : null;
+    if (name && !/^[a-z0-9._-]{1,64}$/.test(name)) {
+      return err(
+        res,
+        400,
+        "Federation name may only contain lowercase letters, numbers, dots, hyphens, underscores (max 64 chars)",
+        "validation_error",
+      );
+    }
+    // Check uniqueness (excluding self)
+    if (name) {
+      const existing = db
+        .prepare("SELECT id FROM users WHERE federation_name = ? AND id != ?")
+        .get(name, req.user.id);
+      if (existing)
+        return err(res, 409, "Federation name already taken", "conflict");
+    }
+    updates.push("federation_name = ?");
+    params.push(name);
+  }
 
   if (updates.length === 0)
-    return res.status(400).json({
-      success: false,
-      message: "No fields to update",
-      code: "no_changes",
-    });
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: "No fields to update",
+        code: "no_changes",
+      });
 
   params.push(req.user.id);
   db.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).run(
@@ -71,7 +93,9 @@ router.patch("/me", auth, validate.farmerProfile, (req, res) => {
   );
 
   const updated = db
-    .prepare(`SELECT ${PUBLIC_FIELDS} FROM users u WHERE u.id = ?`)
+    .prepare(
+      `SELECT ${PUBLIC_FIELDS}, federation_name FROM users u WHERE u.id = ?`,
+    )
     .get(req.user.id);
 
   res.json({ success: true, data: updated });

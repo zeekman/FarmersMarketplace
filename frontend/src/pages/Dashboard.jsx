@@ -81,7 +81,7 @@ export default function Dashboard() {
   const fileInputRef = useRef(null);
 
   // profile state
-  const [profile, setProfile]       = useState({ bio: '', location: '', avatar_url: '' });
+  const [profile, setProfile]       = useState({ bio: '', location: '', avatar_url: '', federation_name: '' });
   const [profileMsg, setProfileMsg] = useState(null);
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState(null);
@@ -245,6 +245,16 @@ export default function Dashboard() {
 
   useEffect(() => {
     load();
+    // Load current profile
+    if (user?.id) {
+      api.getFarmer(user.id)
+        .then(res => {
+          const d = res.data;
+          setProfile({ bio: d.bio || '', location: d.location || '', avatar_url: d.avatar_url || '', federation_name: d.federation_name || '' });
+          if (d.avatar_url) setAvatarPreview(d.avatar_url);
+        })
+        .catch(() => {});
+    }
   }, []);
 
   function validateAndSetImage(file) {
@@ -307,8 +317,9 @@ export default function Dashboard() {
         bio: profile.bio || undefined,
         location: profile.location || undefined,
         avatar_url: finalAvatarUrl || undefined,
+        federation_name: profile.federation_name || undefined,
       });
-      setProfile({ bio: res.data.bio || '', location: res.data.location || '', avatar_url: res.data.avatar_url || '' });
+      setProfile({ bio: res.data.bio || '', location: res.data.location || '', avatar_url: res.data.avatar_url || '', federation_name: res.data.federation_name || '' });
       setProfileMsg({ type: 'ok', text: 'Profile updated' });
     } catch (err) {
       setProfileMsg({ type: 'err', text: getErrorMessage(err) });
@@ -773,6 +784,17 @@ export default function Dashboard() {
             value={profile.bio}
             onChange={e => setProfile(p => ({ ...p, bio: e.target.value }))}
             maxLength={500}
+          />
+
+          <label style={s.label}>
+            Federation Name <span style={{ color: '#aaa', fontWeight: 400 }}>(optional · e.g. yourname → yourname*{window.location.hostname})</span>
+          </label>
+          <input
+            style={s.input}
+            placeholder="e.g. johnfarm"
+            value={profile.federation_name || ''}
+            onChange={e => setProfile(p => ({ ...p, federation_name: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, '') }))}
+            maxLength={64}
           />
 
           <button style={s.btn} type="submit" disabled={avatarUploading}>Save Profile</button>
