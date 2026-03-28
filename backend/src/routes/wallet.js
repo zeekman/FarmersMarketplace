@@ -6,6 +6,7 @@ const validate = require('../middleware/validate');
 const { getBalance, getTransactions, fundTestnetAccount, sendPayment, server } = require('../utils/stellar');
 const stellar = require('../utils/stellar');
 const { getBalance, getAllBalances, getTransactions, fundTestnetAccount, sendPayment, addTrustline, removeTrustline } = stellar;
+const { lookupFederationAddress } = stellar;
 const { err } = require('../middleware/error');
 
 /**
@@ -78,7 +79,21 @@ router.get('/', auth, async (req, res) => {
 router.get('/transactions', auth, async (req, res) => {
   const { rows } = await db.query('SELECT stellar_public_key FROM users WHERE id = $1', [req.user.id]);
   const txs = await getTransactions(rows[0].stellar_public_key);
-  res.json({ success: true, data: txs });
+
+  // Enrich each tx with federation addresses (failures are silently ignored)
+  const enriched = await Promise.all(txs.map(async (tx) => {
+    const [fromFederation, toFederation] = await Promise.all([
+      lookupFederationAddress(tx.from),
+      lookupFederationAddress(tx.to),
+    ]);
+    return {
+      ...tx,
+      from_federation: fromFederation || null,
+      to_federation: toFederation || null,
+    };
+  }));
+
+  res.json({ success: true, data: enriched });
 });
 
 // GET /api/wallet/stream — SSE endpoint for real-time payment notifications

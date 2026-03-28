@@ -167,6 +167,31 @@ async function getTransactions(publicKey) {
   }
 }
 
+// In-memory cache: publicKey -> { federationAddress, expiresAt }
+const _federationCache = new Map();
+const FEDERATION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Reverse-resolve a Stellar public key to a federation address (e.g. "alice*stellar.org").
+ * Returns null if not found or on any error. Results are cached for 10 minutes.
+ */
+async function lookupFederationAddress(publicKey) {
+  if (!publicKey) return null;
+  const cached = _federationCache.get(publicKey);
+  if (cached && Date.now() < cached.expiresAt) return cached.federationAddress;
+
+  try {
+    const record = await StellarSdk.FederationServer.resolve(publicKey);
+    const federationAddress = record.stellar_address || null;
+    _federationCache.set(publicKey, { federationAddress, expiresAt: Date.now() + FEDERATION_TTL_MS });
+    return federationAddress;
+  } catch {
+    // Cache null result to avoid hammering on repeated failures
+    _federationCache.set(publicKey, { federationAddress: null, expiresAt: Date.now() + FEDERATION_TTL_MS });
+    return null;
+  }
+}
+
 module.exports = { isTestnet, server, createWallet, fundTestnetAccount, getBalance, sendPayment, getTransactions };
 async function createClaimableBalance({
   senderSecret,
@@ -635,6 +660,7 @@ module.exports = {
   getPathPaymentEstimate,
   getPlatformFeeInfo,
   getTransactions,
+  lookupFederationAddress,
   addTrustline,
   removeTrustline,
   createClaimableBalance,
