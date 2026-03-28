@@ -64,6 +64,7 @@ export default function ProductDetail() {
   const [product, setProduct] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [qty, setQty] = useState(1);
+  const [weight, setWeight] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -195,7 +196,9 @@ export default function ProductDetail() {
   };
 
   const unitPrice = getTierPrice(qty);
-  const subtotal = (unitPrice * qty).toFixed(2);
+  const subtotal = product?.pricing_type === 'weight'
+    ? (product.price * (parseFloat(weight) || 0)).toFixed(2)
+    : (unitPrice * qty).toFixed(2);
   const total = couponResult ? couponResult.final_total.toFixed(2) : subtotal;
 
   async function handleAlert() {
@@ -237,6 +240,12 @@ export default function ProductDetail() {
     if (!user) return navigate('/login');
     if (user.role === 'farmer') return setError(t('productDetail.farmersCannotOrder'));
     if (addresses.length > 0 && !selectedAddressId) return setError(t('productDetail.selectAddress'));
+    if (product.pricing_type === 'weight') {
+      const w = parseFloat(weight);
+      if (!weight || isNaN(w) || w <= 0) return setError('Please enter a valid weight');
+      if (w < product.min_weight) return setError(`Minimum weight is ${product.min_weight} ${product.unit}`);
+      if (w > product.max_weight) return setError(`Maximum weight is ${product.max_weight} ${product.unit}`);
+    }
     if (sourceAsset && pathEstimateError) return setError(pathEstimateError);
     if (sourceAsset && !pathEstimate) return setError('Waiting for path estimate...');
     setLoading(true);
@@ -249,6 +258,7 @@ export default function ProductDetail() {
         use_soroban_escrow: useEscrow,
         coupon_code: couponResult ? couponCode.trim() : undefined,
         source_asset: sourceAsset ? { code: sourceAsset.asset_code, issuer: sourceAsset.asset_issuer } : undefined,
+        weight: product.pricing_type === 'weight' ? parseFloat(weight) : undefined,
       });
       setResult({ ...res, escrow: useEscrow });
     } catch (e) {
@@ -504,18 +514,38 @@ export default function ProductDetail() {
           {t('productDetail.inStock', { qty: product.quantity, unit: product.unit })}
         </div>
 
-        <div style={s.row}>
-          <label style={{ fontSize: 14 }}>{t('productDetail.quantity')}</label>
-          <input style={s.input} type="number" min={1} max={product.quantity} value={qty}
-            onChange={e => {
-              setQty(Math.max(1, Math.min(product.quantity, parseInt(e.target.value) || 1)));
-              setCouponResult(null); // Clear coupon when quantity changes
-              setCouponError('');
-            }} />
-          <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
-        </div>
-
-        {user?.role === 'buyer' && addresses.length > 0 && (
+        {product.pricing_type === 'weight' ? (
+          <div style={{ marginBottom: 20 }}>
+            <label style={s.label}>Weight ({product.unit})</label>
+            <div style={s.row}>
+              <input
+                style={{ ...s.input, width: 120 }}
+                type="number"
+                min={product.min_weight}
+                max={product.max_weight}
+                step="0.001"
+                value={weight}
+                onChange={e => { setWeight(e.target.value); setCouponResult(null); setCouponError(''); }}
+                placeholder={`${product.min_weight}–${product.max_weight}`}
+              />
+              <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
+            </div>
+            <div style={{ fontSize: 13, color: '#888' }}>
+              {product.price} XLM / {product.unit} · range: {product.min_weight}–{product.max_weight} {product.unit}
+            </div>
+          </div>
+        ) : (
+          <div style={s.row}>
+            <label style={{ fontSize: 14 }}>{t('productDetail.quantity')}</label>
+            <input style={s.input} type="number" min={1} max={product.quantity} value={qty}
+              onChange={e => {
+                setQty(Math.max(1, Math.min(product.quantity, parseInt(e.target.value) || 1)));
+                setCouponResult(null);
+                setCouponError('');
+              }} />
+            <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
+          </div>
+        )}
           <div style={{ marginBottom: 20 }}>
             <label style={s.label}>{t('productDetail.deliveryAddress')}</label>
             <select style={s.select} value={selectedAddressId || ''} onChange={e => setSelectedAddressId(e.target.value ? parseInt(e.target.value) : null)}>

@@ -443,6 +443,9 @@ export default function Dashboard() {
         preorder_delivery_date: form.is_preorder ? form.preorder_delivery_date : null,
         image_url: finalImageUrl || undefined,
         nutrition: Object.keys(nutritionData).length > 0 ? nutritionData : undefined,
+        pricing_type: form.pricing_type || 'unit',
+        min_weight: form.pricing_type === 'weight' ? parseFloat(form.min_weight) : undefined,
+        max_weight: form.pricing_type === 'weight' ? parseFloat(form.max_weight) : undefined,
       });
       setMsg({ type: 'ok', text: t('dashboard.productListedOk') });
       setForm(EMPTY_FORM);
@@ -496,6 +499,23 @@ export default function Dashboard() {
                 <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
               ))}
             </select>
+            <label style={s.label}>Pricing Type</label>
+            <select style={s.input} value={form.pricing_type || 'unit'} onChange={e => setForm({ ...form, pricing_type: e.target.value })}>
+              <option value="unit">Per unit / fixed quantity</option>
+              <option value="weight">By weight (price per kg/lb)</option>
+            </select>
+            {form.pricing_type === 'weight' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={s.label}>Min Weight ({form.unit || 'kg'})</label>
+                  <input style={s.input} type="number" min="0.001" step="any" value={form.min_weight || ''} onChange={e => setForm({ ...form, min_weight: e.target.value })} placeholder="e.g. 0.1" required />
+                </div>
+                <div>
+                  <label style={s.label}>Max Weight ({form.unit || 'kg'})</label>
+                  <input style={s.input} type="number" min="0.001" step="any" value={form.max_weight || ''} onChange={e => setForm({ ...form, max_weight: e.target.value })} placeholder="e.g. 10" required />
+                </div>
+              </div>
+            )}
             <button style={s.btn} type="submit">List Product</button>
 
             <details style={{ marginTop: 16 }}>
