@@ -1,5 +1,8 @@
 const router = require("express").Router();
 const rateLimit = require("express-rate-limit");
+const logger = require("../logger");
+const db = require("../db/schema");
+const { Server } = require("@stellar/stellar-sdk");
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -58,10 +61,191 @@ const sendLimiter = rateLimit({
 });
 
 // Health checks
-router.get("/api/health", (_, res) => res.json({ status: "ok" }));
-router.get("/api/v1/health", (_, res) =>
-  res.json({ status: "ok", version: "v1" }),
-);
+async function checkDatabase() {
+  const startTime = Date.now();
+  try {
+    await db.query('SELECT 1');
+    const duration = Date.now() - startTime;
+    return { status: 'ok', responseTime: `${duration}ms` };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.error('Database health check failed:', { error: error.message });
+    return { status: 'down', responseTime: `${duration}ms`, error: error.message };
+  }
+}
+
+async function checkStellarHorizon() {
+  const startTime = Date.now();
+  try {
+    const horizonUrl = process.env.STELLAR_HORIZON_URL || 
+      (process.env.STELLAR_NETWORK === 'mainnet' 
+        ? 'https://horizon.stellar.org' 
+        : 'https://horizon-testnet.stellar.org');
+    const server = new Server(horizonUrl);
+    await server.root();
+    const duration = Date.now() - startTime;
+    return { status: 'ok', responseTime: `${duration}ms` };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.error('Stellar Horizon health check failed:', { error: error.message });
+    return { status: 'down', responseTime: `${duration}ms`, error: error.message };
+  }
+}
+
+async function checkSorobanRPC() {
+  const startTime = Date.now();
+  try {
+    const sorobanUrl = process.env.SOROBAN_RPC_URL;
+    if (!sorobanUrl) {
+      return { status: 'not_configured', responseTime: '0ms' };
+    }
+    
+    const https = require('https');
+    const url = new URL(sorobanUrl);
+    
+    const postData = JSON.stringify({ 
+      jsonrpc: '2.0', 
+      id: 1, 
+      method: 'getHealth' 
+    });
+    
+    return new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData)
+        }
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          const duration = Date.now() - startTime;
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              const result = JSON.parse(data);
+              resolve({ status: 'ok', responseTime: `${duration}ms`, details: result });
+            } catch (parseError) {
+              resolve({ status: 'down', responseTime: `${duration}ms`, error: 'Invalid JSON response' });
+            }
+          } else {
+            resolve({ status: 'down', responseTime: `${duration}ms`, error: `HTTP ${res.statusCode}` });
+          }
+        });
+      });
+      
+      req.on('error', (error) => {
+        const duration = Date.now() - startTime;
+        logger.error('Soroban RPC health check failed:', { error: error.message });
+        resolve({ status: 'down', responseTime: `${duration}ms`, error: error.message });
+      });
+      
+      req.write(postData);
+      req.end();
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.error('Soroban RPC health check failed:', { error: error.message });
+    return { status: 'down', responseTime: `${duration}ms`, error: error.message };
+  }
+}
+
+router.get("/api/health", async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const [dbCheck, horizonCheck, sorobanCheck] = await Promise.all([
+      checkDatabase(),
+      checkStellarHorizon(),
+      checkSorobanRPC()
+    ]);
+    
+    const checks = {
+      database: dbCheck,
+      horizon: horizonCheck,
+      soroban: sorobanCheck
+    };
+    
+    // Determine overall status
+    const criticalDown = [dbCheck.status, horizonCheck.status].some(status => status === 'down');
+    const overallStatus = criticalDown ? 'down' : 'ok';
+    
+    const uptime = process.uptime();
+    const responseTime = Date.now() - startTime;
+    
+    const healthData = {
+      status: overallStatus,
+      uptime: Math.floor(uptime),
+      responseTime: `${responseTime}ms`,
+      checks,
+      timestamp: new Date().toISOString()
+    };
+    
+    if (overallStatus === 'down') {
+      logger.warn('Health check failed:', healthData);
+      return res.status(503).json(healthData);
+    }
+    
+    res.json(healthData);
+  } catch (error) {
+    logger.error('Health check error:', { error: error.message });
+    res.status(503).json({
+      status: 'down',
+      error: 'Health check failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+router.get("/api/v1/health", async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const [dbCheck, horizonCheck, sorobanCheck] = await Promise.all([
+      checkDatabase(),
+      checkStellarHorizon(),
+      checkSorobanRPC()
+    ]);
+    
+    const checks = {
+      database: dbCheck,
+      horizon: horizonCheck,
+      soroban: sorobanCheck
+    };
+    
+    const criticalDown = [dbCheck.status, horizonCheck.status].some(status => status === 'down');
+    const overallStatus = criticalDown ? 'down' : 'ok';
+    
+    const uptime = process.uptime();
+    const responseTime = Date.now() - startTime;
+    
+    const healthData = {
+      status: overallStatus,
+      version: 'v1',
+      uptime: Math.floor(uptime),
+      responseTime: `${responseTime}ms`,
+      checks,
+      timestamp: new Date().toISOString()
+    };
+    
+    if (overallStatus === 'down') {
+      return res.status(503).json(healthData);
+    }
+    
+    res.json(healthData);
+  } catch (error) {
+    logger.error('Health check error:', { error: error.message });
+    res.status(503).json({
+      status: 'down',
+      version: 'v1',
+      error: 'Health check failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 // Rate limiters
 router.use("/api", generalLimiter);
@@ -203,34 +387,5 @@ router.use("/api/products", require("./products"));
 router.use("/api/orders", require("./orders"));
 router.use("/api/wallet", require("./wallet"));
 router.use("/api/contracts", require("./contracts"));
-
-router.get("/api/health", (_, res) => res.json({ status: "ok" }));
-router.get("/api/health", (_, res) => res.json({ status: "ok" }));
-router.get("/api/v1/health", (_, res) =>
-  res.json({ status: "ok", version: "v1" }),
-);
-
-module.exports = router;
-
-// Non-versioned routes (used by frontend)
-router.use("/api/auth", require("./auth"));
-router.use("/api/products", require("./products"));
-router.use("/api/orders", require("./orders"));
-router.use("/api/wallet", require("./wallet"));
-router.use("/api/analytics", require("./analytics"));
-// Unversioned routes under /api
-router.use("/api/auth", require("./auth"));
-router.use("/api/products", require("./products"));
-router.use("/api/orders", require("./orders"));
-router.use("/api/wallet", require("./wallet"));
-router.use("/api/farmers", require("./farmers"));
-
-router.get("/api/health", (_, res) => res.json({ status: "ok" }));
-router.use("/api", require("./reviews"));
-router.use("/api/addresses", require("./addresses"));
-router.use("/api/products/bulk", require("./bulkUpload"));
-router.use("/api/messages", require("./messages"));
-
-router.get("/api/health", (_, res) => res.json({ status: "ok" }));
 
 module.exports = router;
