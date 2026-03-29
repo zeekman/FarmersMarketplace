@@ -87,29 +87,33 @@ async function getBalance(publicKey) {
 
 async function sendPayment({ senderSecret, receiverPublicKey, amount, memo }) {
   const senderKeypair = StellarSdk.Keypair.fromSecret(senderSecret);
-  
+
   let senderAccount;
   try {
     senderAccount = await server.loadAccount(senderKeypair.publicKey());
   } catch (error) {
     // Check if account is not found (unfunded)
     if (error.response && error.response.status === 404) {
-      const err = new Error('Stellar account not found. Please fund your wallet to activate it.');
-      err.code = 'account_not_found';
+      const err = new Error(
+        "Stellar account not found. Please fund your wallet to activate it.",
+      );
+      err.code = "account_not_found";
       throw err;
     }
     throw error;
   }
 
-  const feePercent = parseFloat(process.env.PLATFORM_FEE_PERCENT || '0');
+  const feePercent = parseFloat(process.env.PLATFORM_FEE_PERCENT || "0");
   const platformWallet = process.env.PLATFORM_WALLET_PUBLIC_KEY;
 
-  const farmerAmount = feePercent > 0 && platformWallet
-    ? parseFloat((amount * (1 - feePercent / 100)).toFixed(7))
-    : amount;
-  const feeAmount = feePercent > 0 && platformWallet
-    ? parseFloat((amount * (feePercent / 100)).toFixed(7))
-    : 0;
+  const farmerAmount =
+    feePercent > 0 && platformWallet
+      ? parseFloat((amount * (1 - feePercent / 100)).toFixed(7))
+      : amount;
+  const feeAmount =
+    feePercent > 0 && platformWallet
+      ? parseFloat((amount * (feePercent / 100)).toFixed(7))
+      : 0;
 
   const txBuilder = new StellarSdk.TransactionBuilder(senderAccount, {
     fee: StellarSdk.BASE_FEE,
@@ -167,6 +171,15 @@ async function getTransactions(publicKey) {
   }
 }
 
+module.exports = {
+  isTestnet,
+  server,
+  createWallet,
+  fundTestnetAccount,
+  getBalance,
+  sendPayment,
+  getTransactions,
+};
 // In-memory cache: publicKey -> { federationAddress, expiresAt }
 const _federationCache = new Map();
 const FEDERATION_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -355,49 +368,51 @@ async function invokeEscrowContract({
   const contractId = process.env.SOROBAN_ESCROW_CONTRACT_ID;
   const xlmTokenContractId = process.env.SOROBAN_XLM_TOKEN_CONTRACT_ID;
   if (!contractId) {
-    throw new Error('SOROBAN_ESCROW_CONTRACT_ID is not configured');
+    throw new Error("SOROBAN_ESCROW_CONTRACT_ID is not configured");
   }
   if (!xlmTokenContractId) {
-    throw new Error('SOROBAN_XLM_TOKEN_CONTRACT_ID is not configured');
+    throw new Error("SOROBAN_XLM_TOKEN_CONTRACT_ID is not configured");
   }
 
   const keypair = StellarSdk.Keypair.fromSecret(senderSecret);
   const source = await server.loadAccount(keypair.publicKey());
   const sorobanRpcUrl =
     process.env.SOROBAN_RPC_URL ||
-    (isTestnet ? 'https://soroban-testnet.stellar.org' : 'https://soroban.stellar.org');
+    (isTestnet
+      ? "https://soroban-testnet.stellar.org"
+      : "https://soroban.stellar.org");
   const sorobanServer = new StellarSdk.SorobanRpc.Server(sorobanRpcUrl);
   const contract = new StellarSdk.Contract(contractId);
 
   let operation;
-  if (action === 'deposit') {
+  if (action === "deposit") {
     const amountStroops = BigInt(Math.round(Number(amount) * 10_000_000));
     operation = contract.call(
-      'deposit',
-      StellarSdk.nativeToScVal(xlmTokenContractId, { type: 'address' }),
-      StellarSdk.nativeToScVal(Number(orderId), { type: 'u64' }),
-      StellarSdk.nativeToScVal(buyerPublicKey, { type: 'address' }),
-      StellarSdk.nativeToScVal(farmerPublicKey, { type: 'address' }),
-      StellarSdk.nativeToScVal(amountStroops, { type: 'i128' }),
-      StellarSdk.nativeToScVal(Number(timeoutUnix), { type: 'u64' })
+      "deposit",
+      StellarSdk.nativeToScVal(xlmTokenContractId, { type: "address" }),
+      StellarSdk.nativeToScVal(Number(orderId), { type: "u64" }),
+      StellarSdk.nativeToScVal(buyerPublicKey, { type: "address" }),
+      StellarSdk.nativeToScVal(farmerPublicKey, { type: "address" }),
+      StellarSdk.nativeToScVal(amountStroops, { type: "i128" }),
+      StellarSdk.nativeToScVal(Number(timeoutUnix), { type: "u64" }),
     );
-  } else if (action === 'release') {
+  } else if (action === "release") {
     operation = contract.call(
-      'release',
-      StellarSdk.nativeToScVal(xlmTokenContractId, { type: 'address' }),
-      StellarSdk.nativeToScVal(Number(orderId), { type: 'u64' })
+      "release",
+      StellarSdk.nativeToScVal(xlmTokenContractId, { type: "address" }),
+      StellarSdk.nativeToScVal(Number(orderId), { type: "u64" }),
     );
-  } else if (action === 'refund') {
+  } else if (action === "refund") {
     operation = contract.call(
-      'refund',
-      StellarSdk.nativeToScVal(xlmTokenContractId, { type: 'address' }),
-      StellarSdk.nativeToScVal(Number(orderId), { type: 'u64' })
+      "refund",
+      StellarSdk.nativeToScVal(xlmTokenContractId, { type: "address" }),
+      StellarSdk.nativeToScVal(Number(orderId), { type: "u64" }),
     );
-  } else if (action === 'dispute') {
+  } else if (action === "dispute") {
     operation = contract.call(
-      'dispute',
-      StellarSdk.nativeToScVal(Number(orderId), { type: 'u64' }),
-      StellarSdk.nativeToScVal(keypair.publicKey(), { type: 'address' })
+      "dispute",
+      StellarSdk.nativeToScVal(Number(orderId), { type: "u64" }),
+      StellarSdk.nativeToScVal(keypair.publicKey(), { type: "address" }),
     );
   } else {
     throw new Error(`Unsupported Soroban escrow action: ${action}`);
@@ -415,23 +430,25 @@ async function invokeEscrowContract({
   tx.sign(keypair);
 
   const sendResult = await sorobanServer.sendTransaction(tx);
-  if (sendResult.status === 'ERROR') {
-    throw new Error(sendResult.errorResultXdr || 'Soroban transaction submission failed');
+  if (sendResult.status === "ERROR") {
+    throw new Error(
+      sendResult.errorResultXdr || "Soroban transaction submission failed",
+    );
   }
 
-  const hash = sendResult.hash || tx.hash().toString('hex');
+  const hash = sendResult.hash || tx.hash().toString("hex");
   for (let i = 0; i < 15; i += 1) {
     const txResult = await sorobanServer.getTransaction(hash);
-    if (txResult.status === 'SUCCESS') {
+    if (txResult.status === "SUCCESS") {
       return { txHash: hash, contractId };
     }
-    if (txResult.status === 'FAILED') {
-      throw new Error('Soroban transaction failed');
+    if (txResult.status === "FAILED") {
+      throw new Error("Soroban transaction failed");
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  throw new Error('Soroban transaction confirmation timed out');
+  throw new Error("Soroban transaction confirmation timed out");
 }
 
 // Resolve a federation address (e.g. farmer*farmersmarket.io) to a Stellar public key.
@@ -475,13 +492,17 @@ async function resolveFederationAddress(address, db) {
 async function mintRewardTokens(buyerAddress, amount) {
   const contractId = process.env.REWARD_TOKEN_CONTRACT_ID;
   if (!contractId) {
-    console.warn('[Stellar] REWARD_TOKEN_CONTRACT_ID not set, skipping reward mint');
+    console.warn(
+      "[Stellar] REWARD_TOKEN_CONTRACT_ID not set, skipping reward mint",
+    );
     return null;
   }
 
   const adminSecret = process.env.REWARD_TOKEN_ADMIN_SECRET;
   if (!adminSecret) {
-    console.warn('[Stellar] REWARD_TOKEN_ADMIN_SECRET not set, skipping reward mint');
+    console.warn(
+      "[Stellar] REWARD_TOKEN_ADMIN_SECRET not set, skipping reward mint",
+    );
     return null;
   }
 
@@ -496,10 +517,10 @@ async function mintRewardTokens(buyerAddress, amount) {
     })
       .addOperation(
         contract.call(
-          'mint',
-          StellarSdk.nativeToScVal(buyerAddress, { type: 'address' }),
-          StellarSdk.nativeToScVal(amount, { type: 'i128' })
-        )
+          "mint",
+          StellarSdk.nativeToScVal(buyerAddress, { type: "address" }),
+          StellarSdk.nativeToScVal(amount, { type: "i128" }),
+        ),
       )
       .setTimeout(30)
       .build();
@@ -508,16 +529,18 @@ async function mintRewardTokens(buyerAddress, amount) {
     const result = await server.submitTransaction(transaction);
     return result.hash;
   } catch (error) {
-    console.error('[Stellar] Failed to mint reward tokens:', error.message);
+    console.error("[Stellar] Failed to mint reward tokens:", error.message);
     return null;
   }
+}
+
 async function getAllBalances(publicKey) {
   try {
     const account = await server.loadAccount(publicKey);
     return account.balances.map((b) => ({
       asset_type: b.asset_type,
-      asset_code: b.asset_type === 'native' ? 'XLM' : b.asset_code,
-      asset_issuer: b.asset_type === 'native' ? null : b.asset_issuer,
+      asset_code: b.asset_type === "native" ? "XLM" : b.asset_code,
+      asset_issuer: b.asset_type === "native" ? null : b.asset_issuer,
       balance: parseFloat(b.balance),
       limit: b.limit ? parseFloat(b.limit) : null,
     }));
@@ -554,8 +577,8 @@ async function removeTrustline({ secret, assetCode, assetIssuer }) {
     (b) => b.asset_code === assetCode && b.asset_issuer === assetIssuer,
   );
   if (existing && parseFloat(existing.balance) > 0) {
-    const e = new Error('Cannot remove trustline with non-zero balance');
-    e.code = 'non_zero_balance';
+    const e = new Error("Cannot remove trustline with non-zero balance");
+    e.code = "non_zero_balance";
     throw e;
   }
 
@@ -563,20 +586,27 @@ async function removeTrustline({ secret, assetCode, assetIssuer }) {
     fee: StellarSdk.BASE_FEE,
     networkPassphrase,
   })
-    .addOperation(StellarSdk.Operation.changeTrust({ asset, limit: '0' }))
+    .addOperation(StellarSdk.Operation.changeTrust({ asset, limit: "0" }))
     .setTimeout(30)
     .build();
 
   tx.sign(keypair);
   const result = await server.submitTransaction(tx);
   return result.hash;
+}
+
 function getPlatformFeeInfo(amount) {
-  const feePercent = parseFloat(process.env.PLATFORM_FEE_PERCENT || '0');
+  const feePercent = parseFloat(process.env.PLATFORM_FEE_PERCENT || "0");
   const platformWallet = process.env.PLATFORM_WALLET_PUBLIC_KEY || null;
   if (!feePercent || !platformWallet) {
-    return { feePercent: 0, feeAmount: 0, farmerAmount: amount, platformWallet: null };
+    return {
+      feePercent: 0,
+      feeAmount: 0,
+      farmerAmount: amount,
+      platformWallet: null,
+    };
   }
-  const feeAmount = parseFloat((amount * feePercent / 100).toFixed(7));
+  const feeAmount = parseFloat(((amount * feePercent) / 100).toFixed(7));
   const farmerAmount = parseFloat((amount - feeAmount).toFixed(7));
   return { feePercent, feeAmount, farmerAmount, platformWallet };
 }
@@ -585,21 +615,31 @@ function getPlatformFeeInfo(amount) {
  * Find the best path and return the estimated source amount needed.
  * Uses Horizon's /paths/strict-send to find available paths.
  */
-async function getPathPaymentEstimate({ sourceAssetCode, sourceAssetIssuer, destPublicKey, destAmount }) {
-  const sourceAsset = sourceAssetCode === 'XLM'
-    ? StellarSdk.Asset.native()
-    : new StellarSdk.Asset(sourceAssetCode, sourceAssetIssuer);
+async function getPathPaymentEstimate({
+  sourceAssetCode,
+  sourceAssetIssuer,
+  destPublicKey,
+  destAmount,
+}) {
+  const sourceAsset =
+    sourceAssetCode === "XLM"
+      ? StellarSdk.Asset.native()
+      : new StellarSdk.Asset(sourceAssetCode, sourceAssetIssuer);
 
   const destAsset = StellarSdk.Asset.native();
 
   // Use strict-receive: find cheapest source amount to deliver destAmount XLM
   const paths = await server
-    .strictReceivePaths(sourceAsset, destAsset, String(parseFloat(destAmount).toFixed(7)))
+    .strictReceivePaths(
+      sourceAsset,
+      destAsset,
+      String(parseFloat(destAmount).toFixed(7)),
+    )
     .call();
 
   if (!paths.records || paths.records.length === 0) {
     const e = new Error(`No payment path found from ${sourceAssetCode} to XLM`);
-    e.code = 'no_path';
+    e.code = "no_path";
     throw e;
   }
 
@@ -614,13 +654,22 @@ async function getPathPaymentEstimate({ sourceAssetCode, sourceAssetIssuer, dest
  * PathPaymentStrictReceive: buyer pays in sourceAsset, farmer receives exactly destAmount XLM.
  * sendMax is the maximum source asset the buyer is willing to spend (slippage guard).
  */
-async function pathPayment({ senderSecret, sourceAssetCode, sourceAssetIssuer, sendMax, receiverPublicKey, destAmount, memo }) {
+async function pathPayment({
+  senderSecret,
+  sourceAssetCode,
+  sourceAssetIssuer,
+  sendMax,
+  receiverPublicKey,
+  destAmount,
+  memo,
+}) {
   const keypair = StellarSdk.Keypair.fromSecret(senderSecret);
   const account = await server.loadAccount(keypair.publicKey());
 
-  const sourceAsset = sourceAssetCode === 'XLM'
-    ? StellarSdk.Asset.native()
-    : new StellarSdk.Asset(sourceAssetCode, sourceAssetIssuer);
+  const sourceAsset =
+    sourceAssetCode === "XLM"
+      ? StellarSdk.Asset.native()
+      : new StellarSdk.Asset(sourceAssetCode, sourceAssetIssuer);
 
   const destAsset = StellarSdk.Asset.native();
 
@@ -637,7 +686,7 @@ async function pathPayment({ senderSecret, sourceAssetCode, sourceAssetIssuer, s
         destAmount: parseFloat(destAmount).toFixed(7),
       }),
     )
-    .addMemo(StellarSdk.Memo.text(memo || 'FarmersMarket'))
+    .addMemo(StellarSdk.Memo.text(memo || "FarmersMarket"))
     .setTimeout(30)
     .build();
 
