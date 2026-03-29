@@ -141,6 +141,14 @@ router.get('/', async (req, res) => {
   if (minPrice !== undefined) { const min = parseFloat(minPrice); if (!isNaN(min)) { conditions.push(`p.price >= $${params.length + 1}`); params.push(min); } }
   if (maxPrice !== undefined) { const max = parseFloat(maxPrice); if (!isNaN(max)) { conditions.push(`p.price <= $${params.length + 1}`); params.push(max); } }
   if (seller)     { conditions.push(`u.name ILIKE $${params.length + 1}`);         params.push(`%${seller}%`); }
+  if (req.query.grade) {
+    const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];
+    if (!VALID_GRADES.includes(req.query.grade)) {
+      return res.status(400).json({ success: false, error: 'grade must be A, B, C, or Ungraded', code: 'validation_error' });
+    }
+    conditions.push(`p.grade = $${params.length + 1}`);
+    params.push(req.query.grade);
+  }
 
   // Haversine distance filter (radius in km)
   const filterLat = parseFloat(lat);
@@ -620,11 +628,12 @@ router.post('/', auth, validate.product, async (req, res) => {
   const safeCategory    = sanitizeText(category || 'other');
   const safeImageUrl    = image_url && /^\/uploads\/[a-f0-9]+\.(jpg|jpeg|png|webp)$/i.test(image_url) ? image_url : null;
 
+  const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];
+  const grade = VALID_GRADES.includes(req.body.grade) ? req.body.grade : 'Ungraded';
+
   const { rows } = await db.query(
-    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold, carbon_kg_per_unit) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id',
-    [req.user.id, safeName, safeDescription, safeCategory, price, quantity, safeUnit, safeImageUrl, parseInt(req.body.low_stock_threshold) || 5, parseFloat(req.body.carbon_kg_per_unit) || null]
-    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold, nutrition) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id',
-    [req.user.id, safeName, safeDescription, safeCategory, price, quantity, safeUnit, safeImageUrl, parseInt(req.body.low_stock_threshold) || 5, nutrition ? JSON.stringify(nutrition) : null]
+    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold, nutrition, grade) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id',
+    [req.user.id, safeName, safeDescription, safeCategory, price, quantity, safeUnit, safeImageUrl, parseInt(req.body.low_stock_threshold) || 5, nutrition ? JSON.stringify(nutrition) : null, grade]
   );
   res.json({ success: true, id: rows[0].id, message: 'Product listed' });
 });
@@ -638,7 +647,7 @@ router.patch('/:id', auth, async (req, res) => {
   if (!product) return err(res, 404, 'Not found or not yours', 'not_found');
 
   const allowed = ['name', 'description', 'price', 'quantity', 'unit', 'category', 'low_stock_threshold', 'carbon_kg_per_unit'];
-  const allowed = ['name', 'description', 'price', 'quantity', 'unit', 'category', 'low_stock_threshold', 'nutrition'];
+  const allowed = ['name', 'description', 'price', 'quantity', 'unit', 'category', 'low_stock_threshold', 'nutrition', 'grade'];
   const updates = {};
   for (const key of allowed) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
@@ -678,6 +687,13 @@ router.patch('/:id', auth, async (req, res) => {
 
   if (updates.nutrition !== undefined) {
     updates.nutrition = updates.nutrition ? JSON.stringify(updates.nutrition) : null;
+  }
+
+  if (updates.grade !== undefined) {
+    const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];
+    if (!VALID_GRADES.includes(updates.grade)) {
+      return err(res, 400, 'grade must be A, B, C, or Ungraded', 'validation_error');
+    }
   }
 
   const nextIsPreorder = updates.is_preorder !== undefined

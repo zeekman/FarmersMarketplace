@@ -496,6 +496,13 @@ export default function Dashboard() {
                 <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
               ))}
             </select>
+            <label style={s.label}>Grade</label>
+            <select style={s.input} value={form.grade || 'Ungraded'} onChange={e => setForm({ ...form, grade: e.target.value })}>
+              <option value="Ungraded">Ungraded</option>
+              <option value="A">Grade A — Premium quality</option>
+              <option value="B">Grade B — Standard quality</option>
+              <option value="C">Grade C — Economy quality</option>
+            </select>
             <button style={s.btn} type="submit">List Product</button>
 
             <details style={{ marginTop: 16 }}>

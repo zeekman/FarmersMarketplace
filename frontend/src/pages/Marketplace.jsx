@@ -58,7 +58,7 @@ const s = {
   buyBtn:     { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14 },
 };
 
-const EMPTY_FILTERS = { search: '', category: '', minPrice: '', maxPrice: '', seller: '', available: 'true', lat: '', lng: '', radius: '' };
+const EMPTY_FILTERS = { search: '', category: '', minPrice: '', maxPrice: '', seller: '', available: 'true', lat: '', lng: '', radius: '', grade: '' };
 
 export default function Marketplace() {
   const { t } = useTranslation();
@@ -97,6 +97,7 @@ export default function Marketplace() {
         if (f.maxPrice && f.maxPrice < MAX_PRICE) params.maxPrice  = f.maxPrice;
         if (f.seller)                             params.seller    = f.seller;
         if (f.available)                          params.available = f.available;
+        if (f.grade)                              params.grade     = f.grade;
         if (f.lat && f.lng && f.radius)           { params.lat = f.lat; params.lng = f.lng; params.radius = f.radius; }
         const res = await api.getProducts(params);
         data       = res.data ?? [];
@@ -117,7 +118,7 @@ export default function Marketplace() {
     setPage(1);
     load({ ...filters, search: debouncedSearch, seller: debouncedSeller }, 1);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, debouncedSeller, filters.category, filters.minPrice, filters.maxPrice, filters.available]);
+  }, [debouncedSearch, debouncedSeller, filters.category, filters.minPrice, filters.maxPrice, filters.available, filters.grade]);
 
   useEffect(() => {
     api.getBundles().then(res => setBundles(res.data ?? [])).catch(() => {});
@@ -203,6 +204,14 @@ export default function Marketplace() {
           {CATEGORIES.map(c => <option key={c} value={c === 'all' ? '' : c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
         </select>
 
+        <select style={s.select} value={filters.grade || ''} onChange={e => set('grade', e.target.value)} aria-label="Filter by grade">
+          <option value="">All Grades</option>
+          <option value="A">Grade A</option>
+          <option value="B">Grade B</option>
+          <option value="C">Grade C</option>
+          <option value="Ungraded">Ungraded</option>
+        </select>
+
         <input style={s.input} placeholder={t('marketplace.sellerPlaceholder')}
           value={filters.seller} onChange={e => set('seller', e.target.value)} aria-label={t('marketplace.sellerPlaceholder')} />
 
@@ -278,6 +287,11 @@ export default function Marketplace() {
                 )}
               </div>
               {p.category && p.category !== 'other' && <div style={s.badge}>{p.category}</div>}
+              {p.grade && p.grade !== 'Ungraded' && (
+                <div style={{ ...s.badge, background: p.grade === 'A' ? '#d8f3dc' : p.grade === 'B' ? '#fff3cd' : '#ffe0cc', color: p.grade === 'A' ? '#2d6a4f' : p.grade === 'B' ? '#856404' : '#c0392b', marginLeft: p.category && p.category !== 'other' ? 4 : 0 }}>
+                  Grade {p.grade}
+                </div>
+              )}
               {p.is_preorder ? (
                 <div style={s.preorderBadge}>
                   Pre-Order{p.preorder_delivery_date ? ` · Delivers ${p.preorder_delivery_date}` : ''}

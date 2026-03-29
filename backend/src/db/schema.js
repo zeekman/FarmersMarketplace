@@ -327,6 +327,7 @@ try {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (farmer_id) REFERENCES users(id) ON DELETE CASCADE
     )`,
+    `ALTER TABLE products ADD COLUMN grade TEXT DEFAULT 'Ungraded' CHECK(grade IN ('A','B','C','Ungraded'))`,
   ];
 
   for (const sql of migrations) {
