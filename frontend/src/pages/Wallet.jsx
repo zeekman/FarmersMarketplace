@@ -349,8 +349,8 @@ export default function Wallet() {
       return setSendMsg({ type: 'err', text: 'Memo must be 28 characters or fewer.' });
     setSending(true);
     try {
-      const res = await api.sendXLM({ destination: sendForm.destination.trim(), amount, memo: sendForm.memo.trim() || undefined });
-      setSendMsg({ type: 'ok', text: 'Sent ' + res.amount + ' XLM', txHash: res.txHash });
+      const res = await api.withdrawFunds(sendForm.destination.trim(), amount);
+      setSendMsg({ type: 'ok', text: 'Withdrew ' + res.amount + ' XLM', txHash: res.txHash });
       setSendForm({ destination: '', amount: '', memo: '' });
       load();
     } catch (e) {
@@ -421,6 +421,10 @@ export default function Wallet() {
           <div style={s.card}>
             <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>XLM Balance</div>
             <div style={s.balance}>{wallet ? wallet.balance.toFixed(2) : '-'} XLM</div>
+            <div style={{ fontSize: 13, color: '#555', marginTop: 6 }}>
+              Available to withdraw: {wallet ? (wallet.availableBalance ?? Math.max(0, wallet.balance - 1)).toFixed(2) : '-'} XLM
+            </div>
+            <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Includes 1.00 XLM base reserve</div>
             <div style={s.key}>{wallet?.publicKey}</div>
             <div style={{ fontSize: 12, color: '#888', marginTop: 10 }}>
               <span style={{ background: '#fff3cd', color: '#856404', border: '1px solid #ffc107', borderRadius: 4, padding: '1px 7px', fontWeight: 600, fontSize: 11 }}>TESTNET</span>
@@ -514,8 +518,8 @@ export default function Wallet() {
           </div>
 
           <div style={s.card}>
-            <h3 style={{ marginBottom: 4, color: '#333' }}>Send XLM</h3>
-            <p style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>Transfer XLM to any external Stellar address.</p>
+            <h3 style={{ marginBottom: 4, color: '#333' }}>Withdraw XLM</h3>
+            <p style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>Transfer XLM from your platform wallet to any Stellar public key.</p>
             <form onSubmit={handleSend} noValidate>
               <label style={s.label}>Destination Address</label>
               <input
@@ -536,7 +540,7 @@ export default function Wallet() {
                 onChange={e => setSendForm(f => ({ ...f, memo: e.target.value }))}
               />
               <button type="submit" style={s.btn} disabled={sending}>
-                {sending ? 'Sending...' : 'Send XLM'}
+                {sending ? 'Withdrawing...' : 'Withdraw XLM'}
               </button>
             </form>
             {sendMsg && (
@@ -599,45 +603,38 @@ export default function Wallet() {
       <div style={s.card}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>Transaction History</h3>
         {txs.length === 0 && <p style={{ color: '#888', fontSize: 14 }}>No transactions yet. Fund your wallet and make a purchase.</p>}
-        {txs.map(tx => (
-        <h3 style={{ marginBottom: 16, color: "#333" }}>Transaction History</h3>
-        {txs.length === 0 && (
-          <p style={{ color: "#888", fontSize: 14 }}>
-            No transactions yet. Fund your wallet and make a purchase.
-          </p>
-        )}
-        {txs.map((tx) => (
-          <div key={tx.id} style={s.tx}>
-            <div>
-              <div style={tx.type === 'sent' ? s.sent : s.recv}>
-                {tx.type === 'sent' ? '↑ Sent' : '↓ Received'} {parseFloat(tx.amount).toFixed(2)} XLM
-              </div>
-              <div style={{ fontSize: 12, color: '#888' }}>{new Date(tx.created_at).toLocaleString()}</div>
-              <div style={s.hash}>{tx.transaction_hash}</div>
-            </div>
-            <a href={`https://stellar.expert/explorer/testnet/tx/${tx.transaction_hash}`}
-              target="_blank" rel="noreferrer"
-              style={{ fontSize: 12, color: '#2d6a4f' }}>View ↗</a>
-            </div>
-          </div>
-
-          <div style={s.card}>
-            <h3 style={{ marginBottom: 16, color: '#333' }}>Transaction History</h3>
-            {txs.length === 0 && <p style={{ color: '#888', fontSize: 14 }}>No transactions yet.</p>}
-            {txs.map(tx => (
-              <div key={tx.id} style={s.tx}>
-                <div>
-                  <div style={tx.type === 'sent' ? s.sent : s.recv}>
-                    {tx.type === 'sent' ? 'Sent' : 'Received'} {parseFloat(tx.amount).toFixed(2)} XLM
-                  </div>
-                  <div style={{ fontSize: 12, color: '#888' }}>{new Date(tx.created_at).toLocaleString()}</div>
-                  <div style={s.hash}>{tx.transaction_hash}</div>
+        {txs.map((tx) => {
+          const counterpartyKey = tx.type === 'sent' ? tx.to : tx.from;
+          const counterpartyFed = tx.type === 'sent' ? tx.to_federation : tx.from_federation;
+          return (
+            <div key={tx.id} style={s.tx}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={tx.type === 'sent' ? s.sent : s.recv}>
+                  {tx.type === 'sent' ? '↑ Sent' : '↓ Received'} {parseFloat(tx.amount).toFixed(2)} XLM
                 </div>
-                <a href={'https://stellar.expert/explorer/testnet/tx/' + tx.transaction_hash} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#2d6a4f' }}>View</a>
+                <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{new Date(tx.created_at).toLocaleString()}</div>
+                <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
+                  {tx.type === 'sent' ? 'To: ' : 'From: '}
+                  {counterpartyFed && (
+                    <span style={{ fontWeight: 600, marginRight: 4 }}>{counterpartyFed}</span>
+                  )}
+                  <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#aaa', wordBreak: 'break-all' }}>
+                    {counterpartyKey}
+                  </span>
+                  <button
+                    title="Copy public key"
+                    onClick={() => navigator.clipboard.writeText(counterpartyKey)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: '0 4px', color: '#888', verticalAlign: 'middle' }}
+                  >⧉</button>
+                </div>
+                <div style={s.hash}>{tx.transaction_hash}</div>
               </div>
-            ))}
-          </div>
-        ))}
+              <a href={`https://stellar.expert/explorer/testnet/tx/${tx.transaction_hash}`}
+                target="_blank" rel="noreferrer"
+                style={{ fontSize: 12, color: '#2d6a4f', flexShrink: 0, marginLeft: 12 }}>View ↗</a>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

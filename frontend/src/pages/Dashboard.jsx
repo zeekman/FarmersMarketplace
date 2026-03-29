@@ -443,6 +443,9 @@ export default function Dashboard() {
         preorder_delivery_date: form.is_preorder ? form.preorder_delivery_date : null,
         image_url: finalImageUrl || undefined,
         nutrition: Object.keys(nutritionData).length > 0 ? nutritionData : undefined,
+        pricing_type: form.pricing_type || 'unit',
+        min_weight: form.pricing_type === 'weight' ? parseFloat(form.min_weight) : undefined,
+        max_weight: form.pricing_type === 'weight' ? parseFloat(form.max_weight) : undefined,
       });
       setMsg({ type: 'ok', text: t('dashboard.productListedOk') });
       setForm(EMPTY_FORM);
@@ -496,6 +499,23 @@ export default function Dashboard() {
                 <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
               ))}
             </select>
+            <label style={s.label}>Pricing Type</label>
+            <select style={s.input} value={form.pricing_type || 'unit'} onChange={e => setForm({ ...form, pricing_type: e.target.value })}>
+              <option value="unit">Per unit / fixed quantity</option>
+              <option value="weight">By weight (price per kg/lb)</option>
+            </select>
+            {form.pricing_type === 'weight' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={s.label}>Min Weight ({form.unit || 'kg'})</label>
+                  <input style={s.input} type="number" min="0.001" step="any" value={form.min_weight || ''} onChange={e => setForm({ ...form, min_weight: e.target.value })} placeholder="e.g. 0.1" required />
+                </div>
+                <div>
+                  <label style={s.label}>Max Weight ({form.unit || 'kg'})</label>
+                  <input style={s.input} type="number" min="0.001" step="any" value={form.max_weight || ''} onChange={e => setForm({ ...form, max_weight: e.target.value })} placeholder="e.g. 10" required />
+                </div>
+              </div>
+            )}
             <button style={s.btn} type="submit">List Product</button>
 
             <details style={{ marginTop: 16 }}>
@@ -1085,6 +1105,50 @@ export default function Dashboard() {
                     )}
                     <div style={{ fontSize: 12, color: '#aaa' }}>{new Date(o.created_at).toLocaleDateString()}</div>
                     {m && <div style={{ fontSize: 12, color: m.type === 'ok' ? '#2d6a4f' : '#c0392b', marginTop: 4 }}>{m.text}</div>}
+                    {/* Return request section */}
+                    {o.return_status === 'pending' && (
+                      <div style={{ marginTop: 8, padding: '8px 12px', background: '#fff3cd', borderRadius: 8, fontSize: 13 }}>
+                        <div style={{ fontWeight: 600, color: '#856404', marginBottom: 4 }}>↩️ Return requested</div>
+                        <div style={{ color: '#555', marginBottom: 8 }}>{o.return_reason}</div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: '#2d6a4f', color: '#fff', fontWeight: 600, fontSize: 12 }}
+                            onClick={async () => {
+                              try {
+                                await api.approveReturn(o.id);
+                                setSalesMsg(prev => ({ ...prev, [o.id]: { type: 'ok', text: 'Return approved — refund sent' } }));
+                                load();
+                              } catch (e) {
+                                setSalesMsg(prev => ({ ...prev, [o.id]: { type: 'err', text: e.message } }));
+                              }
+                            }}
+                          >✅ Approve & Refund</button>
+                          <button
+                            style={{ padding: '5px 14px', borderRadius: 6, border: '1px solid #c0392b', cursor: 'pointer', background: '#fff', color: '#c0392b', fontWeight: 600, fontSize: 12 }}
+                            onClick={async () => {
+                              const reason = window.prompt('Reason for rejection (optional):');
+                              if (reason === null) return; // cancelled
+                              try {
+                                await api.rejectReturn(o.id, reason);
+                                setSalesMsg(prev => ({ ...prev, [o.id]: { type: 'ok', text: 'Return rejected' } }));
+                                load();
+                              } catch (e) {
+                                setSalesMsg(prev => ({ ...prev, [o.id]: { type: 'err', text: e.message } }));
+                              }
+                            }}
+                          >❌ Reject</button>
+                        </div>
+                      </div>
+                    )}
+                    {o.return_status && o.return_status !== 'pending' && (
+                      <div style={{ marginTop: 6, fontSize: 12 }}>
+                        <span style={{
+                          padding: '3px 10px', borderRadius: 20, fontWeight: 600,
+                          background: o.return_status === 'approved' ? '#d8f3dc' : '#fee',
+                          color: o.return_status === 'approved' ? '#2d6a4f' : '#c0392b',
+                        }}>↩️ Return {o.return_status}</span>
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: STATUS_COLOR[o.status] || '#333' }}>
