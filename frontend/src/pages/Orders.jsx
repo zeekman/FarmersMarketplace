@@ -84,6 +84,10 @@ export default function Orders() {
   const [claimingId, setClaimingId] = useState(null);
   const [claimError, setClaimError] = useState({});
   const [bundleOrders, setBundleOrders] = useState([]);
+  const [returnModal, setReturnModal] = useState(null); // orderId
+  const [returnReason, setReturnReason] = useState('');
+  const [returnLoading, setReturnLoading] = useState(false);
+  const [returnMsg, setReturnMsg] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -115,6 +119,22 @@ export default function Orders() {
       setClaimError(prev => ({ ...prev, [orderId]: e.message }));
     } finally {
       setClaimingId(null);
+    }
+  }
+
+  async function handleFileReturn(orderId) {
+    if (!returnReason.trim()) return;
+    setReturnLoading(true);
+    try {
+      await api.fileReturn(orderId, returnReason.trim());
+      setReturnModal(null);
+      setReturnReason('');
+      setReturnMsg(prev => ({ ...prev, [orderId]: { type: 'ok', text: 'Return request filed' } }));
+      load();
+    } catch (e) {
+      setReturnMsg(prev => ({ ...prev, [orderId]: { type: 'err', text: e.message } }));
+    } finally {
+      setReturnLoading(false);
     }
   }
 
@@ -207,6 +227,38 @@ export default function Orders() {
                     </div>
                   )}
                   <StatusTimeline status={o.status} />
+                  {/* Return request status */}
+                  {o.return_status && (
+                    <div style={{ marginTop: 8, fontSize: 12 }}>
+                      <span style={{
+                        padding: '3px 10px', borderRadius: 20, fontWeight: 600,
+                        background: o.return_status === 'approved' ? '#d8f3dc' : o.return_status === 'rejected' ? '#fee' : '#fff3cd',
+                        color: o.return_status === 'approved' ? '#2d6a4f' : o.return_status === 'rejected' ? '#c0392b' : '#856404',
+                      }}>
+                        ↩️ Return: {o.return_status}
+                      </span>
+                      {o.return_status === 'approved' && o.refund_tx_hash && (
+                        <span style={{ marginLeft: 8, color: '#aaa', fontFamily: 'monospace', fontSize: 11 }}>
+                          Refund TX: <a href={`https://stellar.expert/explorer/testnet/tx/${o.refund_tx_hash}`} target="_blank" rel="noreferrer" style={{ color: '#2d6a4f' }}>{o.refund_tx_hash.slice(0, 12)}…</a>
+                        </span>
+                      )}
+                      {o.return_status === 'rejected' && o.reject_reason && (
+                        <span style={{ marginLeft: 8, color: '#888' }}>— {o.reject_reason}</span>
+                      )}
+                    </div>
+                  )}
+                  {/* File return button for delivered orders without a request */}
+                  {user?.role === 'buyer' && o.status === 'delivered' && !o.return_status && (
+                    <div style={{ marginTop: 8 }}>
+                      {returnMsg[o.id] && (
+                        <div style={{ fontSize: 12, color: returnMsg[o.id].type === 'ok' ? '#2d6a4f' : '#c0392b', marginBottom: 4 }}>{returnMsg[o.id].text}</div>
+                      )}
+                      <button
+                        style={{ fontSize: 12, padding: '5px 14px', borderRadius: 8, border: '1px solid #c0392b', cursor: 'pointer', background: '#fff', color: '#c0392b', fontWeight: 600 }}
+                        onClick={() => { setReturnModal(o.id); setReturnReason(''); }}
+                      >↩️ Request Return</button>
+                    </div>
+                  )}
                   {o.escrow_status && o.escrow_status !== 'none' && (
                     <div style={{ marginTop: 8 }}>
                       <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 20, fontWeight: 600,
@@ -286,5 +338,30 @@ export default function Orders() {
         </div>
       )}
     </div>
+
+    {/* Return request modal */}
+    {returnModal && (
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+        <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 4px 24px #0003' }}>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>↩️ Request Return</div>
+          <label style={{ fontSize: 13, color: '#555', display: 'block', marginBottom: 6 }}>Reason for return</label>
+          <textarea
+            style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, minHeight: 80, resize: 'vertical', boxSizing: 'border-box', marginBottom: 16 }}
+            value={returnReason}
+            onChange={e => setReturnReason(e.target.value)}
+            placeholder="Describe the issue (damaged, incorrect item, etc.)"
+          />
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', cursor: 'pointer', background: '#f5f5f5', fontWeight: 600 }}
+              onClick={() => setReturnModal(null)}>Cancel</button>
+            <button style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: returnLoading ? 'not-allowed' : 'pointer', background: '#c0392b', color: '#fff', fontWeight: 600 }}
+              disabled={returnLoading || !returnReason.trim()}
+              onClick={() => handleFileReturn(returnModal)}>
+              {returnLoading ? 'Submitting…' : 'Submit Request'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   );
 }

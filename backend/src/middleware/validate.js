@@ -55,13 +55,23 @@ module.exports = {
       fiber: z.coerce.number().nonnegative('fiber must be non-negative').optional(),
       vitamins: z.record(z.coerce.number().nonnegative('vitamin values must be non-negative')).optional(),
     }).optional(),
-  })),
+    pricing_type: z.enum(['unit', 'weight']).optional(),
+    min_weight: z.coerce.number().positive('min_weight must be positive').optional(),
+    max_weight: z.coerce.number().positive('max_weight must be positive').optional(),
+  }).refine(d => {
+    if (d.pricing_type === 'weight') {
+      if (!d.min_weight || !d.max_weight) return false;
+      if (d.min_weight >= d.max_weight) return false;
+    }
+    return true;
+  }, { message: 'weight-based products require min_weight < max_weight' })),
 
   order: validate(z.object({
     product_id: z.coerce.number().int().positive('product_id must be a positive integer'),
     quantity: z.coerce.number().int().positive('quantity must be a positive integer'),
     address_id: z.coerce.number().int().positive().optional(),
     use_soroban_escrow: z.coerce.boolean().optional(),
+    weight: z.coerce.number().positive('weight must be a positive number').optional(),
   })),
 
   updateOrderStatus: validate(z.object({

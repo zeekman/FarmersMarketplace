@@ -283,6 +283,9 @@ export const api = {
   fundEscrow: (orderId) => request(`/orders/${orderId}/escrow`, { method: 'POST' }),
   claimEscrow: (orderId) => request(`/orders/${orderId}/claim`, { method: 'POST' }),
   claimPreorder: (orderId) => request(`/orders/${orderId}/claim-preorder`, { method: 'POST' }),
+  fileReturn: (orderId, reason) => request(`/orders/${orderId}/return`, { method: 'POST', body: { reason } }),
+  approveReturn: (orderId) => request(`/orders/${orderId}/return/approve`, { method: 'PATCH' }),
+  rejectReturn: (orderId, reject_reason) => request(`/orders/${orderId}/return/reject`, { method: 'PATCH', body: { reject_reason } }),
   placeOrder: (body, idempotencyKey) => request('/orders', { method: 'POST', body, headers: idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {} }),
   getOrders: (params = {}) => request(`/orders${toQs(params)}`),
   getSales: (params = {}) => request(`/orders/sales${toQs(params)}`),
@@ -375,6 +378,7 @@ export const api = {
   searchProducts: (q) => request(`/products/search?q=${encodeURIComponent(q)}`),
 
   placeOrder: (body) => request('/orders', { method: 'POST', body }),
+  getOrderStatus: (id) => request(`/orders/${id}/status`),
   getOrders: () => request('/orders'),
   getSales: () => request('/orders/sales'),
 
@@ -391,6 +395,8 @@ export const api = {
 
   getXlmRate: () => request('/rates/xlm-usd'),
   getAnalytics: () => request('/analytics/farmer'),
+  getProductShareMeta: (id) => request(`/products/${id}/share`),
+  trackShareEvent: (id, platform) => request(`/products/${id}/share`, { method: 'POST', body: { platform } }),
 
   // Admin
   adminGetUsers: (page = 1) => request(`/admin/users?page=${page}`),
@@ -401,6 +407,10 @@ export const api = {
   fundWallet: function() { return request('/wallet/fund', { method: 'POST' }); },
   getBudget: function() { return request('/wallet/budget'); },
   setBudget: function(monthly_budget) { return request('/wallet/budget', { method: 'PATCH', body: { monthly_budget } }); },
+  withdrawFunds: function(destination, amount) { return request('/wallet/withdraw', { method: 'POST', body: { destination, amount } }); },
+  getBudget: function() { return request('/wallet/budget'); },
+  setBudget: function(monthly_budget) { return request('/wallet/budget', { method: 'PATCH', body: { monthly_budget } }); },
+  getProductShareMeta: function(id) { return request(`/products/${id}/share`); },
   deleteProductImage: (productId, imageId) =>
     request(`/products/${productId}/images/${imageId}`, { method: "DELETE" }),
   reorderProductImages: (productId, order) =>

@@ -8,7 +8,12 @@ import { getErrorMessage } from '../utils/errorMessages';
 import { useXlmRate } from '../utils/useXlmRate';
 import StarRating from '../components/StarRating';
 import Spinner from '../components/Spinner';
+import ShareButtons from '../components/ShareButtons';
+import { Helmet } from 'react-helmet-async';
 import { useTranslation } from 'react-i18next';
+
+const POLL_INTERVAL_MS = 3000;
+const TIMEOUT_MS = 60000;
 
 const s = {
   page: { maxWidth: 640, margin: "40px auto", padding: 16 },
@@ -64,8 +69,11 @@ export default function ProductDetail() {
   const [product, setProduct] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [qty, setQty] = useState(1);
+  const [weight, setWeight] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [confirming, setConfirming] = useState(null); // { orderId, startedAt }
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
   const { usd } = useXlmRate();
   const [addresses, setAddresses] = useState([]);
@@ -105,6 +113,7 @@ export default function ProductDetail() {
   const [selectedWeek, setSelectedWeek] = useState(null); // YYYY-MM-DD of chosen week
   // Platform fee state
   const [feeInfo, setFeeInfo] = useState(null); // { feePercent, feeAmount, farmerAmount }
+  const [shareMeta, setShareMeta] = useState(null);
 
   const loadReviews = useCallback(async () => {
     try { const res = await api.getProductReviews(id); setReviews(res.data ?? []); }
@@ -113,6 +122,7 @@ export default function ProductDetail() {
 
   useEffect(() => {
     api.getProduct(id).then(res => setProduct(res.data ?? res)).catch(() => navigate('/marketplace'));
+    api.getProductShareMeta(id).then(res => setShareMeta(res.data ?? null)).catch(() => setShareMeta(null));
     loadReviews();
     api.getProductImages(id).then(res => {
       const imgs = res.data ?? [];
@@ -182,6 +192,11 @@ export default function ProductDetail() {
 
   if (!product) return <Spinner />;
 
+  const shareUrl = shareMeta?.url || `${window.location.origin}/product/${id}`;
+  const shareTitle = shareMeta?.title || `${product.name} on Farmers Marketplace`;
+  const shareDescription = shareMeta?.description || product.description || 'Fresh produce from local farmers';
+  const shareImage = shareMeta?.image || product.image_url || '';
+
   // Get the best matching tier price for the current quantity
   const getTierPrice = (quantity) => {
     if (!tiers.length) return product.price;
@@ -195,7 +210,9 @@ export default function ProductDetail() {
   };
 
   const unitPrice = getTierPrice(qty);
-  const subtotal = (unitPrice * qty).toFixed(2);
+  const subtotal = product?.pricing_type === 'weight'
+    ? (product.price * (parseFloat(weight) || 0)).toFixed(2)
+    : (unitPrice * qty).toFixed(2);
   const total = couponResult ? couponResult.final_total.toFixed(2) : subtotal;
 
   async function handleAlert() {
@@ -237,6 +254,12 @@ export default function ProductDetail() {
     if (!user) return navigate('/login');
     if (user.role === 'farmer') return setError(t('productDetail.farmersCannotOrder'));
     if (addresses.length > 0 && !selectedAddressId) return setError(t('productDetail.selectAddress'));
+    if (product.pricing_type === 'weight') {
+      const w = parseFloat(weight);
+      if (!weight || isNaN(w) || w <= 0) return setError('Please enter a valid weight');
+      if (w < product.min_weight) return setError(`Minimum weight is ${product.min_weight} ${product.unit}`);
+      if (w > product.max_weight) return setError(`Maximum weight is ${product.max_weight} ${product.unit}`);
+    }
     if (sourceAsset && pathEstimateError) return setError(pathEstimateError);
     if (sourceAsset && !pathEstimate) return setError('Waiting for path estimate...');
     setLoading(true);
@@ -249,6 +272,7 @@ export default function ProductDetail() {
         use_soroban_escrow: useEscrow,
         coupon_code: couponResult ? couponCode.trim() : undefined,
         source_asset: sourceAsset ? { code: sourceAsset.asset_code, issuer: sourceAsset.asset_issuer } : undefined,
+        weight: product.pricing_type === 'weight' ? parseFloat(weight) : undefined,
       });
       setResult({ ...res, escrow: useEscrow });
     } catch (e) {
@@ -326,8 +350,31 @@ export default function ProductDetail() {
     );
   }
 
+  if (confirming) {
+    return (
+      <div style={s.page}>
+        <div style={s.card}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
+          <div style={s.confirming}>
+            <strong>Confirming payment...</strong>
+            <p style={{ marginTop: 8, fontSize: 14 }}>Waiting for Stellar network confirmation. This usually takes a few seconds.</p>
+            <div style={s.bar}><div style={{ ...s.barFill, width: `${progress}%` }} /></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={s.page}>
+      <Helmet>
+        <title>{shareTitle}</title>
+        <meta property="og:title" content={shareTitle} />
+        <meta property="og:description" content={shareDescription} />
+        <meta property="og:url" content={shareUrl} />
+        <meta property="og:type" content="product" />
+        {shareImage ? <meta property="og:image" content={shareImage} /> : null}
+      </Helmet>
       <div style={s.card}>
         {product.video_url ? (
           <video
@@ -391,6 +438,14 @@ export default function ProductDetail() {
         <div style={s.desc}>
           {product.description || "Fresh from the farm."}
         </div>
+
+        <ShareButtons
+          title={shareTitle}
+          url={shareUrl}
+          onShare={(platform) => {
+            api.trackShareEvent(product.id, platform).catch(() => {});
+          }}
+        />
 
         {product.nutrition && (
           <div style={{ marginBottom: 16 }}>
@@ -504,18 +559,38 @@ export default function ProductDetail() {
           {t('productDetail.inStock', { qty: product.quantity, unit: product.unit })}
         </div>
 
-        <div style={s.row}>
-          <label style={{ fontSize: 14 }}>{t('productDetail.quantity')}</label>
-          <input style={s.input} type="number" min={1} max={product.quantity} value={qty}
-            onChange={e => {
-              setQty(Math.max(1, Math.min(product.quantity, parseInt(e.target.value) || 1)));
-              setCouponResult(null); // Clear coupon when quantity changes
-              setCouponError('');
-            }} />
-          <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
-        </div>
-
-        {user?.role === 'buyer' && addresses.length > 0 && (
+        {product.pricing_type === 'weight' ? (
+          <div style={{ marginBottom: 20 }}>
+            <label style={s.label}>Weight ({product.unit})</label>
+            <div style={s.row}>
+              <input
+                style={{ ...s.input, width: 120 }}
+                type="number"
+                min={product.min_weight}
+                max={product.max_weight}
+                step="0.001"
+                value={weight}
+                onChange={e => { setWeight(e.target.value); setCouponResult(null); setCouponError(''); }}
+                placeholder={`${product.min_weight}–${product.max_weight}`}
+              />
+              <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
+            </div>
+            <div style={{ fontSize: 13, color: '#888' }}>
+              {product.price} XLM / {product.unit} · range: {product.min_weight}–{product.max_weight} {product.unit}
+            </div>
+          </div>
+        ) : (
+          <div style={s.row}>
+            <label style={{ fontSize: 14 }}>{t('productDetail.quantity')}</label>
+            <input style={s.input} type="number" min={1} max={product.quantity} value={qty}
+              onChange={e => {
+                setQty(Math.max(1, Math.min(product.quantity, parseInt(e.target.value) || 1)));
+                setCouponResult(null);
+                setCouponError('');
+              }} />
+            <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
+          </div>
+        )}
           <div style={{ marginBottom: 20 }}>
             <label style={s.label}>{t('productDetail.deliveryAddress')}</label>
             <select style={s.select} value={selectedAddressId || ''} onChange={e => setSelectedAddressId(e.target.value ? parseInt(e.target.value) : null)}>
