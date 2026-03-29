@@ -29,7 +29,6 @@ const MAX_PRICE = 500;
 
 const s = {
   page: { maxWidth: 1100, margin: "0 auto", padding: 24, paddingBottom: 140 },
-  page: { maxWidth: 1100, margin: "0 auto", padding: 16 },
   title: { fontSize: 24, fontWeight: 700, color: "#2d6a4f", marginBottom: 8 },
   sub: { color: "#666", marginBottom: 20, fontSize: 15 },
   filters: {

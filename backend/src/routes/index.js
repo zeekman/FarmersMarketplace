@@ -79,6 +79,7 @@ router.use("/api/wallet/send", sendLimiter);
 // Routes
 router.use("/api/auth", require("./auth"));
 router.use("/api/products", require("./products"));
+router.use("/api/batches", require("./batches"));
 router.use("/api/products", require("./flashSales"));
 router.use("/api/products", require("./productVideos"));
 router.use("/api/products/:id/calendar", require("./calendar"));

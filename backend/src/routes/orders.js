@@ -4,6 +4,8 @@ const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const {
   sendPayment,
+  pathPayment,
+  getPathPaymentEstimate,
   getBalance,
   getPlatformFeeInfo,
   createClaimableBalance,
@@ -72,19 +74,6 @@ router.get('/fee-preview', (req, res) => {
   res.json({ success: true, total: amount, feePercent: info.feePercent, feeAmount: info.feeAmount, farmerAmount: info.farmerAmount });
 });
 
-// POST /api/orders - buyer places + pays for an order
-// (implementation below after swagger docs)
-// POST /api/orders - buyer places an order; TX submitted async
-router.post('/', auth, validate.order, async (req, res) => {
-  if (req.user.role !== 'buyer') {
-    return err(res, 403, 'Only buyers can place orders', 'forbidden');
-  }
-
-const { sendPayment, pathPayment, getPathPaymentEstimate, getBalance, createClaimableBalance, claimBalance } = require('../utils/stellar');
-const { sendOrderEmails, sendStatusUpdateEmail, sendLowStockAlert } = require('../utils/mailer');
-const { err } = require('../middleware/error');
-const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
-
 /**
  * @swagger
  * tags:
@@ -100,45 +89,6 @@ const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: header
- *         name: x-idempotency-key
- *         schema: { type: string }
- *         description: Optional idempotency key to prevent duplicate orders
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [product_id, quantity]
- *             properties:
- *               product_id: { type: integer }
- *               quantity: { type: integer, minimum: 1 }
- *               address_id: { type: integer, description: Optional delivery address ID }
- *     responses:
- *       200:
- *         description: Order placed and payment successful
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean }
- *                 orderId: { type: integer }
- *                 status: { type: string, example: paid }
- *                 txHash: { type: string }
- *                 totalPrice: { type: number }
- *       402:
- *         description: Insufficient balance or payment failed
- *         content:
- *           application/json:
- *             schema: { $ref: '#/components/schemas/Error' }
- *       403:
- *         description: Only buyers can place orders
- *         content:
- *           application/json:
- *             schema: { $ref: '#/components/schemas/Error' }
  */
 // POST /api/orders
 router.post('/', auth, validate.order, async (req, res) => {
@@ -178,67 +128,6 @@ router.post('/', auth, validate.order, async (req, res) => {
   );
   const buyer = buyerRows[0];
 
-  // PostgreSQL: fetch product, buyer, compute total
-  const { rows: buyerRows } = await db.query(
-    'SELECT id, name, email, stellar_public_key, stellar_secret_key, referred_by, referral_bonus_sent FROM users WHERE id = $1',
-    [req.user.id]
-  );
-  const buyer = buyerRows[0];
-  const unitPrice = await getEffectiveUnitPrice(product, product_id, quantity);
-  const subtotal = unitPrice * quantity;
-  let discount = 0;
-  let appliedCoupon = null;
-
-  if (coupon_code) {
-    const { coupon, error, code: errCode } = resolveCoupon(coupon_code, product.farmer_id);
-    if (error) return err(res, 400, error, errCode);
-    discount = calcDiscount(coupon, subtotal);
-    appliedCoupon = coupon;
-  }
-
-  const totalPrice = parseFloat((subtotal - discount).toFixed(7));
-  const balance = await getBalance(buyer.stellar_public_key);
-  const required = totalPrice + 0.00001;
-  if (balance < required) {
-    return res.status(402).json({
-      success: false,
-      message: 'Insufficient XLM balance',
-      code: 'insufficient_balance',
-      required: required.toFixed(7),
-      available: balance.toFixed(7),
-    });
-  }
-
-  const reserveStock = db.transaction((buyerId, productId, qty, total, addressId) => {
-    const deducted = db.prepare(
-      'UPDATE products SET quantity = quantity - ? WHERE id = ? AND quantity >= ?'
-    ).run(qty, productId, qty);
-    if (deducted.changes === 0) throw new Error('Insufficient stock');
-    const order = db.prepare(
-      'INSERT INTO orders (buyer_id, product_id, quantity, total_price, status, address_id) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(buyerId, productId, qty, total, 'pending', addressId || null);
-
-    return order.lastInsertRowid;
-  });
-
-  let orderId;
-  try {
-    orderId = reserveStock(req.user.id, product_id, quantity, totalPrice, address_id);
-  } catch (e) {
-    return err(res, 400, e.message, 'insufficient_stock');
-  }
-  if (balance < totalPrice + 0.00001)
-    return res.status(402).json({ success: false, message: 'Insufficient XLM balance', code: 'insufficient_balance', required: (totalPrice + 0.00001).toFixed(7), available: balance.toFixed(7) });
-
-  // PostgreSQL: fetch product, buyer, compute total
-  const { rows: pRows } = await db.query(
-    `SELECT p.*, u.stellar_public_key as farmer_wallet FROM products p JOIN users u ON p.farmer_id = u.id WHERE p.id = $1`,
-    [product_id]
-  );
-  if (!pRows[0]) return err(res, 404, 'Product not found', 'not_found');
-  const product = pRows[0];
-
-  // Weight validation for weight-based products
   const weight = req.body.weight ? parseFloat(req.body.weight) : null;
   if (product.pricing_type === 'weight') {
     if (!weight || isNaN(weight) || weight <= 0) return err(res, 400, 'weight is required for weight-based products', 'validation_error');
@@ -246,16 +135,13 @@ router.post('/', auth, validate.order, async (req, res) => {
     if (weight > product.max_weight) return err(res, 400, `weight cannot exceed ${product.max_weight} ${product.unit}`, 'validation_error');
   }
 
-  const { rows: bRows } = await db.query(
-    'SELECT id, name, email, stellar_public_key, stellar_secret_key, referred_by, referral_bonus_sent FROM users WHERE id = $1',
-    [req.user.id]
-  );
-  const buyer = bRows[0];
-
-  const subtotal = (isFlashSaleActive(product) ? Number(product.flash_sale_price) : Number(product.price)) * quantity;
-  const subtotal = product.pricing_type === 'weight'
-    ? product.price * weight
-    : product.price * quantity;
+  let subtotal;
+  if (product.pricing_type === 'weight') {
+    subtotal = Number(product.price) * weight;
+  } else {
+    const unitPrice = await getEffectiveUnitPrice(product, product_id, quantity);
+    subtotal = unitPrice * quantity;
+  }
   let discount = 0;
   let appliedCoupon = null;
   if (coupon_code) {
@@ -313,25 +199,32 @@ router.post('/', auth, validate.order, async (req, res) => {
       });
       txHash = soroban.txHash;
       balanceId = `soroban:${orderId}`;
-
-      db.prepare(
-        'UPDATE orders SET status = ?, stellar_tx_hash = ?, escrow_balance_id = ?, escrow_status = ? WHERE id = ?'
-      ).run('paid', txHash, balanceId, 'funded', orderId);
+      await db.query(
+        'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4 WHERE id = $5',
+        ['paid', txHash, balanceId, 'funded', orderId],
+      );
     } else if (product.is_preorder && product.preorder_delivery_date) {
       const unlockAtUnix = parsePreorderUnlockUnix(product.preorder_delivery_date);
-      if (!unlockAtUnix) {
-        throw new Error('Invalid pre-order delivery date on product');
-      }
-
-    if (usePathPayment) {
-      // Path payment: buyer pays in sourceAsset, farmer receives XLM
+      if (!unlockAtUnix) throw new Error('Invalid pre-order delivery date on product');
+      const hold = await createPreorderClaimableBalance({
+        senderSecret: buyer.stellar_secret_key,
+        farmerPublicKey: product.farmer_wallet,
+        amount: totalPrice,
+        unlockAtUnix,
+      });
+      txHash = hold.txHash;
+      balanceId = hold.balanceId;
+      await db.query(
+        'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4 WHERE id = $5',
+        ['paid', txHash, balanceId, 'funded', orderId],
+      );
+    } else if (usePathPayment) {
       const estimate = await getPathPaymentEstimate({
         sourceAssetCode: sourceAsset.code,
         sourceAssetIssuer: sourceAsset.issuer,
         destPublicKey: product.farmer_wallet,
         destAmount: totalPrice,
       });
-      // Add 1% slippage tolerance
       const sendMax = (estimate.sourceAmount * 1.01).toFixed(7);
       txHash = await pathPayment({
         senderSecret: buyer.stellar_secret_key,
@@ -342,13 +235,7 @@ router.post('/', auth, validate.order, async (req, res) => {
         destAmount: totalPrice,
         memo: `Order#${orderId}`,
       });
-      txHash = hold.txHash;
-      balanceId = hold.balanceId;
-
-      await db.query(
-        'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4 WHERE id = $5',
-        ['paid', txHash, balanceId, 'funded', orderId]
-      );
+      await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
     } else {
       txHash = await sendPayment({
         senderSecret: buyer.stellar_secret_key,
@@ -356,23 +243,23 @@ router.post('/', auth, validate.order, async (req, res) => {
         amount: totalPrice,
         memo: `Order#${orderId}`,
       });
-
       await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
     }
 
-    const farmer = db.prepare('SELECT id, name, email, stellar_public_key FROM users WHERE id = ?')
-      .get(product.farmer_id);
+    const { rows: farmerRows } = await db.query(
+      'SELECT id, name, email, stellar_public_key FROM users WHERE id = $1',
+      [product.farmer_id],
+    );
+    const farmer = farmerRows[0];
 
     if (buyer.referred_by && buyer.referral_bonus_sent === 0) {
-      const referrer = db.prepare('SELECT stellar_public_key FROM users WHERE id = ?')
-        .get(buyer.referred_by);
+      const { rows: refPeek } = await db.query('SELECT stellar_public_key FROM users WHERE id = $1', [buyer.referred_by]);
       const treasurySecret = process.env.MARKETPLACE_TREASURY_SECRET;
-
-      if (referrer && treasurySecret) {
+      if (refPeek[0] && treasurySecret) {
         try {
           await sendPayment({
             senderSecret: treasurySecret,
-            receiverPublicKey: referrer.stellar_public_key,
+            receiverPublicKey: refPeek[0].stellar_public_key,
             amount: 1.0,
             memo: `Referral Bonus: ${buyer.name}`.slice(0, 28),
           });
@@ -384,33 +271,35 @@ router.post('/', auth, validate.order, async (req, res) => {
     }
 
     sendOrderEmails({
-      order: {
-        id: orderId,
-        quantity,
-        total_price: totalPrice,
-        stellar_tx_hash: txHash,
-      },
+      order: { id: orderId, quantity, total_price: totalPrice, stellar_tx_hash: txHash },
       product,
       buyer,
       farmer,
     }).catch((mailErr) => console.error('Email notification failed:', mailErr.message));
 
-    sendPushToUser(farmer.id, {
-      title: 'New order received',
-      body: `${buyer.name} ordered ${quantity} ${product.unit || 'unit'} of ${product.name}`,
-      url: '/dashboard',
-    }).catch((pushErr) => console.error('Push notification failed:', pushErr.message));
+    if (farmer) {
+      sendPushToUser(farmer.id, {
+        title: 'New order received',
+        body: `${buyer.name} ordered ${quantity} ${product.unit || 'unit'} of ${product.name}`,
+        url: '/dashboard',
+      }).catch((pushErr) => console.error('Push notification failed:', pushErr.message));
+    }
 
-    const updated = db.prepare(
-      'SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = ?'
-    ).get(product_id);
-    const { rows: updRows } = await db.query('SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = $1', [product_id]);
+    const { rows: updRows } = await db.query(
+      'SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = $1',
+      [product_id],
+    );
     const updated = updRows[0];
-
     if (updated && updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
       await db.query('UPDATE products SET low_stock_alerted = 1 WHERE id = $1', [product_id]);
       sendLowStockAlert({ product: { ...product, quantity: updated.quantity }, farmer })
         .catch((lowStockErr) => console.error('Low-stock alert failed:', lowStockErr.message));
+    }
+
+    const rewardAmount = Math.floor(totalPrice);
+    if (rewardAmount > 0 && buyer.stellar_public_key) {
+      mintRewardTokens(buyer.stellar_public_key, rewardAmount)
+        .catch((rwErr) => console.error('[Rewards] Failed to mint tokens:', rwErr.message));
     }
 
     const feeInfo = getPlatformFeeInfo(totalPrice);
@@ -426,20 +315,21 @@ router.post('/', auth, validate.order, async (req, res) => {
       preorder: !!product.is_preorder,
       preorderDeliveryDate: product.preorder_delivery_date || null,
       claimableBalanceId: balanceId,
+      sourceAsset: usePathPayment ? sourceAsset.code : 'XLM',
     };
 
     if (appliedCoupon) {
-      db.prepare('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?').run(appliedCoupon.id);
+      await db.query('UPDATE coupons SET used_count = used_count + 1 WHERE id = $1', [appliedCoupon.id]);
     }
 
-    if (idempotencyKey) cacheResponse(idempotencyKey, responseData);
+    if (idempotencyKey) await cacheResponse(idempotencyKey, responseData);
     return res.json(responseData);
   } catch (e) {
-    db.transaction(() => {
-      db.prepare('UPDATE orders SET status = ? WHERE id = ?').run('failed', orderId);
-      db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?').run(quantity, product_id);
-    })();
-
+    await db.query('UPDATE orders SET status = $1 WHERE id = $2', ['failed', orderId]);
+    await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [quantity, product_id]);
+    if (e.code === 'no_path') {
+      return res.status(402).json({ success: false, message: e.message, code: 'no_path', orderId });
+    }
     if (e.code === 'account_not_found') {
       return res.status(402).json({
         success: false,
@@ -448,56 +338,9 @@ router.post('/', auth, validate.order, async (req, res) => {
         orderId,
       });
     }
-
-    await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
-
-    // Referral bonus
-    if (buyer.referred_by && buyer.referral_bonus_sent === 0) {
-      const { rows: refRows } = await db.query('SELECT stellar_public_key FROM users WHERE id = $1', [buyer.referred_by]);
-      const treasurySecret = process.env.MARKETPLACE_TREASURY_SECRET;
-      if (refRows[0] && treasurySecret) {
-        sendPayment({ senderSecret: treasurySecret, receiverPublicKey: refRows[0].stellar_public_key, amount: 1.0, memo: `Referral Bonus: ${buyer.name}`.slice(0, 28) })
-          .then(() => db.query('UPDATE users SET referral_bonus_sent = 1 WHERE id = $1', [buyer.id]))
-          .catch(e => console.error('[Referral] Failed to send bonus:', e.message));
-      }
-    }
-
-    const { rows: fRows } = await db.query('SELECT id, name, email, stellar_public_key FROM users WHERE id = $1', [product.farmer_id]);
-    sendOrderEmails({ order: { id: orderId, quantity, total_price: totalPrice, stellar_tx_hash: txHash }, product, buyer, farmer: fRows[0] })
-      .catch(e => console.error('Email notification failed:', e.message));
-
-    // Mint reward tokens (1 token per 1 XLM spent)
-    const rewardAmount = Math.floor(totalPrice);
-    if (rewardAmount > 0 && buyer.stellar_public_key) {
-      mintRewardTokens(buyer.stellar_public_key, rewardAmount)
-        .catch(e => console.error('[Rewards] Failed to mint tokens:', e.message));
-    }
-
-    // Low-stock check
-    const { rows: updRows } = await db.query('SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = $1', [product_id]);
-    const updated = updRows[0];
-    if (updated && updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
-      await db.query('UPDATE products SET low_stock_alerted = 1 WHERE id = $1', [product_id]);
-      sendLowStockAlert({ product: { ...product, quantity: updated.quantity }, farmer: fRows[0] })
-        .catch(e => console.error('Low-stock alert failed:', e.message));
-    }
-
-    const responseData = {
-      success: true, orderId, status: 'paid', txHash, totalPrice,
-      sourceAsset: usePathPayment ? sourceAsset.code : 'XLM',
-    };
-    if (idempotencyKey) await cacheResponse(idempotencyKey, responseData);
-    res.json(responseData);
-  } catch (e) {
-    await db.query('UPDATE orders SET status = $1 WHERE id = $2', ['failed', orderId]);
-    await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [quantity, product_id]);
-    if (e.code === 'no_path')
-      return res.status(402).json({ success: false, message: e.message, code: 'no_path', orderId });
-    if (e.code === 'account_not_found')
-      return res.status(402).json({ success: false, message: 'Please fund your wallet before purchasing', code: 'unfunded_account', orderId });
     const errorData = { success: false, message: 'Payment failed: ' + e.message, code: 'payment_failed', orderId };
     if (idempotencyKey) await cacheResponse(idempotencyKey, errorData);
-    res.status(402).json(errorData);
+    return res.status(402).json(errorData);
   }
 });
 
@@ -541,16 +384,6 @@ router.get('/', auth, async (req, res) => {
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
   const offset = (page - 1) * limit;
 
-  const conditions = ['o.buyer_id = ?'];
-  const params = [req.user.id];
-
-  if (status && VALID_STATUSES.includes(status)) {
-    conditions.push('o.status = ?');
-  const VALID_STATUSES = ['pending', 'paid', 'failed'];
-  const page   = Math.max(1, parseInt(req.query.page) || 1);
-  const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
-  const offset = (page - 1) * limit;
-
   const conditions = ['o.buyer_id = $1'];
   const params = [req.user.id];
 
@@ -561,28 +394,24 @@ router.get('/', auth, async (req, res) => {
 
   const where = `WHERE ${conditions.join(' AND ')}`;
 
-  const total = db
-    .prepare(`SELECT COUNT(*) as count FROM orders o ${where}`)
-    .get(...params).count;
-
-  const data = db.prepare(
-    `SELECT o.*, p.name as product_name, p.unit, p.is_preorder, p.preorder_delivery_date, u.name as farmer_name,
   const { rows: countRows } = await db.query(`SELECT COUNT(*) as count FROM orders o ${where}`, params);
-  const total = parseInt(countRows[0].count);
+  const total = parseInt(countRows[0].count, 10);
 
   const { rows: data } = await db.query(
-    `SELECT o.*, p.name as product_name, p.unit, u.name as farmer_name,
+    `SELECT o.*, p.name as product_name, p.unit, p.is_preorder, p.preorder_delivery_date, u.name as farmer_name,
+            hb.batch_code as harvest_batch_code, hb.harvest_date as harvest_batch_date, hb.notes as harvest_batch_notes,
             a.label as address_label, a.street as address_street, a.city as address_city,
             a.country as address_country, a.postal_code as address_postal_code,
             rr.status as return_status, rr.reason as return_reason, rr.reject_reason, rr.refund_tx_hash
      FROM orders o
      JOIN products p ON o.product_id = p.id
      JOIN users u ON p.farmer_id = u.id
+     LEFT JOIN harvest_batches hb ON hb.id = p.batch_id
      LEFT JOIN addresses a ON o.address_id = a.id
      LEFT JOIN return_requests rr ON rr.order_id = o.id
      ${where}
      ORDER BY o.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-    [...params, limit, offset]
+    [...params, limit, offset],
   );
 
   res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
@@ -623,48 +452,35 @@ router.get('/', auth, async (req, res) => {
  *             schema: { $ref: '#/components/schemas/Error' }
  */
 // GET /api/orders/sales - farmer's incoming orders
-router.get('/sales', auth, (req, res) => {
-  if (req.user.role !== 'farmer') {
-    return err(res, 403, 'Farmers only', 'forbidden');
-  }
+router.get('/sales', auth, async (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
 
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
   const offset = (page - 1) * limit;
 
-  const total = db
-    .prepare('SELECT COUNT(*) as count FROM orders o JOIN products p ON o.product_id = p.id WHERE p.farmer_id = ?')
-    .get(req.user.id).count;
-
-  const data = db.prepare(
-    `SELECT o.*, p.name as product_name, p.is_preorder, p.preorder_delivery_date, u.name as buyer_name,
-// GET /api/orders/sales
-router.get('/sales', auth, async (req, res) => {
-  if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
-
-  const page   = Math.max(1, parseInt(req.query.page) || 1);
-  const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
-  const offset = (page - 1) * limit;
-
   const { rows: countRows } = await db.query(
     `SELECT COUNT(*) as count FROM orders o JOIN products p ON o.product_id = p.id WHERE p.farmer_id = $1`,
-    [req.user.id]
+    [req.user.id],
   );
-  const total = parseInt(countRows[0].count);
+  const total = parseInt(countRows[0].count, 10);
 
   const { rows: data } = await db.query(
-    `SELECT o.*, p.name as product_name, u.name as buyer_name,
+    `SELECT o.*, p.name as product_name, p.is_preorder, p.preorder_delivery_date, u.name as buyer_name,
+            hb.batch_code as harvest_batch_code, hb.harvest_date as harvest_batch_date, hb.notes as harvest_batch_notes,
             a.label as address_label, a.street as address_street, a.city as address_city,
             a.country as address_country, a.postal_code as address_postal_code,
             rr.status as return_status, rr.reason as return_reason, rr.reject_reason, rr.refund_tx_hash
      FROM orders o
      JOIN products p ON o.product_id = p.id
      JOIN users u ON o.buyer_id = u.id
+     LEFT JOIN harvest_batches hb ON hb.id = p.batch_id
      LEFT JOIN addresses a ON o.address_id = a.id
      LEFT JOIN return_requests rr ON rr.order_id = o.id
-     WHERE p.farmer_id = ?
-     ORDER BY o.created_at DESC LIMIT ? OFFSET ?`
-  ).all(req.user.id, limit, offset);
+     WHERE p.farmer_id = $1
+     ORDER BY o.created_at DESC LIMIT $2 OFFSET $3`,
+    [req.user.id, limit, offset],
+  );
 
   res.json({
     success: true,
@@ -674,38 +490,6 @@ router.get('/sales', auth, async (req, res) => {
     limit,
     totalPages: Math.ceil(total / limit),
   });
-});
-
-// PATCH /api/orders/:id/status - farmer updates order status
-router.patch('/:id/status', auth, (req, res) => {
-  if (req.user.role !== 'farmer') {
-    return err(res, 403, 'Farmers only', 'forbidden');
-  }
-
-  const VALID = ['processing', 'shipped', 'delivered'];
-  const { status } = req.body;
-  if (!status || !VALID.includes(status)) {
-    return err(res, 400, `status must be one of: ${VALID.join(', ')}`, 'validation_error');
-  }
-
-  const order = db.prepare(`
-    SELECT o.*, p.name as product_name, p.unit, u.name as buyer_name, u.email as buyer_email
-    FROM orders o
-    JOIN products p ON o.product_id = p.id
-    JOIN users u ON o.buyer_id = u.id
-    WHERE o.id = ? AND p.farmer_id = ?
-  `).get(req.params.id, req.user.id);
-
-  if (!order) return err(res, 404, 'Order not found or not yours', 'not_found');
-
-  db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, order.id);
-     LEFT JOIN return_requests rr ON rr.order_id = o.id
-     WHERE p.farmer_id = $1
-     ORDER BY o.created_at DESC LIMIT $2 OFFSET $3`,
-    [req.user.id, limit, offset]
-  );
-
-  res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
 });
 
 // PATCH /api/orders/:id/status
@@ -741,7 +525,6 @@ router.patch('/:id/status', auth, async (req, res) => {
     body: `Order #${order.id} is now ${status}`,
     url: '/orders',
   }).catch((pushErr) => console.error('Push notification failed:', pushErr.message));
-  }).catch(e => console.error('Status email failed:', e.message));
 
   res.json({ success: true, message: 'Order status updated' });
 });
