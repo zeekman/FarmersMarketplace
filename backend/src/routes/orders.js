@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const logger = require('../logger');
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
@@ -378,7 +379,7 @@ router.post('/', auth, validate.order, async (req, res) => {
           });
           await db.query('UPDATE users SET referral_bonus_sent = 1 WHERE id = $1', [buyer.id]);
         } catch (bonusErr) {
-          console.error('[Referral] Failed to send bonus:', bonusErr.message);
+          logger.error('[Referral] Failed to send bonus:', { error: bonusErr.message });
         }
       }
     }
@@ -393,13 +394,13 @@ router.post('/', auth, validate.order, async (req, res) => {
       product,
       buyer,
       farmer,
-    }).catch((mailErr) => console.error('Email notification failed:', mailErr.message));
+    }).catch((mailErr) => logger.error('Email notification failed:', { error: mailErr.message }));
 
     sendPushToUser(farmer.id, {
       title: 'New order received',
       body: `${buyer.name} ordered ${quantity} ${product.unit || 'unit'} of ${product.name}`,
       url: '/dashboard',
-    }).catch((pushErr) => console.error('Push notification failed:', pushErr.message));
+    }).catch((pushErr) => logger.error('Push notification failed:', { error: pushErr.message }));
 
     const updated = db.prepare(
       'SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = ?'
@@ -410,7 +411,7 @@ router.post('/', auth, validate.order, async (req, res) => {
     if (updated && updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
       await db.query('UPDATE products SET low_stock_alerted = 1 WHERE id = $1', [product_id]);
       sendLowStockAlert({ product: { ...product, quantity: updated.quantity }, farmer })
-        .catch((lowStockErr) => console.error('Low-stock alert failed:', lowStockErr.message));
+        .catch((lowStockErr) => logger.error('Low-stock alert failed:', { error: lowStockErr.message }));
     }
 
     const feeInfo = getPlatformFeeInfo(totalPrice);
@@ -458,19 +459,19 @@ router.post('/', auth, validate.order, async (req, res) => {
       if (refRows[0] && treasurySecret) {
         sendPayment({ senderSecret: treasurySecret, receiverPublicKey: refRows[0].stellar_public_key, amount: 1.0, memo: `Referral Bonus: ${buyer.name}`.slice(0, 28) })
           .then(() => db.query('UPDATE users SET referral_bonus_sent = 1 WHERE id = $1', [buyer.id]))
-          .catch(e => console.error('[Referral] Failed to send bonus:', e.message));
+          .catch(e => logger.error('[Referral] Failed to send bonus:', { error: e.message }));
       }
     }
 
     const { rows: fRows } = await db.query('SELECT id, name, email, stellar_public_key FROM users WHERE id = $1', [product.farmer_id]);
     sendOrderEmails({ order: { id: orderId, quantity, total_price: totalPrice, stellar_tx_hash: txHash }, product, buyer, farmer: fRows[0] })
-      .catch(e => console.error('Email notification failed:', e.message));
+      .catch(e => logger.error('Email notification failed:', { error: e.message }));
 
     // Mint reward tokens (1 token per 1 XLM spent)
     const rewardAmount = Math.floor(totalPrice);
     if (rewardAmount > 0 && buyer.stellar_public_key) {
       mintRewardTokens(buyer.stellar_public_key, rewardAmount)
-        .catch(e => console.error('[Rewards] Failed to mint tokens:', e.message));
+        .catch(e => logger.error('[Rewards] Failed to mint tokens:', { error: e.message }));
     }
 
     // Low-stock check
@@ -479,7 +480,7 @@ router.post('/', auth, validate.order, async (req, res) => {
     if (updated && updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
       await db.query('UPDATE products SET low_stock_alerted = 1 WHERE id = $1', [product_id]);
       sendLowStockAlert({ product: { ...product, quantity: updated.quantity }, farmer: fRows[0] })
-        .catch(e => console.error('Low-stock alert failed:', e.message));
+        .catch(e => logger.error('Low-stock alert failed:', { error: e.message }));
     }
 
     const responseData = {
@@ -734,14 +735,13 @@ router.patch('/:id/status', auth, async (req, res) => {
     product: { name: order.product_name, unit: order.unit },
     buyer: { name: order.buyer_name, email: order.buyer_email },
     newStatus: status,
-  }).catch((e) => console.error('Status email failed:', e.message));
+  }).catch((e) => logger.error('Status email failed:', { error: e.message }));
 
   sendPushToUser(order.buyer_id, {
     title: 'Order status updated',
     body: `Order #${order.id} is now ${status}`,
     url: '/orders',
-  }).catch((pushErr) => console.error('Push notification failed:', pushErr.message));
-  }).catch(e => console.error('Status email failed:', e.message));
+  }).catch((pushErr) => logger.error('Push notification failed:', { error: pushErr.message }));
 
   res.json({ success: true, message: 'Order status updated' });
 });

@@ -7,7 +7,9 @@
     "dev": "nodemon src/index.js",
     "test": "jest --forceExit",
     "migrate": "node migrate.js",
-    "migrate:rollback": "node migrate.js rollback"
+    "migrate:rollback": "node migrate.js rollback",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js"
   },
   "jest": {
     "testEnvironment": "node",
@@ -30,10 +32,9 @@
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.1.0",
-    "bip39": "^3.1.0",
-    "stellar-hd-wallet": "^0.0.8",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^9.4.3",
+    "bip39": "^3.1.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "csv-parse": "^6.2.1",
@@ -41,6 +42,7 @@
     "express": "^4.18.3",
     "express-rate-limit": "^8.3.1",
     "express-validator": "^7.3.1",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.2.1",
@@ -48,9 +50,12 @@
     "pg": "^8.20.0",
     "qrcode": "^1.5.4",
     "sanitize-html": "^2.17.2",
-    "web-push": "^3.6.7",
+    "stellar-hd-wallet": "^0.0.8",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "uuid": "^13.0.0",
+    "web-push": "^3.6.7",
+    "winston": "^3.19.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
