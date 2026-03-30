@@ -63,10 +63,9 @@ router.post('/', auth, async (req, res) => {
   }
 
   // Verify ownership
-  const { rows: pRows } = await db.query(
-    'SELECT farmer_id FROM products WHERE id = $1',
-    [productId]
-  );
+  const { rows: pRows } = await db.query('SELECT farmer_id FROM products WHERE id = $1', [
+    productId,
+  ]);
   if (!pRows.length) return err(res, 404, 'Product not found', 'not_found');
   if (pRows[0].farmer_id !== req.user.id) return err(res, 403, 'Forbidden', 'forbidden');
 

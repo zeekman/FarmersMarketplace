@@ -7,8 +7,8 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const bcrypt = require('bcryptjs');
 
-const name     = process.env.ADMIN_NAME     || 'Admin';
-const email    = process.env.ADMIN_EMAIL    || 'admin@farmersmarketplace.com';
+const name = process.env.ADMIN_NAME || 'Admin';
+const email = process.env.ADMIN_EMAIL || 'admin@farmersmarketplace.com';
 const password = process.env.ADMIN_PASSWORD || 'Admin1234!';
 
 if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
@@ -26,7 +26,10 @@ async function run() {
       await pool.query("UPDATE users SET role = 'admin' WHERE email = $1", [email]);
       console.log(`[seed-admin] Promoted existing user "${email}" to admin.`);
     } else {
-      await pool.query("INSERT INTO users (name, email, password, role, active) VALUES ($1,$2,$3,'admin',1)", [name, email, hashed]);
+      await pool.query(
+        "INSERT INTO users (name, email, password, role, active) VALUES ($1,$2,$3,'admin',1)",
+        [name, email, hashed]
+      );
       console.log(`[seed-admin] Admin user created: ${email}`);
     }
     await pool.end();
@@ -34,17 +37,24 @@ async function run() {
     const Database = require('better-sqlite3');
     const path = require('path');
     const db = new Database(path.join(__dirname, '../market.db'));
-    try { db.exec('ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1'); } catch {}
+    try {
+      db.exec('ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1');
+    } catch {}
     const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
     if (existing) {
       db.prepare("UPDATE users SET role = 'admin' WHERE email = ?").run(email);
       console.log(`[seed-admin] Promoted existing user "${email}" to admin.`);
     } else {
-      db.prepare("INSERT INTO users (name, email, password, role, active) VALUES (?, ?, ?, 'admin', 1)").run(name, email, hashed);
+      db.prepare(
+        "INSERT INTO users (name, email, password, role, active) VALUES (?, ?, ?, 'admin', 1)"
+      ).run(name, email, hashed);
       console.log(`[seed-admin] Admin user created: ${email}`);
     }
   }
   process.exit(0);
 }
 
-run().catch(e => { console.error(e.message); process.exit(1); });
+run().catch((e) => {
+  console.error(e.message);
+  process.exit(1);
+});

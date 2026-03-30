@@ -17,12 +17,22 @@ router.post('/', auth, validate.cropAlert, async (req, res) => {
   const { rows } = await db.query(
     `INSERT INTO crop_alerts (farmer_id, alert_type, description, location, latitude, longitude, severity)
      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [req.user.id, alert_type, sanitizeText(description), location ? sanitizeText(location) : null, latitude || null, longitude || null, severity || 'medium']
+    [
+      req.user.id,
+      alert_type,
+      sanitizeText(description),
+      location ? sanitizeText(location) : null,
+      latitude || null,
+      longitude || null,
+      severity || 'medium',
+    ]
   );
 
   // Notify nearby farmers (async, don't block response)
   if (latitude && longitude) {
-    notifyNearbyFarmers(rows[0]).catch(err => console.error('[Alerts] Failed to notify farmers:', err));
+    notifyNearbyFarmers(rows[0]).catch((err) =>
+      console.error('[Alerts] Failed to notify farmers:', err)
+    );
   }
 
   res.status(201).json({ success: true, data: rows[0] });
@@ -69,7 +79,9 @@ router.get('/:id', async (req, res) => {
 
 // DELETE /api/alerts/:id - Delete own alert
 router.delete('/:id', auth, async (req, res) => {
-  const { rows } = await db.query('SELECT farmer_id FROM crop_alerts WHERE id = $1', [req.params.id]);
+  const { rows } = await db.query('SELECT farmer_id FROM crop_alerts WHERE id = $1', [
+    req.params.id,
+  ]);
   if (!rows[0]) return err(res, 404, 'Alert not found', 'not_found');
   if (rows[0].farmer_id !== req.user.id && req.user.role !== 'admin') {
     return err(res, 403, 'Not authorized to delete this alert', 'forbidden');
@@ -92,7 +104,9 @@ async function notifyNearbyFarmers(alert) {
     [alert.farmer_id]
   );
 
-  const alertTypeLabel = { pest: 'Pest', disease: 'Disease', weather: 'Weather', other: 'General' }[alert.alert_type] || 'Alert';
+  const alertTypeLabel =
+    { pest: 'Pest', disease: 'Disease', weather: 'Weather', other: 'General' }[alert.alert_type] ||
+    'Alert';
 
   for (const farmer of nearbyFarmers) {
     try {

@@ -97,4 +97,10 @@ async function sendReturnEmail({ type, order, buyer, farmer, reason, txHash, rej
   }
 }
 
-module.exports = { sendOrderEmails, sendLowStockAlert, sendStatusUpdateEmail, sendBackInStockEmail, sendReturnEmail };
+module.exports = {
+  sendOrderEmails,
+  sendLowStockAlert,
+  sendStatusUpdateEmail,
+  sendBackInStockEmail,
+  sendReturnEmail,
+};

@@ -3,12 +3,12 @@
 const jwt = require('jsonwebtoken');
 const { request, app, mockQuery, getCsrf } = require('./setup');
 
-const SECRET      = process.env.JWT_SECRET || 'test-secret-for-jest';
-const buyerToken  = jwt.sign({ id: 1, role: 'buyer'  }, SECRET);
+const SECRET = process.env.JWT_SECRET || 'test-secret-for-jest';
+const buyerToken = jwt.sign({ id: 1, role: 'buyer' }, SECRET);
 const farmerToken = jwt.sign({ id: 2, role: 'farmer' }, SECRET);
 
 const validAddr = { label: 'Home', street: '123 Main St', city: 'Nairobi', country: 'Kenya' };
-const addrRow   = { id: 1, user_id: 1, ...validAddr, postal_code: null, is_default: 0 };
+const addrRow = { id: 1, user_id: 1, ...validAddr, postal_code: null, is_default: 0 };
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -56,7 +56,8 @@ describe('POST /api/addresses', () => {
     const res = await request(app)
       .post('/api/addresses')
       .set('Authorization', `Bearer ${farmerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
       .send(validAddr);
     expect(res.status).toBe(403);
   });
@@ -66,7 +67,8 @@ describe('POST /api/addresses', () => {
     const res = await request(app)
       .post('/api/addresses')
       .set('Authorization', `Bearer ${buyerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
       .send({ label: 'Home', street: '123 Main St' }); // missing city & country
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('validation_error');
@@ -76,11 +78,12 @@ describe('POST /api/addresses', () => {
     const { token: csrf, cookieStr } = await getCsrf();
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1 }) // INSERT RETURNING id
-      .mockResolvedValueOnce({ rows: [addrRow], rowCount: 1 });   // SELECT addr
+      .mockResolvedValueOnce({ rows: [addrRow], rowCount: 1 }); // SELECT addr
     const res = await request(app)
       .post('/api/addresses')
       .set('Authorization', `Bearer ${buyerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
       .send(validAddr);
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
@@ -90,13 +93,14 @@ describe('POST /api/addresses', () => {
   it('clears other defaults when is_default is true', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
     mockQuery
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })           // UPDATE clear defaults
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE clear defaults
       .mockResolvedValueOnce({ rows: [{ id: 2 }], rowCount: 1 }) // INSERT
       .mockResolvedValueOnce({ rows: [{ ...addrRow, id: 2, is_default: 1 }], rowCount: 1 });
     const res = await request(app)
       .post('/api/addresses')
       .set('Authorization', `Bearer ${buyerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
       .send({ ...validAddr, is_default: true });
     expect(res.status).toBe(201);
     expect(mockQuery).toHaveBeenCalledWith(
@@ -113,7 +117,8 @@ describe('PUT /api/addresses/:id', () => {
     const res = await request(app)
       .put('/api/addresses/1')
       .set('Authorization', `Bearer ${buyerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
       .send({ label: 'Work' }); // missing street, city, country
     expect(res.status).toBe(400);
   });
@@ -124,7 +129,8 @@ describe('PUT /api/addresses/:id', () => {
     const res = await request(app)
       .put('/api/addresses/99')
       .set('Authorization', `Bearer ${buyerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
       .send(validAddr);
     expect(res.status).toBe(404);
   });
@@ -133,13 +139,14 @@ describe('PUT /api/addresses/:id', () => {
     const { token: csrf, cookieStr } = await getCsrf();
     const updated = { ...addrRow, city: 'Mombasa' };
     mockQuery
-      .mockResolvedValueOnce({ rows: [addrRow], rowCount: 1 })  // SELECT ownership check
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })          // UPDATE
-      .mockResolvedValueOnce({ rows: [updated], rowCount: 1 });  // SELECT result
+      .mockResolvedValueOnce({ rows: [addrRow], rowCount: 1 }) // SELECT ownership check
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE
+      .mockResolvedValueOnce({ rows: [updated], rowCount: 1 }); // SELECT result
     const res = await request(app)
       .put('/api/addresses/1')
       .set('Authorization', `Bearer ${buyerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
       .send({ ...validAddr, city: 'Mombasa' });
     expect(res.status).toBe(200);
     expect(res.body.data.city).toBe('Mombasa');
@@ -153,7 +160,8 @@ describe('PATCH /api/addresses/:id/default', () => {
     const res = await request(app)
       .patch('/api/addresses/1/default')
       .set('Authorization', `Bearer ${farmerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf);
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
     expect(res.status).toBe(403);
   });
 
@@ -163,21 +171,23 @@ describe('PATCH /api/addresses/:id/default', () => {
     const res = await request(app)
       .patch('/api/addresses/99/default')
       .set('Authorization', `Bearer ${buyerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf);
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
     expect(res.status).toBe(404);
   });
 
   it('sets address as default', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
     mockQuery
-      .mockResolvedValueOnce({ rows: [addrRow], rowCount: 1 })              // ownership check
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })                      // clear defaults
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })                      // set default
+      .mockResolvedValueOnce({ rows: [addrRow], rowCount: 1 }) // ownership check
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // clear defaults
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // set default
       .mockResolvedValueOnce({ rows: [{ ...addrRow, is_default: 1 }], rowCount: 1 }); // SELECT
     const res = await request(app)
       .patch('/api/addresses/1/default')
       .set('Authorization', `Bearer ${buyerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf);
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
     expect(res.status).toBe(200);
     expect(res.body.data.is_default).toBe(1);
   });
@@ -190,7 +200,8 @@ describe('DELETE /api/addresses/:id', () => {
     const res = await request(app)
       .delete('/api/addresses/1')
       .set('Authorization', `Bearer ${farmerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf);
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
     expect(res.status).toBe(403);
   });
 
@@ -200,7 +211,8 @@ describe('DELETE /api/addresses/:id', () => {
     const res = await request(app)
       .delete('/api/addresses/99')
       .set('Authorization', `Bearer ${buyerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf);
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
     expect(res.status).toBe(404);
   });
 
@@ -212,7 +224,8 @@ describe('DELETE /api/addresses/:id', () => {
     const res = await request(app)
       .delete('/api/addresses/1')
       .set('Authorization', `Bearer ${buyerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf);
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('address_in_use');
   });
@@ -226,7 +239,8 @@ describe('DELETE /api/addresses/:id', () => {
     const res = await request(app)
       .delete('/api/addresses/1')
       .set('Authorization', `Bearer ${buyerToken}`)
-      .set('Cookie', cookieStr).set('X-CSRF-Token', csrf);
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });

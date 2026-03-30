@@ -36,9 +36,12 @@ function probeDurationSeconds(filePath) {
     execFile(
       'ffprobe',
       [
-        '-v', 'error',
-        '-show_entries', 'format=duration',
-        '-of', 'default=noprint_wrappers=1:nokey=1',
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
         filePath,
       ],
       (error, stdout) => {
@@ -52,12 +55,15 @@ function probeDurationSeconds(filePath) {
 }
 
 router.post('/:id/video', auth, (req, res) => {
-  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can upload videos', 'forbidden');
+  if (req.user.role !== 'farmer')
+    return err(res, 403, 'Only farmers can upload videos', 'forbidden');
 
   upload.single('video')(req, res, async (uploadErr) => {
     if (uploadErr) {
-      if (uploadErr.code === 'LIMIT_FILE_SIZE') return err(res, 400, 'Video must be 50 MB or smaller', 'file_too_large');
-      if (uploadErr.code === 'INVALID_TYPE') return err(res, 400, uploadErr.message, 'invalid_file_type');
+      if (uploadErr.code === 'LIMIT_FILE_SIZE')
+        return err(res, 400, 'Video must be 50 MB or smaller', 'file_too_large');
+      if (uploadErr.code === 'INVALID_TYPE')
+        return err(res, 400, uploadErr.message, 'invalid_file_type');
       return err(res, 400, 'Upload failed', 'upload_error');
     }
 
@@ -87,8 +93,14 @@ router.post('/:id/video', auth, (req, res) => {
 
       return res.status(201).json({ success: true, videoUrl });
     } catch (e) {
-      try { fs.unlinkSync(req.file.path); } catch {}
-      return res.status(400).json({ success: false, message: e.message, code: 'video_validation_failed' });
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (error) {
+        // file might already be deleted
+      }
+      return res
+        .status(400)
+        .json({ success: false, message: e.message, code: 'video_validation_failed' });
     }
   });
 });

@@ -12,7 +12,10 @@ const token = jwt.sign({ id: 1, role: 'buyer' }, SECRET);
 
 describe('GET /api/wallet', () => {
   it('returns balance for authenticated user', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: 'GPUB', referral_code: null }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: 'GPUB', referral_code: null }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(500);
     const res = await request(app).get('/api/wallet').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
@@ -30,7 +33,9 @@ describe('GET /api/wallet/transactions', () => {
   it('returns transaction list', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: 'GPUB' }], rowCount: 1 });
     stellar.getTransactions.mockResolvedValueOnce([{ id: 'tx1', amount: '10' }]);
-    const res = await request(app).get('/api/wallet/transactions').set('Authorization', `Bearer ${token}`);
+    const res = await request(app)
+      .get('/api/wallet/transactions')
+      .set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
   });
@@ -64,14 +69,17 @@ describe('POST /api/wallet/fund', () => {
 });
 
 const EXTERNAL_KEY = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
-const USER_KEY     = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const USER_KEY = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 describe('POST /api/wallet/send', () => {
   const validBody = { destination: EXTERNAL_KEY, amount: 10 };
 
   it('sends XLM successfully', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(500);
     stellar.sendPayment.mockResolvedValueOnce('TXHASH_SEND');
     const res = await request(app)
@@ -88,7 +96,10 @@ describe('POST /api/wallet/send', () => {
 
   it('sends XLM with optional memo', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(500);
     stellar.sendPayment.mockResolvedValueOnce('TXHASH_MEMO');
     const res = await request(app)
@@ -99,12 +110,17 @@ describe('POST /api/wallet/send', () => {
       .send({ ...validBody, memo: 'invoice #42' });
     expect(res.status).toBe(200);
     expect(res.body.memo).toBe('invoice #42');
-    expect(stellar.sendPayment).toHaveBeenCalledWith(expect.objectContaining({ memo: 'invoice #42' }));
+    expect(stellar.sendPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ memo: 'invoice #42' })
+    );
   });
 
   it('returns 402 when balance is insufficient', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(5);
     const res = await request(app)
       .post('/api/wallet/send')
@@ -118,7 +134,10 @@ describe('POST /api/wallet/send', () => {
 
   it('returns 400 when sending to own wallet', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(500);
     const res = await request(app)
       .post('/api/wallet/send')
@@ -176,7 +195,10 @@ describe('POST /api/wallet/send', () => {
 
   it('returns 502 when Stellar transaction fails', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(500);
     stellar.sendPayment.mockRejectedValueOnce(new Error('op_no_destination'));
     const res = await request(app)

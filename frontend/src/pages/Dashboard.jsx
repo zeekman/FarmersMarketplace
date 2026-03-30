@@ -545,10 +545,10 @@ export default function Dashboard() {
           <h3 style={{ marginBottom: 16, color: '#333' }}>Add New Product</h3>
           {msg && <div style={{ ...s.msg, background: msg.type === 'ok' ? '#d8f3dc' : '#fee', color: msg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>{msg.text}</div>}
           <form onSubmit={handleAdd}>
-            {[['name', 'Product Name'], ['price', 'Price (XLM)'], ['quantity', 'Quantity'], ['unit', 'Unit (kg, bunch, etc.)']].map(([key, label]) => (
+            {[['name', 'Product Name', 'prod-name'], ['price', 'Price (XLM)', 'prod-price'], ['quantity', 'Quantity', 'prod-qty'], ['unit', 'Unit (kg, bunch, etc.)', 'prod-unit']].map(([key, label, id]) => (
               <div key={key}>
-                <label style={s.label}>{label}</label>
-                <input style={s.input} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} required={key !== 'unit'} />
+                <label style={s.label} htmlFor={id}>{label}</label>
+                <input id={id} style={s.input} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} required={key !== 'unit'} />
               </div>
             ))}
             <label style={s.label}>Description</label>
@@ -787,7 +787,7 @@ export default function Dashboard() {
                 <div style={{ fontWeight: 600 }}>{p.name}</div>
                 <div style={{ fontSize: 13, color: '#666' }}>{p.price} XLM · {p.quantity} {p.unit}</div>
               </div>
-              <button style={s.del} onClick={() => handleDelete(p.id)}>Remove</button>
+              <button style={s.del} onClick={() => handleDelete(p.id)} aria-label={`Remove ${p.name}`}>Remove</button>
             <div key={p.id} style={{ ...s.product, flexDirection: 'column', alignItems: 'stretch' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -857,7 +857,7 @@ export default function Dashboard() {
                     onChange={e => setRestockVals({ ...restockVals, [p.id]: e.target.value })}
                   />
                   <button style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#218c74' }} onClick={() => handleRestock(p.id)}>{t('dashboard.restock')}</button>
-                  <button style={s.del} onClick={() => handleDelete(p.id)}>{t('dashboard.remove')}</button>
+                  <button style={s.del} onClick={() => handleDelete(p.id)} aria-label={`Remove ${p.name}`}>{t('dashboard.remove')}</button>
                 </div>
               </div>
 

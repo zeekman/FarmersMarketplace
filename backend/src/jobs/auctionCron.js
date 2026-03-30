@@ -2,7 +2,9 @@ const db = require('../db/schema');
 const { sendPayment } = require('../utils/stellar');
 
 async function closeExpiredAuctions() {
-  const expired = db.prepare(`
+  const expired = db
+    .prepare(
+      `
     SELECT a.*, u.stellar_public_key as farmer_wallet,
            b.stellar_public_key as buyer_wallet,
            b.stellar_secret_key as buyer_secret
@@ -10,7 +12,9 @@ async function closeExpiredAuctions() {
     JOIN users u ON a.farmer_id = u.id
     LEFT JOIN users b ON a.highest_bidder_id = b.id
     WHERE a.status = 'active' AND a.ends_at <= datetime('now')
-  `).all();
+  `
+    )
+    .all();
 
   for (const auction of expired) {
     if (!auction.highest_bidder_id) {

@@ -80,8 +80,8 @@ describe('WaitlistService Enhanced Validation', () => {
 
     test('rejects inactive buyer accounts', async () => {
       // Mock inactive buyer
-      db.query.mockResolvedValueOnce({ 
-        rows: [{ id: 123, role: 'buyer', is_active: false }] 
+      db.query.mockResolvedValueOnce({
+        rows: [{ id: 123, role: 'buyer', is_active: false }],
       });
 
       const result = await service.joinWaitlist(123, 1, 2);
@@ -93,8 +93,8 @@ describe('WaitlistService Enhanced Validation', () => {
 
     test('rejects non-buyer users', async () => {
       // Mock farmer trying to join waitlist
-      db.query.mockResolvedValueOnce({ 
-        rows: [{ id: 123, role: 'farmer', is_active: true }] 
+      db.query.mockResolvedValueOnce({
+        rows: [{ id: 123, role: 'farmer', is_active: true }],
       });
 
       const result = await service.joinWaitlist(123, 1, 2);
@@ -107,12 +107,12 @@ describe('WaitlistService Enhanced Validation', () => {
     test('validates product exists and is active', async () => {
       // Mock valid buyer
       db.query
-        .mockResolvedValueOnce({ 
-          rows: [{ id: 123, role: 'buyer', is_active: true }] 
+        .mockResolvedValueOnce({
+          rows: [{ id: 123, role: 'buyer', is_active: true }],
         })
         // Mock inactive product
-        .mockResolvedValueOnce({ 
-          rows: [{ id: 1, name: 'Test Product', quantity: 0, is_active: false }] 
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, name: 'Test Product', quantity: 0, is_active: false }],
         });
 
       const result = await service.joinWaitlist(123, 1, 2);
@@ -125,12 +125,12 @@ describe('WaitlistService Enhanced Validation', () => {
     test('provides detailed in-stock product error message', async () => {
       // Mock valid buyer
       db.query
-        .mockResolvedValueOnce({ 
-          rows: [{ id: 123, role: 'buyer', is_active: true }] 
+        .mockResolvedValueOnce({
+          rows: [{ id: 123, role: 'buyer', is_active: true }],
         })
         // Mock in-stock product
-        .mockResolvedValueOnce({ 
-          rows: [{ id: 1, name: 'Test Product', quantity: 5, is_active: true }] 
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, name: 'Test Product', quantity: 5, is_active: true }],
         });
 
       const result = await service.joinWaitlist(123, 1, 2);
@@ -144,15 +144,15 @@ describe('WaitlistService Enhanced Validation', () => {
     test('provides detailed duplicate entry error message', async () => {
       // Mock valid buyer and product
       db.query
-        .mockResolvedValueOnce({ 
-          rows: [{ id: 123, role: 'buyer', is_active: true }] 
+        .mockResolvedValueOnce({
+          rows: [{ id: 123, role: 'buyer', is_active: true }],
         })
-        .mockResolvedValueOnce({ 
-          rows: [{ id: 1, name: 'Test Product', quantity: 0, is_active: true }] 
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, name: 'Test Product', quantity: 0, is_active: true }],
         })
         // Mock existing waitlist entry
-        .mockResolvedValueOnce({ 
-          rows: [{ id: 1, position: 3, created_at: '2024-01-01T00:00:00.000Z' }] 
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, position: 3, created_at: '2024-01-01T00:00:00.000Z' }],
         });
 
       const result = await service.joinWaitlist(123, 1, 2);
@@ -208,12 +208,12 @@ describe('WaitlistService Enhanced Validation', () => {
     test('uses transaction for atomic position updates', async () => {
       // Mock valid buyer
       db.query
-        .mockResolvedValueOnce({ 
-          rows: [{ id: 123, role: 'buyer', is_active: true }] 
+        .mockResolvedValueOnce({
+          rows: [{ id: 123, role: 'buyer', is_active: true }],
         })
         // Mock existing entry
-        .mockResolvedValueOnce({ 
-          rows: [{ id: 1, position: 2 }] 
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, position: 2 }],
         })
         // Mock transaction commands
         .mockResolvedValueOnce({ rows: [] }) // BEGIN
@@ -245,8 +245,8 @@ describe('WaitlistService Enhanced Validation', () => {
     test('includes success codes in status responses', async () => {
       // Mock valid product and no waitlist entry
       db.query
-        .mockResolvedValueOnce({ 
-          rows: [{ id: 1, name: 'Test Product', quantity: 0, is_active: true }] 
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, name: 'Test Product', quantity: 0, is_active: true }],
         })
         .mockResolvedValueOnce({ rows: [] }) // no entry
         .mockResolvedValueOnce({ rows: [{ total: '5' }] }); // count

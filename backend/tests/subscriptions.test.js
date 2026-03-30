@@ -3,8 +3,8 @@
 const jwt = require('jsonwebtoken');
 const { request, app, mockDb } = require('./setup');
 
-const SECRET      = process.env.JWT_SECRET || 'test-secret-for-jest';
-const buyerToken  = jwt.sign({ id: 1, role: 'buyer'  }, SECRET);
+const SECRET = process.env.JWT_SECRET || 'test-secret-for-jest';
+const buyerToken = jwt.sign({ id: 1, role: 'buyer' }, SECRET);
 const farmerToken = jwt.sign({ id: 2, role: 'farmer' }, SECRET);
 
 beforeEach(() => {
@@ -184,7 +184,9 @@ describe('PATCH /api/subscriptions/:id/resume', () => {
 
   it('returns 400 when subscription is cancelled', async () => {
     mockDb.prepare.mockReturnValue({
-      get: jest.fn().mockReturnValue({ id: 1, buyer_id: 1, status: 'cancelled', frequency: 'weekly' }),
+      get: jest
+        .fn()
+        .mockReturnValue({ id: 1, buyer_id: 1, status: 'cancelled', frequency: 'weekly' }),
     });
     const res = await request(app)
       .patch('/api/subscriptions/1/resume')
@@ -195,7 +197,9 @@ describe('PATCH /api/subscriptions/:id/resume', () => {
 
   it('resumes a paused subscription', async () => {
     mockDb.prepare.mockReturnValue({
-      get: jest.fn().mockReturnValue({ id: 1, buyer_id: 1, status: 'paused', frequency: 'monthly' }),
+      get: jest
+        .fn()
+        .mockReturnValue({ id: 1, buyer_id: 1, status: 'paused', frequency: 'monthly' }),
       run: jest.fn(),
     });
     const res = await request(app)

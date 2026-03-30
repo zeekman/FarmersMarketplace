@@ -11,17 +11,17 @@ const app = require('../src/app');
 const SECRET = process.env.JWT_SECRET;
 const token = (id, role) => jwt.sign({ id, role }, SECRET);
 
-const ADMIN_TOKEN  = token(1, 'admin');
-const BUYER_TOKEN  = token(2, 'buyer');
+const ADMIN_TOKEN = token(1, 'admin');
+const BUYER_TOKEN = token(2, 'buyer');
 const FARMER_TOKEN = token(3, 'farmer');
 
 // Valid 56-char base32 Stellar contract ID
 const VALID_CONTRACT_ID = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM';
 
 const MOCK_ENTRIES = [
-  { key: 'balance:GABC', val: 1000,     durability: 'Persistent' },
-  { key: 'owner',        val: 'GABC123', durability: 'Persistent' },
-  { key: 'temp_nonce',   val: 42,        durability: 'Temporary'  },
+  { key: 'balance:GABC', val: 1000, durability: 'Persistent' },
+  { key: 'owner', val: 'GABC123', durability: 'Persistent' },
+  { key: 'temp_nonce', val: 42, durability: 'Temporary' },
 ];
 
 describe('GET /api/contracts/:contractId/state', () => {
@@ -67,12 +67,16 @@ describe('GET /api/contracts/:contractId/state', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data).toHaveLength(3);
-    expect(res.body.data[0]).toMatchObject({ key: 'balance:GABC', val: 1000, durability: 'Persistent' });
+    expect(res.body.data[0]).toMatchObject({
+      key: 'balance:GABC',
+      val: 1000,
+      durability: 'Persistent',
+    });
     expect(stellar.getContractState).toHaveBeenCalledWith(VALID_CONTRACT_ID, null);
   });
 
   it('passes prefix query param to getContractState', async () => {
-    const filtered = MOCK_ENTRIES.filter(e => e.key.startsWith('balance'));
+    const filtered = MOCK_ENTRIES.filter((e) => e.key.startsWith('balance'));
     stellar.getContractState.mockResolvedValueOnce(filtered);
     const res = await request(app)
       .get(`/api/contracts/${VALID_CONTRACT_ID}/state?prefix=balance`)

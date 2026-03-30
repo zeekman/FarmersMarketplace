@@ -86,7 +86,7 @@ router.get('/:id/waitlist/status', auth, async (req, res) => {
     const response = {
       success: true,
       onWaitlist: result.onWaitlist,
-      totalWaiting: result.totalWaiting
+      totalWaiting: result.totalWaiting,
     };
 
     // Only include position if buyer is on waitlist
@@ -95,7 +95,6 @@ router.get('/:id/waitlist/status', auth, async (req, res) => {
     }
 
     res.json(response);
-
   } catch (error) {
     console.error('[Products] Error getting waitlist status:', error);
     return err(res, 500, 'Internal server error', 'internal_error');

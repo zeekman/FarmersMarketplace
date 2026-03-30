@@ -25,21 +25,30 @@ router.post('/', auth, async (req, res) => {
   );
   const order = oRows[0];
   if (!order) return err(res, 404, 'Order not found', 'not_found');
-  if (order.status !== 'delivered') return err(res, 400, 'Returns can only be filed for delivered orders', 'invalid_state');
+  if (order.status !== 'delivered')
+    return err(res, 400, 'Returns can only be filed for delivered orders', 'invalid_state');
 
   const deliveredAt = new Date(order.updated_at || order.created_at);
   const hoursElapsed = (Date.now() - deliveredAt.getTime()) / 3600000;
   if (hoursElapsed > RETURN_WINDOW_HOURS) {
-    return err(res, 400, `Return window of ${RETURN_WINDOW_HOURS} hours has passed`, 'return_window_expired');
+    return err(
+      res,
+      400,
+      `Return window of ${RETURN_WINDOW_HOURS} hours has passed`,
+      'return_window_expired'
+    );
   }
 
   // Only one return per order
-  const { rows: existing } = await db.query(
-    'SELECT id FROM return_requests WHERE order_id = $1', [req.params.id]
-  );
-  if (existing[0]) return err(res, 409, 'A return request already exists for this order', 'conflict');
+  const { rows: existing } = await db.query('SELECT id FROM return_requests WHERE order_id = $1', [
+    req.params.id,
+  ]);
+  if (existing[0])
+    return err(res, 409, 'A return request already exists for this order', 'conflict');
 
-  const { rows: buyerRows } = await db.query('SELECT name, email FROM users WHERE id = $1', [req.user.id]);
+  const { rows: buyerRows } = await db.query('SELECT name, email FROM users WHERE id = $1', [
+    req.user.id,
+  ]);
   const buyer = buyerRows[0];
 
   const { rows } = await db.query(
@@ -53,14 +62,15 @@ router.post('/', auth, async (req, res) => {
     buyer,
     farmer: { name: order.farmer_name, email: order.farmer_email },
     reason: reason.trim(),
-  }).catch(e => console.error('[Return] Email failed:', e.message));
+  }).catch((e) => console.error('[Return] Email failed:', e.message));
 
   res.json({ success: true, returnRequestId: rows[0].id, message: 'Return request filed' });
 });
 
 // PATCH /api/orders/:id/return/approve — farmer approves and triggers refund
 router.patch('/approve', auth, async (req, res) => {
-  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can approve returns', 'forbidden');
+  if (req.user.role !== 'farmer')
+    return err(res, 403, 'Only farmers can approve returns', 'forbidden');
 
   const { rows: rRows } = await db.query(
     `SELECT rr.*, o.total_price, o.buyer_id,
@@ -77,7 +87,8 @@ router.patch('/approve', auth, async (req, res) => {
   );
   const rr = rRows[0];
   if (!rr) return err(res, 404, 'Return request not found or not yours', 'not_found');
-  if (rr.status !== 'pending') return err(res, 400, `Return request is already ${rr.status}`, 'invalid_state');
+  if (rr.status !== 'pending')
+    return err(res, 400, `Return request is already ${rr.status}`, 'invalid_state');
 
   let txHash;
   try {
@@ -88,7 +99,13 @@ router.patch('/approve', auth, async (req, res) => {
       memo: `Refund#${req.params.id}`.slice(0, 28),
     });
   } catch (e) {
-    return res.status(402).json({ success: false, message: 'Refund payment failed: ' + e.message, code: 'refund_failed' });
+    return res
+      .status(402)
+      .json({
+        success: false,
+        message: 'Refund payment failed: ' + e.message,
+        code: 'refund_failed',
+      });
   }
 
   await db.query(
@@ -101,14 +118,15 @@ router.patch('/approve', auth, async (req, res) => {
     order: { id: req.params.id, total_price: rr.total_price, product_name: rr.product_name },
     buyer: { name: rr.buyer_name, email: rr.buyer_email },
     txHash,
-  }).catch(e => console.error('[Return] Email failed:', e.message));
+  }).catch((e) => console.error('[Return] Email failed:', e.message));
 
   res.json({ success: true, txHash, message: 'Return approved and refund sent' });
 });
 
 // PATCH /api/orders/:id/return/reject — farmer rejects with reason
 router.patch('/reject', auth, async (req, res) => {
-  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can reject returns', 'forbidden');
+  if (req.user.role !== 'farmer')
+    return err(res, 403, 'Only farmers can reject returns', 'forbidden');
 
   const { reject_reason } = req.body;
 
@@ -123,19 +141,21 @@ router.patch('/reject', auth, async (req, res) => {
   );
   const rr = rRows[0];
   if (!rr) return err(res, 404, 'Return request not found or not yours', 'not_found');
-  if (rr.status !== 'pending') return err(res, 400, `Return request is already ${rr.status}`, 'invalid_state');
+  if (rr.status !== 'pending')
+    return err(res, 400, `Return request is already ${rr.status}`, 'invalid_state');
 
-  await db.query(
-    'UPDATE return_requests SET status = $1, reject_reason = $2 WHERE order_id = $3',
-    ['rejected', reject_reason?.trim() || null, req.params.id]
-  );
+  await db.query('UPDATE return_requests SET status = $1, reject_reason = $2 WHERE order_id = $3', [
+    'rejected',
+    reject_reason?.trim() || null,
+    req.params.id,
+  ]);
 
   sendReturnEmail({
     type: 'rejected',
     order: { id: req.params.id, product_name: rr.product_name },
     buyer: { name: rr.buyer_name, email: rr.buyer_email },
     rejectReason: reject_reason?.trim() || null,
-  }).catch(e => console.error('[Return] Email failed:', e.message));
+  }).catch((e) => console.error('[Return] Email failed:', e.message));
 
   res.json({ success: true, message: 'Return request rejected' });
 });
