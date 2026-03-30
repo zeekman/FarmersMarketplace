@@ -16,6 +16,9 @@ router.post('/', auth, validate.dispute, (req, res) => {
   const order = db.prepare(
     'SELECT * FROM orders WHERE id = ? AND buyer_id = ?'
   ).get(order_id, req.user.id);
+  const order = db
+    .prepare('SELECT * FROM orders WHERE id = ? AND buyer_id = ?')
+    .get(order_id, req.user.id);
 
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (order.status !== 'paid')
@@ -30,6 +33,13 @@ router.post('/', auth, validate.dispute, (req, res) => {
   ).run(order_id, req.user.id, reason.trim());
 
   res.status(201).json({ id: result.lastInsertRowid, order_id, status: 'open', message: 'Dispute filed' });
+  const result = db
+    .prepare('INSERT INTO disputes (order_id, buyer_id, reason) VALUES (?, ?, ?)')
+    .run(order_id, req.user.id, reason.trim());
+
+  res
+    .status(201)
+    .json({ id: result.lastInsertRowid, order_id, status: 'open', message: 'Dispute filed' });
 });
 
 // GET /api/disputes — admin lists all disputes (with order + buyer info)
@@ -38,6 +48,11 @@ router.get('/', auth, (req, res) => {
     return res.status(403).json({ error: 'Admins only' });
 
   const disputes = db.prepare(`
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admins only' });
+
+  const disputes = db
+    .prepare(
+      `
     SELECT d.*, u.name as buyer_name, u.email as buyer_email,
            o.total_price, o.quantity, p.name as product_name
     FROM disputes d
@@ -46,6 +61,9 @@ router.get('/', auth, (req, res) => {
     JOIN products p ON o.product_id = p.id
     ORDER BY d.created_at DESC
   `).all();
+  `
+    )
+    .all();
 
   res.json(disputes);
 });
@@ -54,6 +72,7 @@ router.get('/', auth, (req, res) => {
 router.patch('/:id', auth, validate.resolveDispute, async (req, res) => {
   if (req.user.role !== 'admin')
     return res.status(403).json({ error: 'Admins only' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admins only' });
 
   const dispute = db.prepare('SELECT * FROM disputes WHERE id = ?').get(req.params.id);
   if (!dispute) return res.status(404).json({ error: 'Dispute not found' });
@@ -71,6 +90,20 @@ router.patch('/:id', auth, validate.resolveDispute, async (req, res) => {
   db.prepare(
     'UPDATE disputes SET status = ?, resolution = ? WHERE id = ?'
   ).run(status, resolution ? resolution.trim() : dispute.resolution, dispute.id);
+    return res
+      .status(400)
+      .json({ error: `Cannot transition from '${dispute.status}' to '${status}'` });
+
+  if (status === 'resolved' && (!resolution || !resolution.trim()))
+    return res
+      .status(400)
+      .json({ error: 'A resolution note is required when resolving a dispute' });
+
+  db.prepare('UPDATE disputes SET status = ?, resolution = ? WHERE id = ?').run(
+    status,
+    resolution ? resolution.trim() : dispute.resolution,
+    dispute.id
+  );
 
   // Send email notification to buyer when resolved
   if (status === 'resolved') {
@@ -84,6 +117,7 @@ router.patch('/:id', auth, validate.resolveDispute, async (req, res) => {
       product,
       buyer,
     }).catch(err => console.error('Dispute email failed:', err.message));
+    }).catch((err) => console.error('Dispute email failed:', err.message));
   }
 
   res.json({ id: dispute.id, status, message: 'Dispute updated' });

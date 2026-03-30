@@ -1,9 +1,9 @@
 /**
  * WaitlistService - Core service for managing product waitlists
- * 
+ *
  * Handles waitlist entry creation, removal, position management, and FIFO ordering.
  * Integrates with the existing database layer and follows established patterns.
- * 
+ *
  * Validates: Requirements 1.1, 1.4, 1.5
  */
 
@@ -42,10 +42,10 @@ class WaitlistService {
 
       // Check if product is in stock (Requirement 1.3)
       if (product.quantity > 0) {
-        return { 
-          success: false, 
-          error: `Product "${product.name}" is currently available for purchase with ${product.quantity} units in stock`, 
-          code: 'PRODUCT_IN_STOCK' 
+        return {
+          success: false,
+          error: `Product "${product.name}" is currently available for purchase with ${product.quantity} units in stock`,
+          code: 'PRODUCT_IN_STOCK',
         };
       }
 
@@ -89,7 +89,7 @@ class WaitlistService {
         success: true,
         position,
         totalWaiting,
-        entry
+        entry,
       };
     } catch (error) {
       console.error('[WaitlistService] Error joining waitlist:', error);
@@ -133,7 +133,7 @@ class WaitlistService {
 
     return {
       isValid: errors.length === 0,
-      error: errors.length > 0 ? errors.join(', ') : null
+      error: errors.length > 0 ? errors.join(', ') : null,
     };
   }
 
@@ -143,10 +143,9 @@ class WaitlistService {
    */
   async _validateBuyer(buyerId) {
     try {
-      const { rows } = await db.query(
-        'SELECT id, role, is_active FROM users WHERE id = $1',
-        [buyerId]
-      );
+      const { rows } = await db.query('SELECT id, role, is_active FROM users WHERE id = $1', [
+        buyerId,
+      ]);
 
       if (!rows[0]) {
         return { isValid: false, error: 'Buyer not found', code: 'BUYER_NOT_FOUND' };
@@ -187,7 +186,11 @@ class WaitlistService {
       const product = rows[0];
 
       if (!product.is_active) {
-        return { isValid: false, error: 'Product is no longer available', code: 'PRODUCT_INACTIVE' };
+        return {
+          isValid: false,
+          error: 'Product is no longer available',
+          code: 'PRODUCT_INACTIVE',
+        };
       }
 
       return { isValid: true, product };
@@ -210,17 +213,21 @@ class WaitlistService {
 
       if (rows[0]) {
         const entry = rows[0];
-        return { 
-          isValid: false, 
+        return {
+          isValid: false,
           error: `Already on waitlist for this product at position ${entry.position} (joined ${new Date(entry.created_at).toLocaleDateString()})`,
-          existingEntry: entry
+          existingEntry: entry,
         };
       }
 
       return { isValid: true };
     } catch (error) {
       console.error('[WaitlistService] Error checking duplicate entry:', error);
-      return { isValid: false, error: 'Failed to check existing waitlist entries', code: 'VALIDATION_ERROR' };
+      return {
+        isValid: false,
+        error: 'Failed to check existing waitlist entries',
+        code: 'VALIDATION_ERROR',
+      };
     }
   }
 
@@ -238,9 +245,9 @@ class WaitlistService {
 
       const product = productRows[0];
       if (product && product.max_quantity_per_order && quantity > product.max_quantity_per_order) {
-        return { 
-          isValid: false, 
-          error: `Quantity ${quantity} exceeds maximum allowed per order (${product.max_quantity_per_order})` 
+        return {
+          isValid: false,
+          error: `Quantity ${quantity} exceeds maximum allowed per order (${product.max_quantity_per_order})`,
         };
       }
 
@@ -254,9 +261,9 @@ class WaitlistService {
       const maxTotalWaitlistQuantity = 100; // Business rule: max 100 items across all waitlists
 
       if (totalWaitlistQuantity + quantity > maxTotalWaitlistQuantity) {
-        return { 
-          isValid: false, 
-          error: `Adding ${quantity} items would exceed your total waitlist limit of ${maxTotalWaitlistQuantity} items (currently have ${totalWaitlistQuantity})` 
+        return {
+          isValid: false,
+          error: `Adding ${quantity} items would exceed your total waitlist limit of ${maxTotalWaitlistQuantity} items (currently have ${totalWaitlistQuantity})`,
         };
       }
 
@@ -293,7 +300,11 @@ class WaitlistService {
         [buyerId, productId]
       );
       if (!entryRows[0]) {
-        return { success: false, error: 'Not on waitlist for this product', code: 'ENTRY_NOT_FOUND' };
+        return {
+          success: false,
+          error: 'Not on waitlist for this product',
+          code: 'ENTRY_NOT_FOUND',
+        };
       }
 
       const removedPosition = entryRows[0].position;
@@ -303,10 +314,10 @@ class WaitlistService {
 
       try {
         // Remove the entry
-        await db.query(
-          'DELETE FROM waitlist_entries WHERE buyer_id = $1 AND product_id = $2',
-          [buyerId, productId]
-        );
+        await db.query('DELETE FROM waitlist_entries WHERE buyer_id = $1 AND product_id = $2', [
+          buyerId,
+          productId,
+        ]);
 
         // Update positions for remaining entries (decrement positions after the removed one)
         const { rows: updatedRows } = await db.query(
@@ -319,7 +330,7 @@ class WaitlistService {
         return {
           success: true,
           message: `Successfully left waitlist (${updatedRows.length} positions updated)`,
-          code: 'SUCCESS'
+          code: 'SUCCESS',
         };
       } catch (error) {
         await db.query('ROLLBACK');
@@ -354,7 +365,7 @@ class WaitlistService {
 
     return {
       isValid: errors.length === 0,
-      error: errors.length > 0 ? errors.join(', ') : null
+      error: errors.length > 0 ? errors.join(', ') : null,
     };
   }
 
@@ -397,14 +408,14 @@ class WaitlistService {
           onWaitlist: true,
           position: entryRows[0].position,
           totalWaiting,
-          code: 'ON_WAITLIST'
+          code: 'ON_WAITLIST',
         };
       } else {
         return {
           success: true,
           onWaitlist: false,
           totalWaiting,
-          code: 'NOT_ON_WAITLIST'
+          code: 'NOT_ON_WAITLIST',
         };
       }
     } catch (error) {
@@ -436,7 +447,7 @@ class WaitlistService {
 
     return {
       isValid: errors.length === 0,
-      error: errors.length > 0 ? errors.join(', ') : null
+      error: errors.length > 0 ? errors.join(', ') : null,
     };
   }
 
@@ -448,7 +459,11 @@ class WaitlistService {
   async getBuyerWaitlistEntries(buyerId) {
     // Enhanced input validation
     if (!buyerId || !Number.isInteger(buyerId) || buyerId <= 0) {
-      return { success: false, error: 'buyer_id must be a positive integer', code: 'INVALID_INPUT' };
+      return {
+        success: false,
+        error: 'buyer_id must be a positive integer',
+        code: 'INVALID_INPUT',
+      };
     }
 
     try {
@@ -467,13 +482,13 @@ class WaitlistService {
         [buyerId]
       );
 
-      const entries = rows.map(row => WaitlistEntry.fromDatabaseRow(row));
+      const entries = rows.map((row) => WaitlistEntry.fromDatabaseRow(row));
 
       return {
         success: true,
         data: entries,
         count: entries.length,
-        code: 'SUCCESS'
+        code: 'SUCCESS',
       };
     } catch (error) {
       console.error('[WaitlistService] Error getting buyer waitlist entries:', error);
@@ -490,11 +505,19 @@ class WaitlistService {
   async getProductWaitlistEntries(productId, limit = null) {
     // Enhanced input validation
     if (!productId || !Number.isInteger(productId) || productId <= 0) {
-      return { success: false, error: 'product_id must be a positive integer', code: 'INVALID_INPUT' };
+      return {
+        success: false,
+        error: 'product_id must be a positive integer',
+        code: 'INVALID_INPUT',
+      };
     }
 
     if (limit !== null && (!Number.isInteger(limit) || limit <= 0 || limit > 1000)) {
-      return { success: false, error: 'limit must be a positive integer between 1 and 1000', code: 'INVALID_INPUT' };
+      return {
+        success: false,
+        error: 'limit must be a positive integer between 1 and 1000',
+        code: 'INVALID_INPUT',
+      };
     }
 
     try {
@@ -511,7 +534,7 @@ class WaitlistService {
         WHERE we.product_id = $1 AND u.is_active = true
         ORDER BY we.position ASC
       `;
-      
+
       const params = [productId];
       if (limit) {
         query += ` LIMIT $2`;
@@ -519,13 +542,13 @@ class WaitlistService {
       }
 
       const { rows } = await db.query(query, params);
-      const entries = rows.map(row => WaitlistEntry.fromDatabaseRow(row));
+      const entries = rows.map((row) => WaitlistEntry.fromDatabaseRow(row));
 
       return {
         success: true,
         data: entries,
         count: entries.length,
-        code: 'SUCCESS'
+        code: 'SUCCESS',
       };
     } catch (error) {
       console.error('[WaitlistService] Error getting product waitlist entries:', error);
@@ -541,7 +564,11 @@ class WaitlistService {
   async getWaitlistCount(productId) {
     // Enhanced input validation
     if (!productId || !Number.isInteger(productId) || productId <= 0) {
-      return { success: false, error: 'product_id must be a positive integer', code: 'INVALID_INPUT' };
+      return {
+        success: false,
+        error: 'product_id must be a positive integer',
+        code: 'INVALID_INPUT',
+      };
     }
 
     try {
@@ -562,7 +589,7 @@ class WaitlistService {
       return {
         success: true,
         count: parseInt(rows[0].count),
-        code: 'SUCCESS'
+        code: 'SUCCESS',
       };
     } catch (error) {
       console.error('[WaitlistService] Error getting waitlist count:', error);
@@ -579,7 +606,11 @@ class WaitlistService {
   async recalculatePositions(productId) {
     // Enhanced input validation
     if (!productId || !Number.isInteger(productId) || productId <= 0) {
-      return { success: false, error: 'product_id must be a positive integer', code: 'INVALID_INPUT' };
+      return {
+        success: false,
+        error: 'product_id must be a positive integer',
+        code: 'INVALID_INPUT',
+      };
     }
 
     try {
@@ -606,10 +637,10 @@ class WaitlistService {
         // Update positions sequentially
         let updated = 0;
         for (let i = 0; i < rows.length; i++) {
-          await db.query(
-            'UPDATE waitlist_entries SET position = $1 WHERE id = $2',
-            [i + 1, rows[i].id]
-          );
+          await db.query('UPDATE waitlist_entries SET position = $1 WHERE id = $2', [
+            i + 1,
+            rows[i].id,
+          ]);
           updated++;
         }
 
@@ -618,7 +649,7 @@ class WaitlistService {
         return {
           success: true,
           updated,
-          code: 'SUCCESS'
+          code: 'SUCCESS',
         };
       } catch (error) {
         await db.query('ROLLBACK');

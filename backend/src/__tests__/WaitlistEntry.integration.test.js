@@ -12,7 +12,7 @@ describe('WaitlistEntry Database Integration', () => {
         buyer_id: 1,
         product_id: 2,
         quantity: 3,
-        position: 1
+        position: 1,
       });
 
       const validation = entry.validate();
@@ -31,11 +31,11 @@ describe('WaitlistEntry Database Integration', () => {
         buyer_name: 'John Doe',
         buyer_email: 'john@example.com',
         product_name: 'Test Product',
-        product_price: 10.99
+        product_price: 10.99,
       };
 
       const entry = WaitlistEntry.fromDatabaseRow(dbRow);
-      
+
       expect(entry.id).toBe(1);
       expect(entry.buyer_id).toBe(123);
       expect(entry.product_id).toBe(456);
@@ -57,11 +57,11 @@ describe('WaitlistEntry Database Integration', () => {
         position: 1,
         created_at: '2024-01-01T00:00:00.000Z',
         buyer_name: 'John Doe',
-        product_name: 'Test Product'
+        product_name: 'Test Product',
       });
 
       const apiResponse = entry.format();
-      
+
       expect(apiResponse).toEqual({
         id: 1,
         buyer_id: 123,
@@ -70,7 +70,7 @@ describe('WaitlistEntry Database Integration', () => {
         position: 1,
         created_at: '2024-01-01T00:00:00.000Z',
         buyer_name: 'John Doe',
-        product_name: 'Test Product'
+        product_name: 'Test Product',
       });
     });
 
@@ -78,11 +78,11 @@ describe('WaitlistEntry Database Integration', () => {
       const validInput = {
         buyer_id: 123,
         product_id: 456,
-        quantity: 2
+        quantity: 2,
       };
 
       const result = WaitlistEntry.validateCreateInput(validInput);
-      
+
       expect(result.isValid).toBe(true);
       expect(result.data).toEqual(validInput);
     });
@@ -91,11 +91,11 @@ describe('WaitlistEntry Database Integration', () => {
       const invalidInput = {
         buyer_id: 'not-a-number',
         product_id: null,
-        quantity: -1
+        quantity: -1,
       };
 
       const result = WaitlistEntry.validateCreateInput(invalidInput);
-      
+
       expect(result.isValid).toBe(false);
       expect(result.errors.length).toBeGreaterThan(0);
     });
@@ -109,7 +109,7 @@ describe('WaitlistEntry Database Integration', () => {
         product_id: 456,
         quantity: 2,
         position: 1,
-        created_at: '2024-01-01T00:00:00.000Z'
+        created_at: '2024-01-01T00:00:00.000Z',
       };
 
       // Create entry, serialize to JSON, parse back, format again
@@ -127,12 +127,12 @@ describe('WaitlistEntry Database Integration', () => {
       const data = {
         buyer_id: 123,
         product_id: 456,
-        quantity: 2
+        quantity: 2,
       };
 
       const jsonString = JSON.stringify(data);
       const entry = WaitlistEntry.fromJSON(jsonString);
-      
+
       expect(entry.buyer_id).toBe(123);
       expect(entry.product_id).toBe(456);
       expect(entry.quantity).toBe(2);
@@ -151,7 +151,7 @@ describe('WaitlistEntry Database Integration', () => {
         buyer_id: 1, // minimum valid value
         product_id: 1, // minimum valid value
         quantity: 1, // minimum valid value
-        position: 1 // minimum valid value
+        position: 1, // minimum valid value
       });
 
       const validation = entry.validate();
@@ -167,7 +167,7 @@ describe('WaitlistEntry Database Integration', () => {
         { field: 'quantity', value: 0 },
         { field: 'quantity', value: -1 },
         { field: 'position', value: 0 },
-        { field: 'position', value: -1 }
+        { field: 'position', value: -1 },
       ];
 
       testCases.forEach(({ field, value }) => {
@@ -176,16 +176,18 @@ describe('WaitlistEntry Database Integration', () => {
           product_id: 1,
           quantity: 1,
           position: null, // Set to null so position validation is optional
-          [field]: value
+          [field]: value,
         };
 
         const entry = new WaitlistEntry(data);
         const validation = entry.validate();
-        
+
         expect(validation.isValid).toBe(false);
-        expect(validation.errors.some(error => 
-          error.includes(field) && error.includes('positive integer')
-        )).toBe(true);
+        expect(
+          validation.errors.some(
+            (error) => error.includes(field) && error.includes('positive integer')
+          )
+        ).toBe(true);
       });
     });
 
@@ -195,7 +197,7 @@ describe('WaitlistEntry Database Integration', () => {
         product_id: 456,
         quantity: 2,
         position: null, // Optional field
-        created_at: null // Optional field
+        created_at: null, // Optional field
       });
 
       const validation = entry.validate();

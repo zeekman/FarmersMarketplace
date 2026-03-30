@@ -58,17 +58,46 @@ async function sendStatusUpdateEmail({ order, product, buyer, newStatus }) {
   });
 }
 
-async function sendBackInStockEmail({ email, name, productName }) {
-  if (!process.env.SMTP_HOST) {
-    console.warn('[mailer] SMTP not configured — skipping back-in-stock notification');
-    return;
-  }
+async function sendFreshnessAlert({ product, farmer, daysLeft }) {
+  if (!process.env.SMTP_HOST) return;
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to: email,
-    subject: `✅ Back in Stock – ${productName}`,
-    text: `Hi ${name},\n\nGreat news! "${productName}" is back in stock on Farmers Marketplace.\n\nHead over to the marketplace to place your order before it sells out!\n\nFarmers Marketplace`,
+    to: farmer.email,
+    subject: `⚠️ Product Expiring Soon – ${product.name}`,
+    text: `Hi ${farmer.name},\n\nYour product "${product.name}" is approaching its best-before date.\n\nBest Before: ${product.best_before}\nDays Left: ${daysLeft}\n\nPlease consider updating the listing or removing it from sale.\n\nFarmers Marketplace`,
   });
 }
 
-module.exports = { sendOrderEmails, sendLowStockAlert, sendStatusUpdateEmail, sendBackInStockEmail };
+async function sendReturnEmail({ type, order, buyer, farmer, reason, txHash, rejectReason }) {
+  if (!process.env.SMTP_HOST) return;
+  if (type === 'filed') {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: farmer.email,
+      subject: `↩️ Return Request – Order #${order.id} (${order.product_name})`,
+      text: `Hi ${farmer.name},\n\nBuyer ${buyer.name} has filed a return request for Order #${order.id}.\n\nReason: ${reason}\n\nPlease log in to approve or reject this request.\n\nFarmers Marketplace`,
+    });
+  } else if (type === 'approved') {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: buyer.email,
+      subject: `✅ Return Approved – Order #${order.id} (${order.product_name})`,
+      text: `Hi ${buyer.name},\n\nYour return request for Order #${order.id} has been approved.\n\nRefund of ${order.total_price} XLM has been sent.\nTX Hash: ${txHash}\n\nFarmers Marketplace`,
+    });
+  } else if (type === 'rejected') {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: buyer.email,
+      subject: `❌ Return Rejected – Order #${order.id} (${order.product_name})`,
+      text: `Hi ${buyer.name},\n\nYour return request for Order #${order.id} has been rejected.${rejectReason ? `\n\nReason: ${rejectReason}` : ''}\n\nFarmers Marketplace`,
+    });
+  }
+}
+
+module.exports = {
+  sendOrderEmails,
+  sendLowStockAlert,
+  sendStatusUpdateEmail,
+  sendBackInStockEmail,
+  sendReturnEmail,
+};

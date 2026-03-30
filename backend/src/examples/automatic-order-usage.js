@@ -1,6 +1,6 @@
 /**
  * Example usage of AutomaticOrderProcessor
- * 
+ *
  * Demonstrates how to integrate the AutomaticOrderProcessor with the existing
  * product restock functionality to automatically process waitlist entries.
  */
@@ -18,18 +18,17 @@ async function exampleRestockWithWaitlistProcessing(productId, newQuantity) {
 
   try {
     // 1. Update product quantity (existing functionality)
-    await db.query(
-      'UPDATE products SET quantity = quantity + $1 WHERE id = $2',
-      [newQuantity, productId]
-    );
+    await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [
+      newQuantity,
+      productId,
+    ]);
 
     console.log(`✓ Updated product ${productId} stock by +${newQuantity} units`);
 
     // 2. Get current product details
-    const { rows: productRows } = await db.query(
-      'SELECT * FROM products WHERE id = $1',
-      [productId]
-    );
+    const { rows: productRows } = await db.query('SELECT * FROM products WHERE id = $1', [
+      productId,
+    ]);
 
     if (!productRows[0]) {
       console.log('✗ Product not found');
@@ -63,14 +62,13 @@ async function exampleRestockWithWaitlistProcessing(productId, newQuantity) {
 
       if (result.errors.length > 0) {
         console.log(`⚠ Errors encountered:`);
-        result.errors.forEach(error => {
+        result.errors.forEach((error) => {
           console.log(`  - Entry ${error.entryId}: ${error.error}`);
         });
       }
     } else {
       console.log(`✗ Waitlist processing failed: ${result.error}`);
     }
-
   } catch (error) {
     console.error('✗ Error during restock processing:', error.message);
   }
@@ -90,16 +88,16 @@ async function exampleCreateAutomaticOrder() {
       buyer_id: 100,
       product_id: 200,
       quantity: 2,
-      position: 1
+      position: 1,
     };
 
     const product = {
       id: 200,
       farmer_id: 300,
       name: 'Organic Tomatoes',
-      price: 12.50,
+      price: 12.5,
       category: 'vegetables',
-      unit: 'kg'
+      unit: 'kg',
     };
 
     const buyer = {
@@ -107,7 +105,7 @@ async function exampleCreateAutomaticOrder() {
       name: 'John Doe',
       email: 'john@example.com',
       stellar_public_key: 'GTEST_BUYER_PUBLIC_KEY',
-      stellar_secret_key: 'STEST_BUYER_SECRET_KEY'
+      stellar_secret_key: 'STEST_BUYER_SECRET_KEY',
     };
 
     console.log(`Creating automatic order for ${buyer.name}:`);
@@ -126,7 +124,6 @@ async function exampleCreateAutomaticOrder() {
       console.log(`✗ Order creation failed: ${result.error}`);
       console.log(`  - Code: ${result.code}`);
     }
-
   } catch (error) {
     console.error('✗ Error creating automatic order:', error.message);
   }
@@ -218,12 +215,12 @@ async function exampleErrorHandling() {
     const result = await processor.createAutomaticOrder(
       { id: 1, buyer_id: 100, product_id: 200, quantity: 1000 }, // Large quantity
       { id: 200, farmer_id: 300, name: 'Expensive Product', price: 1000000 },
-      { 
-        id: 100, 
+      {
+        id: 100,
         name: 'Poor Buyer',
         email: 'poor@example.com',
         stellar_public_key: 'GPOOR_BUYER',
-        stellar_secret_key: 'SPOOR_BUYER'
+        stellar_secret_key: 'SPOOR_BUYER',
       }
     );
     console.log(`   Result: ${result.success ? 'Success' : 'Failed - ' + result.error}`);
@@ -250,7 +247,7 @@ module.exports = {
   exampleRestockWithWaitlistProcessing,
   exampleCreateAutomaticOrder,
   exampleRouteIntegration,
-  exampleErrorHandling
+  exampleErrorHandling,
 };
 
 // Run examples if this file is executed directly
@@ -262,7 +259,7 @@ if (require.main === module) {
   // In a real environment, you would have actual database records and Stellar accounts
 
   exampleRouteIntegration();
-  
+
   console.log('\n📝 To run the interactive examples with real data:');
   console.log('   1. Ensure your database has test products and waitlist entries');
   console.log('   2. Configure Stellar testnet accounts with sufficient XLM');

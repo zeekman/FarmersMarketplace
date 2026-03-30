@@ -12,7 +12,7 @@
  *   db.placeholder(i)      → '$i' | '?'
  */
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 const MIGRATIONS_DIR = path.join(__dirname, '../../migrations');
@@ -39,15 +39,16 @@ async function ensureMigrationsTable(db) {
 
 async function getApplied(db) {
   const { rows } = await db.query('SELECT name FROM migrations ORDER BY name ASC');
-  return new Set(rows.map(r => r.name));
+  return new Set(rows.map((r) => r.name));
 }
 
 function getPendingFiles(applied) {
   if (!fs.existsSync(MIGRATIONS_DIR)) return [];
-  return fs.readdirSync(MIGRATIONS_DIR)
-    .filter(f => /^\d+_.+\.sql$/.test(f) && !f.endsWith('.undo.sql'))
+  return fs
+    .readdirSync(MIGRATIONS_DIR)
+    .filter((f) => /^\d+_.+\.sql$/.test(f) && !f.endsWith('.undo.sql'))
     .sort()
-    .filter(f => !applied.has(f));
+    .filter((f) => !applied.has(f));
 }
 
 async function runMigrations(db) {

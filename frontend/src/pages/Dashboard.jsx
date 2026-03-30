@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { api } from '../api/client';
 
 const s = {
@@ -7,9 +7,6 @@ const s = {
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 24 },
   card: { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001' },
   label: { display: 'block', fontSize: 13, marginBottom: 4, color: '#555' },
-  input: { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 12 },
-  textarea: { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 12, minHeight: 80, resize: 'vertical' },
-  btn: { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600 },
   input: { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, marginBottom: 4, boxSizing: 'border-box', minHeight: 44 },
   inputErr: { width: '100%', padding: '9px 12px', border: '1px solid #c0392b', borderRadius: 8, fontSize: 16, marginBottom: 4, boxSizing: 'border-box', minHeight: 44 },
   fieldErr: { color: '#c0392b', fontSize: 12, marginBottom: 8 },
@@ -27,8 +24,17 @@ const EMPTY_FORM = {
   quantity: '',
   unit: 'kg',
   category: 'other',
+  min_order_quantity: '',
+  batch_id: '',
+  pricing_type: 'unit',
+  min_weight: '',
+  max_weight: '',
+  pricing_model: 'fixed',
+  min_price: '',
   is_preorder: false,
   preorder_delivery_date: '',
+  allergens: [],
+  allowed_regions: [],
   nutrition: {
     calories: '',
     protein: '',
@@ -40,10 +46,17 @@ const EMPTY_FORM = {
 };
 
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from 'react-i18next';
+import { getErrorMessage } from '../utils/errorMessages';
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const { t } = useTranslation();
   const [products, setProducts] = useState([]);
-  const [form, setForm] = useState({ name: '', description: '', price: '', quantity: '', unit: 'kg', category: 'other' });
+  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [harvestBatches, setHarvestBatches] = useState([]);
+  const [batchForm, setBatchForm] = useState({ batch_code: '', harvest_date: '', notes: '' });
+  const [batchMsg, setBatchMsg] = useState(null);
   const [msg, setMsg] = useState(null);
   const [auctionForm, setAuctionForm] = useState({ product_id: '', start_price: '', ends_at: '' });
   const [auctionMsg, setAuctionMsg] = useState(null);
@@ -54,6 +67,8 @@ export default function Dashboard() {
   const [videoUploadingByProduct, setVideoUploadingByProduct] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [flashSaleForm, setFlashSaleForm] = useState({ product_id: '', flash_sale_price: '', flash_sale_ends_at: '' });
+  const [flashSaleMsg, setFlashSaleMsg] = useState(null);
 
   // bundle state
   const [bundles, setBundles] = useState([]);
@@ -170,48 +185,6 @@ export default function Dashboard() {
     setGalleryErr('');
   }
 
-  async function handleGalleryUpload(e) {
-    const files = Array.from(e.target.files || []);
-    e.target.value = '';
-    if (!files.length) return;
-    const invalid = files.find(f => !ALLOWED_TYPES.includes(f.type) || f.size > MAX_SIZE_BYTES);
-    if (invalid) return setGalleryErr('Only JPEG/PNG/WebP up to 5 MB each.');
-    if (galleryImages.length + files.length > MAX_IMAGES)
-      return setGalleryErr(`Max ${MAX_IMAGES} images. You have ${galleryImages.length}.`);
-    setGalleryUploading(true);
-    setGalleryErr('');
-    try {
-      const res = await api.uploadProductImages(galleryProductId, files);
-      setGalleryImages(res.data ?? []);
-      load();
-    } catch (e) { setGalleryErr(e.message); }
-    setGalleryUploading(false);
-  }
-
-  async function handleGalleryDelete(imgId) {
-    if (!confirm(t('dashboard.deleteImageConfirm'))) return;
-    try {
-      await api.deleteProductImage(galleryProductId, imgId);
-      const res = await api.getProductImages(galleryProductId);
-      setGalleryImages(res.data ?? []);
-      load();
-    } catch (e) { setGalleryErr(e.message); }
-  }
-
-  async function handleGalleryMove(index, dir) {
-    const imgs = [...galleryImages];
-    const swapIdx = index + dir;
-    if (swapIdx < 0 || swapIdx >= imgs.length) return;
-    [imgs[index], imgs[swapIdx]] = [imgs[swapIdx], imgs[index]];
-    const order = imgs.map((img, i) => ({ id: img.id, sort_order: i }));
-    try {
-      const res = await api.reorderProductImages(galleryProductId, order);
-      setGalleryImages(res.data ?? imgs);
-      load();
-    } catch (e) { setGalleryErr(e.message); }
-  }
-
-
   async function handleVideoUpload(productId, file) {
     if (!file) return;
     if (file.type !== 'video/mp4') {
@@ -233,88 +206,39 @@ export default function Dashboard() {
       setVideoUploadingByProduct((prev) => ({ ...prev, [productId]: false }));
     }
   }
-  async function load() {
-    try { setProducts(await api.getMyProducts()); } catch { /* ignore */ }
-  }
-
-  useEffect(() => { load(); }, []);
-  function closeGallery() {
-    setGalleryProductId(null);
-    setGalleryImages([]);
-    setGalleryErr('');
-  }
-
-  async function handleGalleryUpload(e) {
-    const files = Array.from(e.target.files || []);
-    e.target.value = '';
-    if (!files.length) return;
-    const invalid = files.find(f => !ALLOWED_TYPES.includes(f.type) || f.size > MAX_SIZE_BYTES);
-    if (invalid) return setGalleryErr('Only JPEG/PNG/WebP up to 5 MB each.');
-    if (galleryImages.length + files.length > MAX_IMAGES)
-      return setGalleryErr(`Max ${MAX_IMAGES} images. You have ${galleryImages.length}.`);
-    setGalleryUploading(true);
-    setGalleryErr('');
-    try {
-      const res = await api.uploadProductImages(galleryProductId, files);
-      setGalleryImages(res.data ?? []);
-      load();
-    } catch (e) { setGalleryErr(e.message); }
-    setGalleryUploading(false);
-  }
-
-  async function handleGalleryDelete(imgId) {
-    if (!confirm(t('dashboard.deleteImageConfirm'))) return;
-    try {
-      await api.deleteProductImage(galleryProductId, imgId);
-      const res = await api.getProductImages(galleryProductId);
-      setGalleryImages(res.data ?? []);
-      load();
-    } catch (e) { setGalleryErr(e.message); }
-  }
-
-  async function handleGalleryMove(index, dir) {
-    const imgs = [...galleryImages];
-    const swapIdx = index + dir;
-    if (swapIdx < 0 || swapIdx >= imgs.length) return;
-    [imgs[index], imgs[swapIdx]] = [imgs[swapIdx], imgs[index]];
-    const order = imgs.map((img, i) => ({ id: img.id, sort_order: i }));
-    try {
-      const res = await api.reorderProductImages(galleryProductId, order);
-      setGalleryImages(res.data ?? imgs);
-      load();
-    } catch (e) { setGalleryErr(e.message); }
-  }
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [productsRes, salesRes, profileRes, bundlesRes, forecastRes] = await Promise.all([
-      const [productsRes, salesRes, profileRes, bundlesRes, couponsRes] = await Promise.all([
-      const [productsRes, salesRes, profileRes, bundlesRes, couponsRes, coopsRes] = await Promise.all([
+      const [productsRes, salesRes, profileRes, bundlesRes, couponsRes, coopsRes, batchesRes, forecastRes] = await Promise.all([
+      const [productsRes, salesRes, profileRes, bundlesRes, couponsRes, coopsRes, forecastRes] = await Promise.all([
         api.getMyProducts().catch(() => ({ data: [] })),
         api.getSales().catch(() => ({ data: [] })),
         user?.id ? api.getFarmer(user.id).catch(() => ({})) : Promise.resolve({}),
         api.getBundles().catch(() => ({ data: [] })),
-        api.getForecast().catch(() => ({ data: [] })),
         api.getMyCoupons().catch(() => ({ data: [] })),
         api.getCooperatives().catch(() => ({ data: [] })),
+        api.getHarvestBatches().catch(() => ({ data: [] })),
+        api.getForecast().catch(() => ({ data: [] })),
       ]);
 
       setProducts(productsRes.data ?? productsRes);
       setSales(salesRes.data ?? salesRes);
       setBundles((bundlesRes.data ?? []).filter(b => b.farmer_id === user?.id));
+      setHarvestBatches(batchesRes?.data ?? []);
+      setCoupons(couponsRes.data ?? []);
+      const coops = coopsRes.data ?? [];
+      setCooperatives(coops);
+      setCoupons(couponsRes.data ?? []);
+      setCooperatives(coopsRes.data ?? []);
 
       const forecastMap = {};
       (forecastRes.data ?? []).forEach((item) => {
         forecastMap[item.product_id] = item;
       });
       setForecastByProduct(forecastMap);
-      setCoupons(couponsRes.data ?? []);
-      const coops = coopsRes.data ?? [];
-      setCooperatives(coops);
 
-      // Load pending transactions for all cooperatives
       const allPending = await Promise.all(
         coops.map(c => api.getPendingTxs(c.id).then(r => (r.data ?? []).map(t => ({ ...t, coopName: c.name }))).catch(() => []))
       );
@@ -344,7 +268,30 @@ export default function Dashboard() {
         })
         .catch(() => {});
     }
-  }, []);
+  }, [user?.id]);
+
+  async function handleCreateBatch(e) {
+    e?.preventDefault?.();
+    setBatchMsg(null);
+    const code = batchForm.batch_code.trim();
+    const date = batchForm.harvest_date.trim();
+    if (!code || !date) {
+      setBatchMsg({ type: 'err', text: 'Batch code and harvest date are required.' });
+      return;
+    }
+    try {
+      await api.createHarvestBatch({
+        batch_code: code,
+        harvest_date: date,
+        notes: batchForm.notes.trim() || undefined,
+      });
+      setBatchForm({ batch_code: '', harvest_date: '', notes: '' });
+      setBatchMsg({ type: 'ok', text: 'Harvest batch created.' });
+      await load();
+    } catch (err) {
+      setBatchMsg({ type: 'err', text: getErrorMessage(err) });
+    }
+  }
 
   function validateAndSetImage(file) {
     setImageErr('');
@@ -422,10 +369,47 @@ export default function Dashboard() {
   async function handleAdd(e) {
     e.preventDefault();
     setMsg(null);
+    const nutritionData = {};
+    if (form.nutrition.calories) nutritionData.calories = parseFloat(form.nutrition.calories);
+    if (form.nutrition.protein) nutritionData.protein = parseFloat(form.nutrition.protein);
+    if (form.nutrition.carbs) nutritionData.carbs = parseFloat(form.nutrition.carbs);
+    if (form.nutrition.fat) nutritionData.fat = parseFloat(form.nutrition.fat);
+    if (form.nutrition.fiber) nutritionData.fiber = parseFloat(form.nutrition.fiber);
+
+    const batchId = form.batch_id ? parseInt(form.batch_id, 10) : undefined;
+    const payload = {
+      ...form,
+      price: parseFloat(form.price),
+      quantity: parseInt(form.quantity, 10),
+      is_preorder: form.is_preorder ? 1 : 0,
+      preorder_delivery_date: form.is_preorder ? form.preorder_delivery_date : null,
+      image_url: imageUrl || undefined,
+      nutrition: Object.keys(nutritionData).length > 0 ? nutritionData : undefined,
+      pricing_type: form.pricing_type || 'unit',
+      min_weight: form.pricing_type === 'weight' ? parseFloat(form.min_weight) : undefined,
+      max_weight: form.pricing_type === 'weight' ? parseFloat(form.max_weight) : undefined,
+      batch_id: Number.isFinite(batchId) ? batchId : undefined,
+    };
+
     try {
-      await api.createProduct({ ...form, price: parseFloat(form.price), quantity: parseInt(form.quantity) });
-      setMsg({ type: 'ok', text: 'Product listed successfully' });
-      setForm({ name: '', description: '', price: '', quantity: '', unit: 'kg', category: 'other' });
+      await api.createProduct(payload);
+    setFormErrors({});
+    let finalImageUrl = imageUrl;
+
+    if (imageFile) {
+      setUploading(true);
+      try {
+        const res = await api.uploadImage(imageFile);
+        finalImageUrl = res.imageUrl;
+      } catch (err) {
+        setUploading(false);
+        setMsg({ type: 'err', text: `Image upload failed: ${err.message}` });
+        return;
+      }
+      setUploading(false);
+    }
+
+    try {
       // Prepare nutrition data
       const nutritionData = {};
       if (form.nutrition.calories) nutritionData.calories = parseFloat(form.nutrition.calories);
@@ -433,19 +417,26 @@ export default function Dashboard() {
       if (form.nutrition.carbs) nutritionData.carbs = parseFloat(form.nutrition.carbs);
       if (form.nutrition.fat) nutritionData.fat = parseFloat(form.nutrition.fat);
       if (form.nutrition.fiber) nutritionData.fiber = parseFloat(form.nutrition.fiber);
-      // Vitamins can be added later if needed
 
       await api.createProduct({
         ...form,
         price: parseFloat(form.price),
         quantity: parseInt(form.quantity),
+        pricing_model: form.pricing_model,
+        min_price: form.pricing_model === 'pwyw' ? parseFloat(form.min_price) : undefined,
         is_preorder: form.is_preorder ? 1 : 0,
         preorder_delivery_date: form.is_preorder ? form.preorder_delivery_date : null,
         image_url: finalImageUrl || undefined,
         nutrition: Object.keys(nutritionData).length > 0 ? nutritionData : undefined,
+        pricing_type: form.pricing_type || 'unit',
+        min_weight: form.pricing_type === 'weight' ? parseFloat(form.min_weight) : undefined,
+        max_weight: form.pricing_type === 'weight' ? parseFloat(form.max_weight) : undefined,
+        min_order_quantity: form.min_order_quantity ? parseInt(form.min_order_quantity) : undefined,
+        allergens: form.allergens && form.allergens.length > 0 ? form.allergens : undefined,
+        allowed_regions: form.allowed_regions && form.allowed_regions.length > 0 ? form.allowed_regions : undefined,
       });
       setMsg({ type: 'ok', text: t('dashboard.productListedOk') });
-      setForm(EMPTY_FORM);
+      setForm({ ...EMPTY_FORM });
       removeImage();
       load();
     } catch (err) {
@@ -474,18 +465,110 @@ export default function Dashboard() {
     }
   }
 
+  async function handleSetFlashSale(e) {
+    e.preventDefault();
+    setFlashSaleMsg(null);
+    try {
+      const res = await api.setFlashSale(parseInt(flashSaleForm.product_id, 10), {
+        flash_sale_price: parseFloat(flashSaleForm.flash_sale_price),
+        flash_sale_ends_at: new Date(flashSaleForm.flash_sale_ends_at).toISOString(),
+      });
+      setFlashSaleMsg({ type: 'ok', text: `Flash sale set for product #${res.data.id}` });
+      await load();
+    } catch (e) {
+      setFlashSaleMsg({ type: 'err', text: getErrorMessage(e) });
+    }
+  }
+
+  async function handleCancelFlashSale(productId) {
+    try {
+      await api.cancelFlashSale(productId);
+      setFlashSaleMsg({ type: 'ok', text: `Flash sale canceled for product #${productId}` });
+      await load();
+    } catch (e) {
+      setFlashSaleMsg({ type: 'err', text: getErrorMessage(e) });
+    }
+  }
+
+  const [salesExportFrom, setSalesExportFrom] = React.useState('');
+  const [salesExportTo, setSalesExportTo] = React.useState('');
+
+  function triggerExport(path) {
+    const token = localStorage.getItem('token');
+    window.location.href = `/api${path}&_token=${encodeURIComponent(token || '')}`;
+  }
+
+  function exportProducts(format) {
+    const token = localStorage.getItem('token');
+    const a = document.createElement('a');
+    a.href = `/api/products/export?format=${format}`;
+    // Use fetch to pass auth header, then trigger download
+    fetch(a.href, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        Object.assign(document.createElement('a'), { href: url, download: `products.${format}` }).click();
+        URL.revokeObjectURL(url);
+      });
+  }
+
+  function exportSales(format) {
+    const token = localStorage.getItem('token');
+    const qs = new URLSearchParams({ format, ...(salesExportFrom && { from: salesExportFrom }), ...(salesExportTo && { to: salesExportTo }) });
+    fetch(`/api/orders/sales/export?${qs}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        Object.assign(document.createElement('a'), { href: url, download: `sales.${format}` }).click();
+        URL.revokeObjectURL(url);
+      });
+  }
+
   return (
     <div style={s.page}>
       <div style={s.title}>🌾 Farmer Dashboard</div>
+      <div style={{ ...s.card, marginBottom: 24 }}>
+        <h3 style={{ marginBottom: 12, color: '#333' }}>Flash Sales</h3>
+        {flashSaleMsg && <div style={{ ...s.msg, background: flashSaleMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: flashSaleMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>{flashSaleMsg.text}</div>}
+        <form onSubmit={handleSetFlashSale} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 10, alignItems: 'end' }}>
+          <div>
+            <label style={s.label}>Product</label>
+            <select style={s.input} value={flashSaleForm.product_id} onChange={(e) => setFlashSaleForm((f) => ({ ...f, product_id: e.target.value }))} required>
+              <option value="">Select product</option>
+              {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={s.label}>Flash Price (XLM)</label>
+            <input style={s.input} type="number" min="0" step="any" required value={flashSaleForm.flash_sale_price} onChange={(e) => setFlashSaleForm((f) => ({ ...f, flash_sale_price: e.target.value }))} />
+          </div>
+          <div>
+            <label style={s.label}>Ends At</label>
+            <input style={s.input} type="datetime-local" required value={flashSaleForm.flash_sale_ends_at} onChange={(e) => setFlashSaleForm((f) => ({ ...f, flash_sale_ends_at: e.target.value }))} />
+          </div>
+          <button type="submit" style={s.btn}>Set Flash Sale</button>
+        </form>
+
+        <div style={{ marginTop: 14 }}>
+          {products.filter((p) => p.flash_sale_price && p.flash_sale_ends_at).map((p) => (
+            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #eee', paddingTop: 10, marginTop: 10 }}>
+              <div style={{ fontSize: 14 }}>
+                <strong>{p.name}</strong> - {p.flash_sale_price} XLM until {new Date(p.flash_sale_ends_at).toLocaleString()}
+              </div>
+              <button type="button" style={{ ...s.btn, background: '#c0392b' }} onClick={() => handleCancelFlashSale(p.id)}>Cancel</button>
+            </div>
+          ))}
+        </div>
+      </div>
       <div style={s.grid}>
         <div style={s.card}>
           <h3 style={{ marginBottom: 16, color: '#333' }}>Add New Product</h3>
           {msg && <div style={{ ...s.msg, background: msg.type === 'ok' ? '#d8f3dc' : '#fee', color: msg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>{msg.text}</div>}
           <form onSubmit={handleAdd}>
-            {[['name', 'Product Name'], ['price', 'Price (XLM)'], ['quantity', 'Quantity'], ['unit', 'Unit (kg, bunch, etc.)']].map(([key, label]) => (
+            {[['name', 'Product Name', 'prod-name'], ['price', 'Price (XLM)', 'prod-price'], ['quantity', 'Quantity', 'prod-qty'], ['unit', 'Unit (kg, bunch, etc.)', 'prod-unit']].map(([key, label, id]) => (
               <div key={key}>
-                <label style={s.label}>{label}</label>
-                <input style={s.input} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} required={key !== 'unit'} />
+                <label style={s.label} htmlFor={id}>{label}</label>
+                <input id={id} style={s.input} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} required={key !== 'unit'} />
               </div>
             ))}
             <label style={s.label}>Description</label>
@@ -496,6 +579,139 @@ export default function Dashboard() {
                 <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
               ))}
             </select>
+            <label style={s.label}>Harvest batch (optional)</label>
+            <select style={s.input} value={form.batch_id} onChange={e => setForm({ ...form, batch_id: e.target.value })}>
+              <option value="">No batch</option>
+              {harvestBatches.map((b) => (
+                <option key={b.id} value={b.id}>{b.batch_code} — {b.harvest_date}</option>
+              ))}
+            </select>
+            {batchMsg && (
+              <div style={{ ...s.msg, marginBottom: 12, background: batchMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: batchMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
+                {batchMsg.text}
+              </div>
+            )}
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 8 }}>Create new batch</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+              <div>
+                <label style={s.label}>Batch code</label>
+                <input style={s.input} value={batchForm.batch_code} onChange={e => setBatchForm(f => ({ ...f, batch_code: e.target.value }))} placeholder="e.g. H-2026-03-A" />
+              </div>
+              <div>
+                <label style={s.label}>Harvest date</label>
+                <input style={s.input} type="date" value={batchForm.harvest_date} onChange={e => setBatchForm(f => ({ ...f, harvest_date: e.target.value }))} />
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={s.label}>Notes (optional)</label>
+                <input style={s.input} value={batchForm.notes} onChange={e => setBatchForm(f => ({ ...f, notes: e.target.value }))} placeholder="Field block, variety…" />
+              </div>
+              <button type="button" style={{ ...s.btn, gridColumn: '1 / -1', justifySelf: 'start' }} onClick={handleCreateBatch}>Save batch</button>
+            </div>
+            <label style={s.label}>Pricing Type</label>
+            <select style={s.input} value={form.pricing_type || 'unit'} onChange={e => setForm({ ...form, pricing_type: e.target.value })}>
+              <option value="unit">Per unit / fixed quantity</option>
+              <option value="weight">By weight (price per kg/lb)</option>
+            </select>
+            {form.pricing_type === 'weight' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={s.label}>Min Weight ({form.unit || 'kg'})</label>
+                  <input style={s.input} type="number" min="0.001" step="any" value={form.min_weight || ''} onChange={e => setForm({ ...form, min_weight: e.target.value })} placeholder="e.g. 0.1" required />
+                </div>
+                <div>
+                  <label style={s.label}>Max Weight ({form.unit || 'kg'})</label>
+                  <input style={s.input} type="number" min="0.001" step="any" value={form.max_weight || ''} onChange={e => setForm({ ...form, max_weight: e.target.value })} placeholder="e.g. 10" required />
+                </div>
+              </div>
+            )}
+            <label style={s.label}>Min Order Quantity (MOQ)</label>
+            <input style={s.input} type="number" min="1" step="1" value={form.min_order_quantity || ''} onChange={e => setForm({ ...form, min_order_quantity: e.target.value })} placeholder="1 (default)" />
+            <label style={s.label}>Pricing Model</label>
+            <select style={s.input} value={form.pricing_model || 'fixed'} onChange={e => setForm({ ...form, pricing_model: e.target.value, min_price: e.target.value === 'pwyw' ? (form.min_price || '') : '' })}>
+              <option value="fixed">Fixed Price</option>
+              <option value="pwyw">Pay What You Want</option>
+              <option value="donation">Donation</option>
+            </select>
+            {form.pricing_model === 'pwyw' && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={s.label}>Minimum Price (XLM)</label>
+                <input style={s.input} type="number" min="0" step="any" value={form.min_price} onChange={e => setForm({ ...form, min_price: e.target.value })} placeholder="e.g. 5" required />
+              </div>
+            )}
+            <button style={{ ...s.btn, width: '100%', marginTop: 8 }} type="submit" disabled={uploading}>
+              {uploading ? t('dashboard.uploading') : t('dashboard.listProduct')}
+            </button>
+
+            {/* Allergen selector */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={s.label}>Allergens <span style={{ color: '#aaa', fontWeight: 400 }}>(select all that apply)</span></label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {['gluten', 'nuts', 'dairy', 'eggs', 'soy', 'shellfish'].map(a => {
+                  const selected = (form.allergens || []).includes(a);
+                  return (
+                    <button
+                      key={a}
+                      type="button"
+                      style={{
+                        padding: '5px 10px', borderRadius: 6, fontSize: 13, cursor: 'pointer',
+                        border: selected ? '1px solid #c0392b' : '1px solid #ddd',
+                        background: selected ? '#fee' : '#fff',
+                        color: selected ? '#c0392b' : '#555',
+                        fontWeight: selected ? 700 : 400,
+                      }}
+                      onClick={() => setForm(f => ({
+                        ...f,
+                        allergens: selected
+                          ? (f.allergens || []).filter(x => x !== a)
+                          : [...(f.allergens || []), a],
+                      }))}
+                      aria-pressed={selected}
+                    >
+                      {selected ? '✕ ' : ''}{a.charAt(0).toUpperCase() + a.slice(1)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Region restriction selector */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={s.label}>Allowed Regions <span style={{ color: '#aaa', fontWeight: 400 }}>(leave empty for no restriction)</span></label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {[
+                  { code: 'US', label: '🇺🇸 US' }, { code: 'GB', label: '🇬🇧 GB' },
+                  { code: 'KE', label: '🇰🇪 KE' }, { code: 'NG', label: '🇳🇬 NG' },
+                  { code: 'ZA', label: '🇿🇦 ZA' }, { code: 'GH', label: '🇬🇭 GH' },
+                  { code: 'IN', label: '🇮🇳 IN' }, { code: 'AU', label: '🇦🇺 AU' },
+                  { code: 'CA', label: '🇨🇦 CA' }, { code: 'DE', label: '🇩🇪 DE' },
+                ].map(({ code, label }) => {
+                  const selected = (form.allowed_regions || []).includes(code);
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      style={{
+                        padding: '5px 10px', borderRadius: 6, fontSize: 13, cursor: 'pointer',
+                        border: selected ? '1px solid #2d6a4f' : '1px solid #ddd',
+                        background: selected ? '#d8f3dc' : '#fff',
+                        color: selected ? '#2d6a4f' : '#555',
+                        fontWeight: selected ? 700 : 400,
+                      }}
+                      onClick={() => setForm(f => ({
+                        ...f,
+                        allowed_regions: selected
+                          ? (f.allowed_regions || []).filter(x => x !== code)
+                          : [...(f.allowed_regions || []), code],
+                      }))}
+                      aria-pressed={selected}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <button style={s.btn} type="submit">List Product</button>
 
             <details style={{ marginTop: 16 }}>
@@ -700,6 +916,10 @@ export default function Dashboard() {
 
         <div style={s.card}>
           <h3 style={{ marginBottom: 16, color: '#333' }}>My Listings ({products.length})</h3>
+          <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+            <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportProducts('csv')}>⬇ CSV</button>
+            <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportProducts('pdf')}>⬇ PDF</button>
+          </div>
           {products.length === 0 && <p style={{ color: '#888', fontSize: 14 }}>No products yet. Add your first listing.</p>}
           {products.map(p => (
             <div key={p.id} style={s.product}>
@@ -707,7 +927,7 @@ export default function Dashboard() {
                 <div style={{ fontWeight: 600 }}>{p.name}</div>
                 <div style={{ fontSize: 13, color: '#666' }}>{p.price} XLM · {p.quantity} {p.unit}</div>
               </div>
-              <button style={s.del} onClick={() => handleDelete(p.id)}>Remove</button>
+              <button style={s.del} onClick={() => handleDelete(p.id)} aria-label={`Remove ${p.name}`}>Remove</button>
             <div key={p.id} style={{ ...s.product, flexDirection: 'column', alignItems: 'stretch' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -717,7 +937,9 @@ export default function Dashboard() {
                   }
                   <div>
                     <div style={{ fontWeight: 600 }}>{p.name}</div>
-                    <div style={{ fontSize: 13, color: '#666' }}>{p.price} XLM · {p.quantity} {p.unit}</div>
+                    <div style={{ fontSize: 13, color: '#666' }}>
+                      {p.pricing_model === 'pwyw' ? `Min ${p.min_price} XLM (PWYW)` : p.pricing_model === 'donation' ? 'Donation' : `${p.price} XLM`} · {p.quantity} {p.unit}
+                    </div>
                     {forecastByProduct[p.id]?.note ? (
                       <div style={{ fontSize: 12, color: '#888' }}>{forecastByProduct[p.id].note}</div>
                     ) : forecastByProduct[p.id] ? (
@@ -725,11 +947,6 @@ export default function Dashboard() {
                         Demand hint: {forecastByProduct[p.id].avg_weekly_sales} units/week {' '}
                         {forecastByProduct[p.id].trend === 'up' ? '↑' : forecastByProduct[p.id].trend === 'down' ? '↓' : '→'}
                       </div>
-                    ) : null}
-                    {p.video_url ? (
-                      <a href={p.video_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#2d6a4f' }}>
-                        View video
-                      </a>
                     ) : null}
                   </div>
                 </div>
@@ -777,7 +994,7 @@ export default function Dashboard() {
                     onChange={e => setRestockVals({ ...restockVals, [p.id]: e.target.value })}
                   />
                   <button style={{ ...s.btn, padding: '4px 10px', fontSize: 12, background: '#218c74' }} onClick={() => handleRestock(p.id)}>{t('dashboard.restock')}</button>
-                  <button style={s.del} onClick={() => handleDelete(p.id)}>{t('dashboard.remove')}</button>
+                  <button style={s.del} onClick={() => handleDelete(p.id)} aria-label={`Remove ${p.name}`}>{t('dashboard.remove')}</button>
                 </div>
               </div>
 
@@ -1064,6 +1281,12 @@ export default function Dashboard() {
         <h3 style={{ padding: '16px 20px', borderBottom: '1px solid #eee', margin: 0, color: '#333' }}>
           📋 {t('dashboard.incomingOrders', { count: sales.length })}
         </h3>
+        <div style={{ padding: '12px 20px', borderBottom: '1px solid #eee', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <input type="date" value={salesExportFrom} onChange={e => setSalesExportFrom(e.target.value)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }} placeholder="From" />
+          <input type="date" value={salesExportTo} onChange={e => setSalesExportTo(e.target.value)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }} placeholder="To" />
+          <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportSales('csv')}>⬇ CSV</button>
+          <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportSales('pdf')}>⬇ PDF</button>
+        </div>
         {sales.length === 0 ? (
           <p style={{ padding: '20px', color: '#888', fontSize: 14 }}>{t('dashboard.noOrders')}</p>
         ) : (
@@ -1084,7 +1307,57 @@ export default function Dashboard() {
                       </div>
                     )}
                     <div style={{ fontSize: 12, color: '#aaa' }}>{new Date(o.created_at).toLocaleDateString()}</div>
+                    {o.harvest_batch_code && (
+                      <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
+                        Harvest batch: {o.harvest_batch_code}
+                        {o.harvest_batch_date ? ` · ${o.harvest_batch_date}` : ''}
+                      </div>
+                    )}
                     {m && <div style={{ fontSize: 12, color: m.type === 'ok' ? '#2d6a4f' : '#c0392b', marginTop: 4 }}>{m.text}</div>}
+                    {/* Return request section */}
+                    {o.return_status === 'pending' && (
+                      <div style={{ marginTop: 8, padding: '8px 12px', background: '#fff3cd', borderRadius: 8, fontSize: 13 }}>
+                        <div style={{ fontWeight: 600, color: '#856404', marginBottom: 4 }}>↩️ Return requested</div>
+                        <div style={{ color: '#555', marginBottom: 8 }}>{o.return_reason}</div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: '#2d6a4f', color: '#fff', fontWeight: 600, fontSize: 12 }}
+                            onClick={async () => {
+                              try {
+                                await api.approveReturn(o.id);
+                                setSalesMsg(prev => ({ ...prev, [o.id]: { type: 'ok', text: 'Return approved — refund sent' } }));
+                                load();
+                              } catch (e) {
+                                setSalesMsg(prev => ({ ...prev, [o.id]: { type: 'err', text: e.message } }));
+                              }
+                            }}
+                          >✅ Approve & Refund</button>
+                          <button
+                            style={{ padding: '5px 14px', borderRadius: 6, border: '1px solid #c0392b', cursor: 'pointer', background: '#fff', color: '#c0392b', fontWeight: 600, fontSize: 12 }}
+                            onClick={async () => {
+                              const reason = window.prompt('Reason for rejection (optional):');
+                              if (reason === null) return; // cancelled
+                              try {
+                                await api.rejectReturn(o.id, reason);
+                                setSalesMsg(prev => ({ ...prev, [o.id]: { type: 'ok', text: 'Return rejected' } }));
+                                load();
+                              } catch (e) {
+                                setSalesMsg(prev => ({ ...prev, [o.id]: { type: 'err', text: e.message } }));
+                              }
+                            }}
+                          >❌ Reject</button>
+                        </div>
+                      </div>
+                    )}
+                    {o.return_status && o.return_status !== 'pending' && (
+                      <div style={{ marginTop: 6, fontSize: 12 }}>
+                        <span style={{
+                          padding: '3px 10px', borderRadius: 20, fontWeight: 600,
+                          background: o.return_status === 'approved' ? '#d8f3dc' : '#fee',
+                          color: o.return_status === 'approved' ? '#2d6a4f' : '#c0392b',
+                        }}>↩️ Return {o.return_status}</span>
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: STATUS_COLOR[o.status] || '#333' }}>

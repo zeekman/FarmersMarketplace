@@ -11,7 +11,7 @@ const s = {
   card: { background: '#fff', borderRadius: 12, padding: 36, width: '100%', maxWidth: 400, boxShadow: '0 2px 16px #0001' },
   title: { fontSize: 24, fontWeight: 700, marginBottom: 24, color: '#2d6a4f' },
   field: { marginBottom: 16 },
-  label: { display: 'block', fontSize: 13, marginBottom: 4, color: '#555' },
+  label: { display: 'block', fontSize: 13, marginBottom: 4, color: '#595959' },
   input: { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
   inputErr: { width: '100%', padding: '10px 12px', border: '1px solid #c0392b', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
   select: { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, minHeight: 44 },
@@ -19,7 +19,7 @@ const s = {
   err: { color: '#c0392b', fontSize: 12, marginTop: 4 },
   formErr: { color: '#c0392b', fontSize: 13, marginTop: 8, padding: '8px 12px', background: '#fff0f0', borderRadius: 6 },
   link: { display: 'block', textAlign: 'center', marginTop: 16, color: '#2d6a4f', fontSize: 14 },
-  strengthHint: { fontSize: 11, color: '#888', marginTop: 3 },
+  strengthHint: { fontSize: 11, color: '#595959', marginTop: 3 },
 };
 
 function PasswordStrength({ password }) {

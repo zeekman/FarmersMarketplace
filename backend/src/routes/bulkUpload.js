@@ -23,8 +23,7 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
   if (req.user.role !== 'farmer')
     return err(res, 403, 'Only farmers can upload products', 'forbidden');
 
-  if (!req.file)
-    return err(res, 400, 'No CSV file uploaded', 'validation_error');
+  if (!req.file) return err(res, 400, 'No CSV file uploaded', 'validation_error');
 
   const results = { created: 0, skipped: 0, errors: [] };
 
@@ -109,7 +108,8 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
 
 // GET /api/products/bulk/template - download CSV template
 router.get('/template', (req, res) => {
-  const csv = 'name,description,price,quantity,unit,category\nOrganic Tomatoes,Fresh organic tomatoes from the farm,2.50,100,kg,vegetables\nFree Range Eggs,Farm fresh free range eggs,5.00,50,dozen,dairy\n';
+  const csv =
+    'name,description,price,quantity,unit,category\nOrganic Tomatoes,Fresh organic tomatoes from the farm,2.50,100,kg,vegetables\nFree Range Eggs,Farm fresh free range eggs,5.00,50,dozen,dairy\n';
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename=product-template.csv');
   res.send(csv);

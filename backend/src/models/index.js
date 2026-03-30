@@ -6,5 +6,5 @@
 const WaitlistEntry = require('./WaitlistEntry');
 
 module.exports = {
-  WaitlistEntry
+  WaitlistEntry,
 };

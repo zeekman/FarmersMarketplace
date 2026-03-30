@@ -8,7 +8,14 @@ import { getErrorMessage } from '../utils/errorMessages';
 import { useXlmRate } from '../utils/useXlmRate';
 import StarRating from '../components/StarRating';
 import Spinner from '../components/Spinner';
+import FlashSaleCountdown from '../components/FlashSaleCountdown';
+import ShareButtons from '../components/ShareButtons';
+import PriceHistoryChart from '../components/PriceHistoryChart';
+import { Helmet } from 'react-helmet-async';
 import { useTranslation } from 'react-i18next';
+
+const POLL_INTERVAL_MS = 3000;
+const TIMEOUT_MS = 60000;
 
 const s = {
   page: { maxWidth: 640, margin: "40px auto", padding: 16 },
@@ -47,6 +54,7 @@ const s = {
   textarea:   { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, resize: 'vertical', minHeight: 80, boxSizing: 'border-box' },
   label:      { fontSize: 13, color: '#555', marginBottom: 6, display: 'block' },
   empty:      { color: '#aaa', fontSize: 14, textAlign: 'center', padding: '24px 0' },
+  badge:      { display: 'inline-block', fontSize: 11, borderRadius: 4, padding: '2px 7px' },
   select:     { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 12 },
   galleryMain:   { width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 10, marginBottom: 10, display: 'block' },
   thumbRow:      { display: 'flex', gap: 8, marginBottom: 16, overflowX: 'auto' },
@@ -64,8 +72,11 @@ export default function ProductDetail() {
   const [product, setProduct] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [qty, setQty] = useState(1);
+  const [weight, setWeight] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [confirming, setConfirming] = useState(null); // { orderId, startedAt }
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
   const { usd } = useXlmRate();
   const [addresses, setAddresses] = useState([]);
@@ -82,9 +93,12 @@ export default function ProductDetail() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState('');
   const [reviewSuccess, setReviewSuccess] = useState('');
+  const [customPrice, setCustomPrice] = useState('');
 
   // Price tiers state
   const [tiers, setTiers] = useState([]);
+  // Price history state
+  const [priceHistory, setPriceHistory] = useState([]);
 
   // Coupon state
   const [couponCode, setCouponCode] = useState('');
@@ -105,6 +119,7 @@ export default function ProductDetail() {
   const [selectedWeek, setSelectedWeek] = useState(null); // YYYY-MM-DD of chosen week
   // Platform fee state
   const [feeInfo, setFeeInfo] = useState(null); // { feePercent, feeAmount, farmerAmount }
+  const [shareMeta, setShareMeta] = useState(null);
 
   const loadReviews = useCallback(async () => {
     try { const res = await api.getProductReviews(id); setReviews(res.data ?? []); }
@@ -112,7 +127,12 @@ export default function ProductDetail() {
   }, [id]);
 
   useEffect(() => {
-    api.getProduct(id).then(res => setProduct(res.data ?? res)).catch(() => navigate('/marketplace'));
+    api.getProduct(id).then(res => {
+      const p = res.data ?? res;
+      setProduct(p);
+      setQty(p.min_order_quantity || 1);
+    }).catch(() => navigate('/marketplace'));
+    api.getProductShareMeta(id).then(res => setShareMeta(res.data ?? null)).catch(() => setShareMeta(null));
     loadReviews();
     api.getProductImages(id).then(res => {
       const imgs = res.data ?? [];
@@ -120,6 +140,15 @@ export default function ProductDetail() {
       if (imgs.length > 0) setActiveImg(0);
     }).catch(() => {});
     api.getProductTiers(id).then(res => setTiers(res.data ?? [])).catch(() => setTiers([]));
+    api.getPriceHistory(id).then(res => setPriceHistory(res.data ?? [])).catch(() => setPriceHistory([]));
+    api.getProductShareMeta(id).then(res => setShareMeta(res.data ?? null)).catch(() => setShareMeta(null));
+    loadReviews();
+    api.getProduct(id).then(res => {
+      const p = res.data ?? res;
+      setProduct(p);
+      if (p.pricing_model === 'pwyw') setCustomPrice(String(p.min_price));
+      else if (p.pricing_model === 'donation') setCustomPrice('1.00');
+    }).catch(() => navigate('/marketplace'));
     api.getCalendar(id).then(res => {
       const weeks = res.data ?? [];
       setCalendar(weeks);
@@ -182,6 +211,11 @@ export default function ProductDetail() {
 
   if (!product) return <Spinner />;
 
+  const shareUrl = shareMeta?.url || `${window.location.origin}/product/${id}`;
+  const shareTitle = shareMeta?.title || `${product.name} on Farmers Marketplace`;
+  const shareDescription = shareMeta?.description || product.description || 'Fresh produce from local farmers';
+  const shareImage = shareMeta?.image || product.image_url || '';
+
   // Get the best matching tier price for the current quantity
   const getTierPrice = (quantity) => {
     if (!tiers.length) return product.price;
@@ -194,9 +228,25 @@ export default function ProductDetail() {
     return product.price;
   };
 
-  const unitPrice = getTierPrice(qty);
-  const subtotal = (unitPrice * qty).toFixed(2);
+  const isFlashSaleActive = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
+  const baseUnitPrice = getTierPrice(qty);
+  const unitPrice = isFlashSaleActive ? Number(product.flash_sale_price) : baseUnitPrice;
+  const subtotal = product?.pricing_type === 'weight'
+    ? (product.price * (parseFloat(weight) || 0)).toFixed(2)
+    : (unitPrice * qty).toFixed(2);
   const total = couponResult ? couponResult.final_total.toFixed(2) : subtotal;
+    const isFlashSaleActive = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
+    const baseUnitPrice = getTierPrice(qty);
+    const unitPrice = isFlashSaleActive ? Number(product.flash_sale_price) : baseUnitPrice;
+    
+    const effectiveUnitPrice = (product.pricing_model === 'pwyw' || product.pricing_model === 'donation')
+      ? (parseFloat(customPrice) || 0)
+      : unitPrice;
+
+    const subtotal = product?.pricing_type === 'weight'
+      ? (product.price * (parseFloat(weight) || 0)).toFixed(2)
+      : (effectiveUnitPrice * qty).toFixed(2);
+    const total = couponResult ? couponResult.final_total.toFixed(2) : subtotal;
 
   async function handleAlert() {
     setAlertLoading(true);
@@ -237,6 +287,20 @@ export default function ProductDetail() {
     if (!user) return navigate('/login');
     if (user.role === 'farmer') return setError(t('productDetail.farmersCannotOrder'));
     if (addresses.length > 0 && !selectedAddressId) return setError(t('productDetail.selectAddress'));
+    if (product.pricing_type === 'weight') {
+      const w = parseFloat(weight);
+      if (!weight || isNaN(w) || w <= 0) return setError('Please enter a valid weight');
+      if (w < product.min_weight) return setError(`Minimum weight is ${product.min_weight} ${product.unit}`);
+      if (w > product.max_weight) return setError(`Maximum weight is ${product.max_weight} ${product.unit}`);
+    }
+    if (product.pricing_model === 'pwyw') {
+      const p = parseFloat(customPrice);
+      if (!customPrice || isNaN(p) || p < product.min_price) return setError(`Minimum price is ${product.min_price} XLM`);
+    }
+    if (product.pricing_model === 'donation') {
+      const p = parseFloat(customPrice);
+      if (!customPrice || isNaN(p) || p <= 0) return setError('Donation amount must be positive');
+    }
     if (sourceAsset && pathEstimateError) return setError(pathEstimateError);
     if (sourceAsset && !pathEstimate) return setError('Waiting for path estimate...');
     setLoading(true);
@@ -249,6 +313,8 @@ export default function ProductDetail() {
         use_soroban_escrow: useEscrow,
         coupon_code: couponResult ? couponCode.trim() : undefined,
         source_asset: sourceAsset ? { code: sourceAsset.asset_code, issuer: sourceAsset.asset_issuer } : undefined,
+        weight: product.pricing_type === 'weight' ? parseFloat(weight) : undefined,
+        custom_price: (product.pricing_model === 'pwyw' || product.pricing_model === 'donation') ? parseFloat(customPrice) : undefined,
       });
       setResult({ ...res, escrow: useEscrow });
     } catch (e) {
@@ -286,25 +352,30 @@ export default function ProductDetail() {
           <div style={s.success}>
             {result.escrow ? (
               <>
-                <strong>Payment held in escrow!</strong>
-                <p style={{ marginTop: 8, fontSize: 14 }}>
-                  Order #{result.orderId} · {result.totalPrice} XLM locked in
-                  {result.sorobanEscrow ? ' Soroban escrow contract' : ' Stellar claimable balance'}
-                </p>
-                {result.claimableBalanceId ? (
-                  <p style={{ marginTop: 4, fontSize: 12, color: "#555" }}>
-                    Escrow Ref: {result.claimableBalanceId}
-                  </p>
-                ) : null}
-                <p style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
-                  The farmer can claim once delivery is confirmed. You can
-                  reclaim after 14 days if undelivered.
                 <strong>{t('productDetail.escrowSuccess')}</strong>
                 <p style={{ marginTop: 8, fontSize: 14 }}>{t('productDetail.escrowOrderInfo', { id: result.orderId, price: result.totalPrice })}</p>
-                <p style={{ marginTop: 4, fontSize: 12, color: '#555' }}>
-                  Balance ID: <a href={`https://stellar.expert/explorer/testnet/claimable-balance/${result.balanceId}`}
-                    target="_blank" rel="noreferrer" style={{ color: '#2d6a4f', wordBreak: 'break-all' }}>{result.balanceId}</a>
+                {(result.claimableBalanceId || result.balanceId) && (
+                  <p style={{ marginTop: 4, fontSize: 12, color: '#555' }}>
+                    {result.sorobanEscrow ? 'Escrow' : 'Balance'}:{' '}
+                    <a
+                      href={`https://stellar.expert/explorer/testnet/claimable-balance/${result.claimableBalanceId || result.balanceId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: '#2d6a4f', wordBreak: 'break-all' }}
+                    >
+                      {result.claimableBalanceId || result.balanceId}
+                    </a>
+                  </p>
+                )}
+                <p style={{ marginTop: 8, fontSize: 14 }}>
+                  {t('productDetail.escrowOrderInfo', { id: result.orderId, price: result.totalPrice })}
                 </p>
+                {result.balanceId ? (
+                  <p style={{ marginTop: 4, fontSize: 12, color: '#555' }}>
+                    Balance ID: <a href={`https://stellar.expert/explorer/testnet/claimable-balance/${result.balanceId}`}
+                      target="_blank" rel="noreferrer" style={{ color: '#2d6a4f', wordBreak: 'break-all' }}>{result.balanceId}</a>
+                  </p>
+                ) : null}
                 <p style={{ marginTop: 4, fontSize: 12, color: '#888' }}>{t('productDetail.escrowNote')}</p>
               </>
             ) : (
@@ -326,8 +397,31 @@ export default function ProductDetail() {
     );
   }
 
+  if (confirming) {
+    return (
+      <div style={s.page}>
+        <div style={s.card}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
+          <div style={s.confirming}>
+            <strong>Confirming payment...</strong>
+            <p style={{ marginTop: 8, fontSize: 14 }}>Waiting for Stellar network confirmation. This usually takes a few seconds.</p>
+            <div style={s.bar}><div style={{ ...s.barFill, width: `${progress}%` }} /></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={s.page}>
+      <Helmet>
+        <title>{shareTitle}</title>
+        <meta property="og:title" content={shareTitle} />
+        <meta property="og:description" content={shareDescription} />
+        <meta property="og:url" content={shareUrl} />
+        <meta property="og:type" content="product" />
+        {shareImage ? <meta property="og:image" content={shareImage} /> : null}
+      </Helmet>
       <div style={s.card}>
         {product.video_url ? (
           <video
@@ -375,6 +469,13 @@ export default function ProductDetail() {
                 {product.farmer_name}
               </span>
             </div>
+            {product.harvest_batch_code && (
+              <div style={{ fontSize: 14, color: '#555', marginTop: 6 }}>
+                <span style={{ fontWeight: 600, color: '#2d6a4f' }}>Harvest batch:</span>{' '}
+                {product.harvest_batch_code}
+                {product.harvest_batch_date ? ` · ${product.harvest_batch_date}` : ''}
+              </div>
+            )}
           </div>
           {user?.role === 'buyer' && (
             <button style={s.favoriteBtn} onClick={() => toggleFavorite(product.id).catch(() => {})}
@@ -391,6 +492,14 @@ export default function ProductDetail() {
         <div style={s.desc}>
           {product.description || "Fresh from the farm."}
         </div>
+
+        <ShareButtons
+          title={shareTitle}
+          url={shareUrl}
+          onShare={(platform) => {
+            api.trackShareEvent(product.id, platform).catch(() => {});
+          }}
+        />
 
         {product.nutrition && (
           <div style={{ marginBottom: 16 }}>
@@ -461,6 +570,93 @@ export default function ProductDetail() {
             Pre-Order{product.preorder_delivery_date ? ` · Expected delivery ${product.preorder_delivery_date}` : ''}
           </div>
         ) : null}
+        {isFlashSaleActive ? (
+          <>
+            <div style={s.price}>
+              {unitPrice.toFixed(2)} XLM{' '}
+              <span style={{ fontSize: 14, fontWeight: 400 }}>/ {product.unit}</span>
+              <span style={{ marginLeft: 8, fontSize: 13, textDecoration: 'line-through', color: '#888' }}>
+                {baseUnitPrice.toFixed(2)} XLM
+              </span>
+            </div>
+            <div style={{ ...s.badge, background: '#fee2e2', color: '#b42318', fontWeight: 700, marginBottom: 8 }}>Flash Sale</div>
+            <FlashSaleCountdown endsAt={product.flash_sale_ends_at} />
+          </>
+        ) : (
+          <div style={s.price}>
+            {unitPrice.toFixed(2)} XLM{' '}
+            <span style={{ fontSize: 14, fontWeight: 400 }}>/ {product.unit}</span>
+            {tiers.length > 0 && (
+              <span style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>(bulk pricing available)</span>
+            )}
+          </div>
+        )}
+        {product.pricing_model === 'fixed' ? (
+          <>
+            <div style={s.price}>
+              {unitPrice.toFixed(2)} XLM{" "}
+              <span style={{ fontSize: 14, fontWeight: 400 }}>
+                / {product.unit}
+              </span>
+              {tiers.length > 0 && (
+                <span style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>
+                  (bulk pricing available)
+                </span>
+              )}
+            </div>
+            {isFlashSaleActive && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ ...s.badge, background: '#fee2e2', color: '#b42318', fontWeight: 700, marginBottom: 4 }}>Flash Sale</div>
+                <FlashSaleCountdown endsAt={product.flash_sale_ends_at} />
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ marginBottom: 20 }}>
+            <label style={s.label}>{product.pricing_model === 'pwyw' ? 'Pay What You Want' : 'Donation'}</label>
+            <div style={s.row}>
+              <input
+                style={{ ...s.input, width: 120 }}
+                type="number"
+                min={product.pricing_model === 'pwyw' ? product.min_price : 0.01}
+                step="0.01"
+                value={customPrice}
+                onChange={e => { setCustomPrice(e.target.value); setCouponResult(null); setCouponError(''); }}
+                placeholder={product.pricing_model === 'pwyw' ? `Min ${product.min_price}` : 'Amount'}
+              />
+              <span style={{ fontSize: 13, color: '#888' }}>XLM / {product.unit}</span>
+            </div>
+            {product.pricing_model === 'pwyw' && (
+              <div style={{ fontSize: 13, color: '#888' }}>
+                Suggested price: {product.price} XLM · Minimum: {product.min_price} XLM
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Allergen badges */}
+        {(() => {
+          let allergens = [];
+          try { allergens = product.allergens ? JSON.parse(product.allergens) : []; } catch {}
+          return (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6 }}>Allergens</div>
+              {allergens.length === 0 ? (
+                <span style={{ fontSize: 12, color: '#888', background: '#f5f5f5', borderRadius: 4, padding: '3px 8px' }}>No known allergens</span>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {allergens.map(a => (
+                    <span key={a} style={{ fontSize: 12, fontWeight: 600, background: '#fff3cd', color: '#856404', border: '1px solid #f0c040', borderRadius: 4, padding: '3px 8px' }}>
+                      ⚠️ {a.charAt(0).toUpperCase() + a.slice(1)}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        <PriceHistoryChart data={priceHistory} />
         <div style={s.price}>
           {unitPrice} XLM{" "}
           <span style={{ fontSize: 14, fontWeight: 400 }}>
@@ -502,20 +698,47 @@ export default function ProductDetail() {
 
         <div style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
           {t('productDetail.inStock', { qty: product.quantity, unit: product.unit })}
+          {product.min_order_quantity > 1 && (
+            <span style={{ marginLeft: 10, color: '#e67e22', fontWeight: 600 }}>
+              Min. order: {product.min_order_quantity} {product.unit}
+            </span>
+          )}
         </div>
 
-        <div style={s.row}>
-          <label style={{ fontSize: 14 }}>{t('productDetail.quantity')}</label>
-          <input style={s.input} type="number" min={1} max={product.quantity} value={qty}
-            onChange={e => {
-              setQty(Math.max(1, Math.min(product.quantity, parseInt(e.target.value) || 1)));
-              setCouponResult(null); // Clear coupon when quantity changes
-              setCouponError('');
-            }} />
-          <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
-        </div>
+        {product.pricing_type === 'weight' ? (
+          <div style={{ marginBottom: 20 }}>
+            <label style={s.label}>Weight ({product.unit})</label>
+            <div style={s.row}>
+              <input
+                style={{ ...s.input, width: 120 }}
+                type="number"
+                min={product.min_weight}
+                max={product.max_weight}
+                step="0.001"
+                value={weight}
+                onChange={e => { setWeight(e.target.value); setCouponResult(null); setCouponError(''); }}
+                placeholder={`${product.min_weight}–${product.max_weight}`}
+              />
+              <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
+            </div>
+            <div style={{ fontSize: 13, color: '#888' }}>
+              {product.price} XLM / {product.unit} · range: {product.min_weight}–{product.max_weight} {product.unit}
+            </div>
+          </div>
+        ) : (
+          <div style={s.row}>
+            <label style={{ fontSize: 14 }}>{t('productDetail.quantity')}</label>
+            <input style={s.input} type="number" min={product.min_order_quantity || 1} max={product.quantity} value={qty}
+              onChange={e => {
+                setQty(Math.max(product.min_order_quantity || 1, Math.min(product.quantity, parseInt(e.target.value) || (product.min_order_quantity || 1))));
+                setCouponResult(null);
+                setCouponError('');
+              }} />
+            <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
+          </div>
+        )}
 
-        {user?.role === 'buyer' && addresses.length > 0 && (
+        {user?.role === 'buyer' && (
           <div style={{ marginBottom: 20 }}>
             <label style={s.label}>{t('productDetail.deliveryAddress')}</label>
             <select style={s.select} value={selectedAddressId || ''} onChange={e => setSelectedAddressId(e.target.value ? parseInt(e.target.value) : null)}>
@@ -526,6 +749,7 @@ export default function ProductDetail() {
               ))}
             </select>
             <button style={{ background: 'none', border: 'none', color: '#2d6a4f', cursor: 'pointer', fontSize: 13, padding: 0 }}
+              type="button"
               onClick={() => navigate('/addresses')}>
               {t('productDetail.manageAddresses')}
             </button>
@@ -613,6 +837,18 @@ export default function ProductDetail() {
           </div>
         )}
         {error && <div style={s.err}>{error}</div>}
+
+        {/* Region restriction notice */}
+        {(() => {
+          let regions = [];
+          try { regions = product.allowed_regions ? JSON.parse(product.allowed_regions) : []; } catch {}
+          if (!regions.length) return null;
+          return (
+            <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 8, fontSize: 13, color: '#5d4037' }}>
+              🌍 Available in: <strong>{regions.join(', ')}</strong>
+            </div>
+          );
+        })()}
 
         {/* Availability Calendar */}
         {calendar.length > 0 && (
