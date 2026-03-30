@@ -1,27 +1,3 @@
-import React, { useEffect, useState } from 'react';
-import { api } from '../api/client';
-
-const s = {
-  page: { maxWidth: 800, margin: '0 auto', padding: 24 },
-  title: { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 24 },
-  card: { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 },
-  balance: { fontSize: 40, fontWeight: 700, color: '#2d6a4f' },
-  key: { fontSize: 12, color: '#888', wordBreak: 'break-all', marginTop: 8, fontFamily: 'monospace' },
-  btn: { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, marginTop: 16 },
-  tx: { borderBottom: '1px solid #eee', padding: '12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  sent: { color: '#c0392b', fontWeight: 600 },
-  recv: { color: '#2d6a4f', fontWeight: 600 },
-  hash: { fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 2 },
-  msg: { padding: '10px 14px', borderRadius: 8, marginTop: 12, fontSize: 14 },
-};
-
-export default function Wallet() {
-  const [wallet, setWallet] = useState(null);
-  const [txs, setTxs] = useState([]);
-  const [funding, setFunding] = useState(false);
-  const [fundMsg, setFundMsg] = useState(null);
-
-  async function load() {
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -199,10 +175,6 @@ export default function Wallet() {
   const [funding, setFunding]     = useState(false);
   const [fundMsg, setFundMsg]     = useState(null);
   const [toasts, setToasts]       = useState([]);
-  const [funding, setFunding] = useState(false);
-  const [fundMsg, setFundMsg] = useState(null);
-  const [loadError, setLoadError] = useState(null);
-  const [toasts, setToasts] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [budget, setBudget] = useState(null);
@@ -241,18 +213,12 @@ export default function Wallet() {
     try {
       const [w, txData] = await Promise.all([api.getWallet(), api.getTransactions()]);
       setWallet(w);
-      setTxs(t);
-    } catch { /* ignore */ }
-  }
-
-  useEffect(() => { load(); }, []);
       setTxs(txData.data ?? txData);
     } catch (e) {
       setLoadError(getStellarErrorMessage(e) || getErrorMessage(e));
     } finally {
       setLoading(false);
     }
-    // Load alerts (non-blocking)
     api.getAlerts().then(res => {
       setAlerts(res.data ?? []);
       setUnreadCount(res.unreadCount ?? 0);
@@ -321,8 +287,6 @@ export default function Wallet() {
       const res = await api.fundWallet();
       setFundMsg({ type: 'ok', text: res.message });
       load();
-    } catch (err) {
-      setFundMsg({ type: 'err', text: err.message });
     } catch (e) {
       setFundMsg({ type: 'err', text: getStellarErrorMessage(e) || getErrorMessage(e) });
     } finally {
@@ -345,22 +309,6 @@ export default function Wallet() {
     }
   }
 
-  return (
-    <div style={s.page}>
-      <div style={s.title}>💳 My Wallet</div>
-
-      <div style={s.card}>
-        <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>XLM Balance</div>
-        <div style={s.balance}>{wallet ? wallet.balance.toFixed(2) : '—'} XLM</div>
-        <div style={s.key}>Public Key: {wallet?.publicKey}</div>
-
-        <button style={s.btn} onClick={handleFund} disabled={funding}>
-          {funding ? 'Funding...' : '🚰 Fund with Testnet XLM'}
-        </button>
-        {fundMsg && (
-          <div style={{ ...s.msg, background: fundMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: fundMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
-            {fundMsg.text}
-          </div>
   async function handleSend(e) {
     e.preventDefault();
     setSendMsg(null);
@@ -545,19 +493,18 @@ export default function Wallet() {
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 8 }}>Custom Asset</div>
                 <label style={s.label}>Asset Code</label>
-          <div className="send-row" style={{ display: "flex", gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <label style={s.label}>Amount</label>
-              <div style={{ display: "flex", gap: 8 }}>
                 <input
-                  style={s.input} placeholder="e.g. USDC"
+                  style={s.input}
+                  placeholder="e.g. USDC"
                   value={tlForm.asset_code}
                   onChange={e => setTlForm(f => ({ ...f, asset_code: e.target.value.toUpperCase() }))}
                   maxLength={12}
                 />
                 <label style={s.label}>Issuer Address</label>
                 <input
-                  style={s.input} placeholder="G..." spellCheck={false}
+                  style={s.input}
+                  placeholder="G..."
+                  spellCheck={false}
                   value={tlForm.asset_issuer}
                   onChange={e => setTlForm(f => ({ ...f, asset_issuer: e.target.value.trim() }))}
                 />
@@ -641,7 +588,11 @@ export default function Wallet() {
               <div style={{ fontSize: 12, color: '#6c757d', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>Your Referral Code</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: '#2d6a4f', fontFamily: 'monospace', letterSpacing: 1 }}>
                 {wallet?.referralCode || '-'}
-      <div style={s.card}>
+              </div>
+            </div>
+          </div>
+
+          <div style={s.card}>
         <h3 style={{ marginBottom: 16, color: '#333', display: 'flex', alignItems: 'center', gap: 8 }}>
           🔔 Activity Alerts
           {unreadCount > 0 && (
@@ -715,6 +666,8 @@ export default function Wallet() {
           );
         })}
       </div>
+        </>
+      )}
     </div>
   );
 }

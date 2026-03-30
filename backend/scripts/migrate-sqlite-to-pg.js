@@ -21,12 +21,12 @@ if (!process.env.DATABASE_URL) {
 }
 
 const Database = require('better-sqlite3');
-const { Pool }  = require('pg');
-const path      = require('path');
+const { Pool } = require('pg');
+const path = require('path');
 
 const sqlitePath = path.join(__dirname, '../market.db');
-const sqlite     = new Database(sqlitePath, { readonly: true });
-const pg         = new Pool({ connectionString: process.env.DATABASE_URL });
+const sqlite = new Database(sqlitePath, { readonly: true });
+const pg = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // Tables to migrate in dependency order (parents before children)
 const TABLES = [
@@ -54,12 +54,12 @@ async function migrateTable(tableName) {
 
   const columns = Object.keys(rows[0]);
   const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
-  const colList = columns.map(c => `"${c}"`).join(', ');
+  const colList = columns.map((c) => `"${c}"`).join(', ');
   const sql = `INSERT INTO ${tableName} (${colList}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`;
 
   let inserted = 0;
   for (const row of rows) {
-    const values = columns.map(c => row[c]);
+    const values = columns.map((c) => row[c]);
     await pg.query(sql, values);
     inserted++;
   }
@@ -68,9 +68,23 @@ async function migrateTable(tableName) {
 
 async function resetSequences() {
   // Reset SERIAL sequences so new inserts don't collide with migrated IDs
-  const seqTables = ['users', 'refresh_tokens', 'products', 'orders', 'product_images', 'reviews', 'favorites', 'addresses', 'tags', 'messages', 'stock_alerts'];
+  const seqTables = [
+    'users',
+    'refresh_tokens',
+    'products',
+    'orders',
+    'product_images',
+    'reviews',
+    'favorites',
+    'addresses',
+    'tags',
+    'messages',
+    'stock_alerts',
+  ];
   for (const t of seqTables) {
-    await pg.query(`SELECT setval(pg_get_serial_sequence('${t}', 'id'), COALESCE((SELECT MAX(id) FROM ${t}), 0) + 1, false)`);
+    await pg.query(
+      `SELECT setval(pg_get_serial_sequence('${t}', 'id'), COALESCE((SELECT MAX(id) FROM ${t}), 0) + 1, false)`
+    );
   }
   console.log('  Sequences reset');
 }

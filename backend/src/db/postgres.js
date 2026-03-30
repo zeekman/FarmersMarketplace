@@ -2,9 +2,10 @@ const { Pool } = require('pg');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('sslmode=require')
-    ? { rejectUnauthorized: false }
-    : false,
+  ssl:
+    process.env.DATABASE_URL && process.env.DATABASE_URL.includes('sslmode=require')
+      ? { rejectUnauthorized: false }
+      : false,
 });
 
 pool.on('error', (err) => {
@@ -25,4 +26,11 @@ async function getClient() {
   return pool.connect();
 }
 
-module.exports = { query, getClient, pool };
+/**
+ * Execute raw SQL (used by migration runner).
+ */
+async function exec(sql) {
+  return pool.query(sql);
+}
+
+module.exports = { query, getClient, exec, pool, isPostgres: true };

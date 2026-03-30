@@ -102,7 +102,8 @@ function mapRow(row, xlmRate) {
  */
 // POST /api/products/import — returns a preview, nothing is saved
 router.post('/', auth, async (req, res) => {
-  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can import products', 'forbidden');
+  if (req.user.role !== 'farmer')
+    return err(res, 403, 'Only farmers can import products', 'forbidden');
 
   const { products } = req.body;
   if (!Array.isArray(products) || products.length === 0) {
@@ -177,7 +178,8 @@ router.post('/', auth, async (req, res) => {
  */
 // POST /api/products/import/confirm — validates again and inserts
 router.post('/confirm', auth, async (req, res) => {
-  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can import products', 'forbidden');
+  if (req.user.role !== 'farmer')
+    return err(res, 403, 'Only farmers can import products', 'forbidden');
 
   const { products } = req.body;
   if (!Array.isArray(products) || products.length === 0) {

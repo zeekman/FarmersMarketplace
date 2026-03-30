@@ -10,11 +10,13 @@ const s = {
   link: { color: '#d8f3dc', textDecoration: 'none', fontSize: 14, minHeight: 44, display: 'flex', alignItems: 'center' },
   btn: { background: '#95d5b2', border: 'none', borderRadius: 6, padding: '10px 14px', cursor: 'pointer', fontSize: 14, fontWeight: 600, minHeight: 44 },
   toggleBtn: { background: 'none', border: '1px solid #95d5b2', borderRadius: 6, padding: '10px', cursor: 'pointer', fontSize: 16, color: '#d8f3dc', minHeight: 44, minWidth: 44 },
+  langSelect: { background: 'none', border: '1px solid #95d5b2', borderRadius: 6, padding: '6px 10px', color: '#d8f3dc', fontSize: 13, cursor: 'pointer', minHeight: 44 },
 };
 
 export default function Navbar() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { i18n } = useTranslation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
 

@@ -1,11 +1,14 @@
 const jwt = require('jsonwebtoken');
 const { request, app, mockQuery, getCsrf } = require('./setup');
 
-beforeEach(() => { jest.clearAllMocks(); mockQuery.mockResolvedValue({ rows: [], rowCount: 0 }); });
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+});
 
 const SECRET = process.env.JWT_SECRET || 'test-secret-for-jest';
 const farmerToken = jwt.sign({ id: 1, role: 'farmer' }, SECRET);
-const buyerToken  = jwt.sign({ id: 2, role: 'buyer' }, SECRET);
+const buyerToken = jwt.sign({ id: 2, role: 'buyer' }, SECRET);
 
 describe('GET /api/products', () => {
   it('returns paginated product list with pagination metadata', async () => {
@@ -106,7 +109,10 @@ describe('GET /api/products/:id', () => {
   });
 
   it('returns product details', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 1, name: 'Carrots', price: 1.0, farmer_name: 'Alice' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 1, name: 'Carrots', price: 1.0, farmer_name: 'Alice' }],
+      rowCount: 1,
+    });
     const res = await request(app).get('/api/products/1');
     expect(res.status).toBe(200);
     expect(res.body.data.name).toBe('Carrots');
@@ -116,13 +122,17 @@ describe('GET /api/products/:id', () => {
 describe('GET /api/products/mine/list', () => {
   it("returns farmer's own products", async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 1, name: 'Beans' }], rowCount: 1 });
-    const res = await request(app).get('/api/products/mine/list').set('Authorization', `Bearer ${farmerToken}`);
+    const res = await request(app)
+      .get('/api/products/mine/list')
+      .set('Authorization', `Bearer ${farmerToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
   });
 
   it('returns 403 for buyers', async () => {
-    const res = await request(app).get('/api/products/mine/list').set('Authorization', `Bearer ${buyerToken}`);
+    const res = await request(app)
+      .get('/api/products/mine/list')
+      .set('Authorization', `Bearer ${buyerToken}`);
     expect(res.status).toBe(403);
   });
 });

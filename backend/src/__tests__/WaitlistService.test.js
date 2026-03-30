@@ -24,7 +24,18 @@ describe('WaitlistService', () => {
         .mockResolvedValueOnce({ rows: [{ id: 1, quantity: 0 }] }) // product check
         .mockResolvedValueOnce({ rows: [] }) // existing entry check
         .mockResolvedValueOnce({ rows: [{ next_position: 1 }] }) // position calculation
-        .mockResolvedValueOnce({ rows: [{ id: 1, buyer_id: 123, product_id: 1, quantity: 2, position: 1, created_at: '2024-01-01T00:00:00.000Z' }] }) // insert
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 1,
+              buyer_id: 123,
+              product_id: 1,
+              quantity: 2,
+              position: 1,
+              created_at: '2024-01-01T00:00:00.000Z',
+            },
+          ],
+        }) // insert
         .mockResolvedValueOnce({ rows: [{ total: '1' }] }); // count
 
       const result = await service.joinWaitlist(123, 1, 2);
@@ -69,7 +80,18 @@ describe('WaitlistService', () => {
         .mockResolvedValueOnce({ rows: [{ id: 1, quantity: 0 }] }) // product check
         .mockResolvedValueOnce({ rows: [] }) // existing entry check
         .mockResolvedValueOnce({ rows: [{ next_position: 3 }] }) // position calculation (2 people already waiting)
-        .mockResolvedValueOnce({ rows: [{ id: 1, buyer_id: 123, product_id: 1, quantity: 2, position: 3, created_at: '2024-01-01T00:00:00.000Z' }] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 1,
+              buyer_id: 123,
+              product_id: 1,
+              quantity: 2,
+              position: 3,
+              created_at: '2024-01-01T00:00:00.000Z',
+            },
+          ],
+        })
         .mockResolvedValueOnce({ rows: [{ total: '3' }] });
 
       const result = await service.joinWaitlist(123, 1, 2);
@@ -155,8 +177,8 @@ describe('WaitlistService', () => {
           position: 1,
           created_at: '2024-01-01T00:00:00.000Z',
           product_name: 'Test Product',
-          product_price: 10.99
-        }
+          product_price: 10.99,
+        },
       ];
 
       db.query.mockResolvedValueOnce({ rows: mockRows });
@@ -180,7 +202,7 @@ describe('WaitlistService', () => {
           position: 1,
           created_at: '2024-01-01T00:00:00.000Z',
           buyer_name: 'John Doe',
-          buyer_email: 'john@example.com'
+          buyer_email: 'john@example.com',
         },
         {
           id: 2,
@@ -190,8 +212,8 @@ describe('WaitlistService', () => {
           position: 2,
           created_at: '2024-01-01T01:00:00.000Z',
           buyer_name: 'Jane Smith',
-          buyer_email: 'jane@example.com'
-        }
+          buyer_email: 'jane@example.com',
+        },
       ];
 
       db.query.mockResolvedValueOnce({ rows: mockRows });
@@ -209,10 +231,7 @@ describe('WaitlistService', () => {
 
       await service.getProductWaitlistEntries(1, 5);
 
-      expect(db.query).toHaveBeenCalledWith(
-        expect.stringContaining('LIMIT $2'),
-        [1, 5]
-      );
+      expect(db.query).toHaveBeenCalledWith(expect.stringContaining('LIMIT $2'), [1, 5]);
     });
   });
 
@@ -229,11 +248,7 @@ describe('WaitlistService', () => {
 
   describe('recalculatePositions', () => {
     test('recalculates positions based on created_at order', async () => {
-      const mockRows = [
-        { id: 1 },
-        { id: 3 },
-        { id: 2 }
-      ];
+      const mockRows = [{ id: 1 }, { id: 3 }, { id: 2 }];
 
       db.query
         .mockResolvedValueOnce({ rows: mockRows }) // get entries
@@ -245,9 +260,18 @@ describe('WaitlistService', () => {
       expect(result.updated).toBe(3);
 
       // Verify positions were updated correctly
-      expect(db.query).toHaveBeenCalledWith('UPDATE waitlist_entries SET position = $1 WHERE id = $2', [1, 1]);
-      expect(db.query).toHaveBeenCalledWith('UPDATE waitlist_entries SET position = $1 WHERE id = $2', [2, 3]);
-      expect(db.query).toHaveBeenCalledWith('UPDATE waitlist_entries SET position = $1 WHERE id = $2', [3, 2]);
+      expect(db.query).toHaveBeenCalledWith(
+        'UPDATE waitlist_entries SET position = $1 WHERE id = $2',
+        [1, 1]
+      );
+      expect(db.query).toHaveBeenCalledWith(
+        'UPDATE waitlist_entries SET position = $1 WHERE id = $2',
+        [2, 3]
+      );
+      expect(db.query).toHaveBeenCalledWith(
+        'UPDATE waitlist_entries SET position = $1 WHERE id = $2',
+        [3, 2]
+      );
     });
   });
 

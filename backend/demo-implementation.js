@@ -30,7 +30,9 @@ console.log('1. GET /api/products/:id/waitlist/status Implementation:');
 console.log('   - Uses WaitlistService.getWaitlistStatus(buyerId, productId)');
 console.log('   - Validates product ID parameter');
 console.log('   - Returns different response based on waitlist status:');
-console.log('     * If on waitlist: { success: true, onWaitlist: true, position: X, totalWaiting: Y }');
+console.log(
+  '     * If on waitlist: { success: true, onWaitlist: true, position: X, totalWaiting: Y }'
+);
 console.log('     * If not on waitlist: { success: true, onWaitlist: false, totalWaiting: Y }');
 console.log('   - Proper error handling with HTTP status codes');
 console.log();

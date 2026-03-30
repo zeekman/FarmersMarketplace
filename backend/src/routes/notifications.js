@@ -17,7 +17,12 @@ router.get('/vapid-public-key', (_req, res) => {
 
 router.post('/subscribe', auth, async (req, res) => {
   const { subscription } = req.body || {};
-  if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
+  if (
+    !subscription ||
+    !subscription.endpoint ||
+    !subscription.keys?.p256dh ||
+    !subscription.keys?.auth
+  ) {
     return err(res, 400, 'Invalid push subscription payload', 'validation_error');
   }
 

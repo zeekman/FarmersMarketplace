@@ -42,10 +42,10 @@ async function savePushSubscription(userId, subscription) {
   }
 
   await db.query('DELETE FROM push_subscriptions WHERE user_id = ?', [userId]);
-  await db.query(
-    'INSERT INTO push_subscriptions (user_id, subscription) VALUES (?, ?)',
-    [userId, serialized]
-  );
+  await db.query('INSERT INTO push_subscriptions (user_id, subscription) VALUES (?, ?)', [
+    userId,
+    serialized,
+  ]);
 }
 
 async function deletePushSubscription(userId) {

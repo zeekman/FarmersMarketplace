@@ -227,6 +227,12 @@ export default function Orders() {
                     </div>
                   )}
                   <StatusTimeline status={o.status} />
+                  {o.harvest_batch_code && (
+                    <div style={{ fontSize: 12, color: '#555', marginTop: 8 }}>
+                      <span style={{ fontWeight: 600 }}>Harvest batch:</span> {o.harvest_batch_code}
+                      {o.harvest_batch_date ? ` · ${o.harvest_batch_date}` : ''}
+                    </div>
+                  )}
                   {/* Return request status */}
                   {o.return_status && (
                     <div style={{ marginTop: 8, fontSize: 12 }}>
@@ -337,31 +343,31 @@ export default function Orders() {
           </div>
         </div>
       )}
-    </div>
 
-    {/* Return request modal */}
-    {returnModal && (
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-        <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 4px 24px #0003' }}>
-          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>↩️ Request Return</div>
-          <label style={{ fontSize: 13, color: '#555', display: 'block', marginBottom: 6 }}>Reason for return</label>
-          <textarea
-            style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, minHeight: 80, resize: 'vertical', boxSizing: 'border-box', marginBottom: 16 }}
-            value={returnReason}
-            onChange={e => setReturnReason(e.target.value)}
-            placeholder="Describe the issue (damaged, incorrect item, etc.)"
-          />
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', cursor: 'pointer', background: '#f5f5f5', fontWeight: 600 }}
-              onClick={() => setReturnModal(null)}>Cancel</button>
-            <button style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: returnLoading ? 'not-allowed' : 'pointer', background: '#c0392b', color: '#fff', fontWeight: 600 }}
-              disabled={returnLoading || !returnReason.trim()}
-              onClick={() => handleFileReturn(returnModal)}>
-              {returnLoading ? 'Submitting…' : 'Submit Request'}
-            </button>
+      {/* Return request modal */}
+      {returnModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 4px 24px #0003' }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>↩️ Request Return</div>
+            <label style={{ fontSize: 13, color: '#555', display: 'block', marginBottom: 6 }}>Reason for return</label>
+            <textarea
+              style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, minHeight: 80, resize: 'vertical', boxSizing: 'border-box', marginBottom: 16 }}
+              value={returnReason}
+              onChange={e => setReturnReason(e.target.value)}
+              placeholder="Describe the issue (damaged, incorrect item, etc.)"
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', cursor: 'pointer', background: '#f5f5f5', fontWeight: 600 }}
+                onClick={() => setReturnModal(null)}>Cancel</button>
+              <button style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: returnLoading ? 'not-allowed' : 'pointer', background: '#c0392b', color: '#fff', fontWeight: 600 }}
+                disabled={returnLoading || !returnReason.trim()}
+                onClick={() => handleFileReturn(returnModal)}>
+                {returnLoading ? 'Submitting…' : 'Submit Request'}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    )}
+      )}
+    </div>
   );
 }
