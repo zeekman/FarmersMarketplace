@@ -11,6 +11,7 @@ import Pagination from "../components/Pagination";
 import Spinner from "../components/Spinner";
 import AuctionCard from "../components/AuctionCard";
 import FlashSaleCountdown from "../components/FlashSaleCountdown";
+import RecentlyCompared from "../components/RecentlyCompared";
 import { useTranslation } from "react-i18next";
 
 const MapView = lazy(() => import("../components/MapView"));
@@ -466,7 +467,54 @@ export default function Marketplace() {
         </div>
       )}
 
-      <div style={s.filters}>
+      {/* Recently Compared Section */}
+      {compareProducts.length > 0 && (
+        <div style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ ...s.title, fontSize: 20, marginBottom: 0 }}>
+              📊 Currently Comparing
+            </div>
+            <button
+              style={{ ...s.resetBtn, fontSize: 12 }}
+              onClick={() => {
+                const { clearProducts } = useCompare();
+                clearProducts();
+              }}
+            >
+              Clear
+            </button>
+          </div>
+          <div style={s.grid}>
+            {compareProducts.map((p) => (
+              <div
+                key={p.id}
+                style={{ ...s.card, opacity: 0.9 }}
+                onClick={() => navigate(`/product/${p.id}`)}
+              >
+                {p.image_url ? (
+                  <img
+                    src={p.image_url}
+                    alt={p.name}
+                    style={{
+                      width: "100%",
+                      height: 140,
+                      objectFit: "cover",
+                      borderRadius: 8,
+                      marginBottom: 10,
+                    }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>🥬</div>
+                )}
+                <div style={s.name}>{p.name}</div>
+                <div style={s.price}>{p.price} XLM</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <RecentlyCompared />
         <input
           style={s.input}
           placeholder={t("marketplace.searchPlaceholder")}
