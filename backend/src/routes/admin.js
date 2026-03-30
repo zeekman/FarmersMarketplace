@@ -2,7 +2,8 @@ const router = require('express').Router();
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const adminAuth = require('../middleware/adminAuth');
-const { getContractWasmHash } = require('../utils/stellar');
+const { getContractWasmHash, deployContract } = require('../utils/stellar');
+const multer = require('multer');
 
 const STELLAR_NETWORK = (process.env.STELLAR_NETWORK || 'testnet').toLowerCase();
 
@@ -342,6 +343,68 @@ router.delete('/contracts/:id/acl/:address', async (req, res) => {
   );
   if (!rowCount) return res.status(404).json({ success: false, error: 'ACL entry not found' });
   res.json({ success: true, message: 'Access revoked' });
+});
+
+// POST /api/admin/contracts/deploy — upload WASM file and deploy contract
+const upload = multer({
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype !== 'application/wasm' || !file.originalname.endsWith('.wasm')) {
+      return cb(new Error('Only .wasm files are allowed'));
+    }
+    cb(null, true);
+  },
+});
+
+router.post('/contracts/deploy', upload.single('wasm'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'WASM file is required' });
+    }
+
+    const { name, type } = req.body;
+    if (!name || !type) {
+      return res.status(400).json({ success: false, error: 'name and type are required' });
+    }
+    if (!['escrow', 'token', 'other'].includes(type)) {
+      return res.status(400).json({ success: false, error: 'type must be escrow, token, or other' });
+    }
+
+    // Get deployer secret from env
+    const deployerSecret = process.env.SOROBAN_DEPLOYER_SECRET;
+    if (!deployerSecret) {
+      return res.status(500).json({ success: false, error: 'SOROBAN_DEPLOYER_SECRET not configured' });
+    }
+
+    // Deploy the contract
+    const { contractId, wasmHash, txHash } = await deployContract({
+      wasmBuffer: req.file.buffer,
+      deployerSecret,
+    });
+
+    // Register in database
+    const { rows } = await db.query(
+      `INSERT INTO contracts_registry (contract_id, name, type, network, wasm_hash, deployed_by) 
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [contractId, name.trim(), type, STELLAR_NETWORK, wasmHash, req.user.id]
+    );
+
+    res.status(201).json({
+      success: true,
+      data: {
+        contract_id: contractId,
+        wasm_hash: wasmHash,
+        deployment_tx_hash: txHash,
+        registry: rows[0],
+      },
+    });
+  } catch (error) {
+    console.error('Contract deployment error:', error);
+    if (error.message.includes('Only .wasm files are allowed')) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+    res.status(500).json({ success: false, error: 'Contract deployment failed: ' + error.message });
+  }
 });
 
 module.exports = router;

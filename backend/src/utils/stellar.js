@@ -1026,6 +1026,96 @@ async function getContractEvents(contractId, filters = {}) {
   return { events: items, pagination: { page, pages, total, limit } };
 }
 
+/**
+ * Deploy a Soroban contract: upload WASM and instantiate.
+ * @param {Buffer} wasmBuffer - The compiled WASM bytecode
+ * @param {string} deployerSecret - Secret key of the deployer account
+ * @returns {Promise<{ contractId: string, wasmHash: string, txHash: string }>}
+ */
+async function deployContract({ wasmBuffer, deployerSecret }) {
+  const deployerKeypair = StellarSdk.Keypair.fromSecret(deployerSecret);
+  const deployerAccount = await server.loadAccount(deployerKeypair.publicKey());
+
+  const sorobanRpcUrl =
+    process.env.SOROBAN_RPC_URL ||
+    (isTestnet ? 'https://soroban-testnet.stellar.org' : 'https://soroban.stellar.org');
+  const sorobanServer = new StellarSdk.SorobanRpc.Server(sorobanRpcUrl);
+
+  // Step 1: Upload WASM
+  const wasmHash = StellarSdk.hash(wasmBuffer);
+  const uploadOp = StellarSdk.Operation.uploadContractWasm({
+    wasm: wasmBuffer,
+  });
+
+  let tx = new StellarSdk.TransactionBuilder(deployerAccount, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(uploadOp)
+    .setTimeout(60)
+    .build();
+
+  tx = await sorobanServer.prepareTransaction(tx);
+  tx.sign(deployerKeypair);
+
+  const uploadResult = await sorobanServer.sendTransaction(tx);
+  if (uploadResult.status === 'ERROR') {
+    throw new Error(uploadResult.errorResultXdr || 'WASM upload failed');
+  }
+
+  // Wait for upload confirmation
+  let uploadHash = uploadResult.hash;
+  for (let i = 0; i < 15; i++) {
+    const txResult = await sorobanServer.getTransaction(uploadHash);
+    if (txResult.status === 'SUCCESS') break;
+    if (txResult.status === 'FAILED') throw new Error('WASM upload transaction failed');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  // Step 2: Instantiate contract
+  const createOp = StellarSdk.Operation.createContract({
+    wasmHash,
+  });
+
+  const createAccount = await server.loadAccount(deployerKeypair.publicKey()); // reload to get updated sequence
+  tx = new StellarSdk.TransactionBuilder(createAccount, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(createOp)
+    .setTimeout(60)
+    .build();
+
+  tx = await sorobanServer.prepareTransaction(tx);
+  tx.sign(deployerKeypair);
+
+  const createResult = await sorobanServer.sendTransaction(tx);
+  if (createResult.status === 'ERROR') {
+    throw new Error(createResult.errorResultXdr || 'Contract instantiation failed');
+  }
+
+  // Wait for instantiation confirmation
+  let createHash = createResult.hash;
+  for (let i = 0; i < 15; i++) {
+    const txResult = await sorobanServer.getTransaction(createHash);
+    if (txResult.status === 'SUCCESS') {
+      const contractId = txResult.resultMetaXdr?.v3()?.sorobanMeta()?.events()?.[0]?.contractEvent()?.contractId()?.contractId()?.toString('hex');
+      if (contractId) {
+        return {
+          contractId: StellarSdk.StrKey.encodeContract(StellarSdk.xdr.ScAddressType.scAddressTypeContract().value, Buffer.from(contractId, 'hex')),
+          wasmHash: wasmHash.toString('hex'),
+          txHash: createHash,
+        };
+      }
+      break;
+    }
+    if (txResult.status === 'FAILED') throw new Error('Contract instantiation transaction failed');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  throw new Error('Failed to extract contract ID from transaction result');
+}
+
 module.exports = {
   isTestnet,
   server,
@@ -1053,6 +1143,7 @@ module.exports = {
   getContractWasmHash,
   simulateContractCall,
   getContractEvents,
+  deployContract,
   resolveFederationAddress,
   mintRewardTokens,
 };

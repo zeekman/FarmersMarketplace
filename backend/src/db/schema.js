@@ -439,6 +439,7 @@ try { db.exec(`ALTER TABLE products ADD COLUMN low_stock_alerted INTEGER DEFAULT
       name TEXT NOT NULL,
       type TEXT NOT NULL CHECK(type IN ('escrow','token','other')),
       network TEXT NOT NULL CHECK(network IN ('testnet','mainnet')),
+      wasm_hash TEXT,
       deployed_by INTEGER REFERENCES users(id),
       deployed_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );

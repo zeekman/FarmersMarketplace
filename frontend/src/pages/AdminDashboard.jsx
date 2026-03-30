@@ -36,6 +36,11 @@ export default function AdminDashboard() {
   const [contractMsg, setContractMsg] = useState('');
   const [contractFilter, setContractFilter] = useState({ network: '', type: '' });
 
+  // Contract deployment
+  const [deployForm, setDeployForm] = useState({ name: '', type: 'escrow', wasm: null });
+  const [deployMsg, setDeployMsg] = useState('');
+  const [deployBusy, setDeployBusy] = useState(false);
+
   // Contract state viewer
   const [contractId, setContractId] = useState('');
   const [contractPrefix, setContractPrefix] = useState('');
@@ -112,6 +117,30 @@ export default function AdminDashboard() {
       setContractMsg('Contract registered.');
       loadContracts();
     } catch (err) { setContractMsg(err.message); }
+  }
+
+  async function handleDeployContract(e) {
+    e.preventDefault();
+    setDeployMsg('');
+    if (!deployForm.wasm) {
+      setDeployMsg('Please select a WASM file.');
+      return;
+    }
+    setDeployBusy(true);
+    try {
+      const formData = new FormData();
+      formData.append('wasm', deployForm.wasm);
+      formData.append('name', deployForm.name);
+      formData.append('type', deployForm.type);
+      const res = await api.adminDeployContract(formData);
+      setDeployForm({ name: '', type: 'escrow', wasm: null });
+      setDeployMsg(`Contract deployed! ID: ${res.data.contract_id}`);
+      loadContracts();
+    } catch (err) {
+      setDeployMsg(err.message);
+    } finally {
+      setDeployBusy(false);
+    }
   }
 
   async function handleDeregisterContract(id) {
@@ -313,6 +342,62 @@ export default function AdminDashboard() {
             disabled={pagination.page >= pagination.pages}
             onClick={() => loadUsers(pagination.page + 1)}
           >Next →</button>
+        </div>
+      </div>
+
+      {/* Contract Deployment */}
+      <div style={{ ...s.card, marginTop: 32 }}>
+        <h3 style={{ marginBottom: 16, color: '#333' }}>🚀 Deploy Soroban Contract</h3>
+        {deployMsg && (
+          <div style={{
+            color: deployMsg.includes('deployed') ? '#2d6a4f' : '#c0392b',
+            fontSize: 14,
+            marginBottom: 12,
+          }}
+          >{deployMsg}</div>
+        )}
+        <form onSubmit={handleDeployContract} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+          <input
+            style={{ ...inputStyle, flex: '1 1 140px' }}
+            placeholder="Display name"
+            value={deployForm.name}
+            onChange={e => setDeployForm(f => ({ ...f, name: e.target.value }))}
+            required
+          />
+          <select
+            style={{ ...inputStyle }}
+            value={deployForm.type}
+            onChange={e => setDeployForm(f => ({ ...f, type: e.target.value }))}
+          >
+            <option value="escrow">escrow</option>
+            <option value="token">token</option>
+            <option value="other">other</option>
+          </select>
+          <input
+            type="file"
+            accept=".wasm"
+            onChange={e => setDeployForm(f => ({ ...f, wasm: e.target.files[0] }))}
+            style={{ ...inputStyle, flex: '2 1 200px' }}
+            required
+          />
+          <button
+            type="submit"
+            disabled={deployBusy}
+            style={{
+              padding: '8px 18px',
+              borderRadius: 8,
+              border: 'none',
+              background: deployBusy ? '#ccc' : '#2d6a4f',
+              color: '#fff',
+              fontWeight: 600,
+              cursor: deployBusy ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {deployBusy ? 'Deploying...' : 'Deploy Contract'}
+          </button>
+        </form>
+        <div style={{ fontSize: 13, color: '#666' }}>
+          Upload a compiled .wasm file to deploy a new Soroban contract to the network.
         </div>
       </div>
 
