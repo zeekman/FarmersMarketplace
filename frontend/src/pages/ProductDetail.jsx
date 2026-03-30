@@ -497,11 +497,16 @@ export default function ProductDetail() {
     <div style={s.page}>
       <Helmet>
         <title>{shareTitle}</title>
+        <meta name="description" content={shareDescription} />
         <meta property="og:title" content={shareTitle} />
         <meta property="og:description" content={shareDescription} />
         <meta property="og:url" content={shareUrl} />
         <meta property="og:type" content="product" />
         {shareImage ? <meta property="og:image" content={shareImage} /> : null}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={shareTitle} />
+        <meta name="twitter:description" content={shareDescription} />
+        {shareImage ? <meta name="twitter:image" content={shareImage} /> : null}
       </Helmet>
       <div style={s.card}>
         {product.video_url ? (

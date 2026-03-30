@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { validateLogin, validateRegister, validatePassword } from '../utils/validation';
@@ -73,6 +74,10 @@ export function LoginPage() {
 
   return (
     <div style={s.wrap}>
+      <Helmet>
+        <title>Login – Farmers Marketplace</title>
+        <meta name="description" content="Sign in to your Farmers Marketplace account." />
+      </Helmet>
       <div style={s.card}>
         <div style={s.title}>{t('auth.welcomeBack')}</div>
         <form onSubmit={handleSubmit} noValidate>
@@ -129,6 +134,10 @@ export function RegisterPage() {
 
   return (
     <div style={s.wrap}>
+      <Helmet>
+        <title>Register – Farmers Marketplace</title>
+        <meta name="description" content="Create a free account on Farmers Marketplace to buy fresh produce or sell your farm products." />
+      </Helmet>
       <div style={s.card}>
         <div style={s.title}>{t('auth.createAccount')}</div>
         <form onSubmit={handleSubmit} noValidate>

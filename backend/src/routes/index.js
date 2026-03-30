@@ -251,6 +251,14 @@ router.get("/api/v1/health", async (req, res) => {
 router.get('/api/health', (_, res) => res.json({ status: 'ok' }));
 router.get('/api/v1/health', (_, res) => res.json({ status: 'ok', version: 'v1' }));
 
+// SEO endpoints
+router.get('/sitemap.xml', require('./sitemap'));
+router.get('/robots.txt', (_, res) => {
+  res.type('text/plain').send(
+    `User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/sitemap.xml`
+  );
+});
+
 // Rate limiters
 router.use('/api', generalLimiter);
 router.use('/api/auth/login', authLimiter);

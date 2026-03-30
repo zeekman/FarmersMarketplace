@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import Spinner from '../components/Spinner';
@@ -369,6 +370,10 @@ export default function Wallet() {
 
   return (
     <div style={s.page}>
+      <Helmet>
+        <title>My Wallet – Farmers Marketplace</title>
+        <meta name="description" content="Manage your Stellar XLM wallet, view balance and transaction history." />
+      </Helmet>
       <Toast toasts={toasts} />
       <div style={s.title}>My Wallet</div>
 
