@@ -160,6 +160,7 @@ router.get('/', async (req, res) => {
   res.json(payload);
 });
 
+// GET /api/products/search?q=tomato
 // GET /api/products/search?q=tomato - FTS5 full-text search
 router.get('/search', (req, res) => {
   const q = (req.query.q || '').trim();
@@ -227,6 +228,32 @@ router.get('/search', async (req, res) => {
   res.json({ success: true, data: rows });
 });
 
+/**
+ * @swagger
+ * /api/products/mine/list:
+ *   get:
+ *     summary: Get farmer's own product listings
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of farmer's products
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: array
+ *                   items: { $ref: '#/components/schemas/Product' }
+ *       403:
+ *         description: Farmers only
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ */
 router.get('/categories', async (_req, res) => {
   const { rows } = await db.query('SELECT DISTINCT category FROM products WHERE category IS NOT NULL ORDER BY category');
   res.json({ success: true, data: rows.map(r => r.category) });
@@ -247,6 +274,7 @@ router.post('/upload-image', auth, (req, res) => {
       return err(res, 400, 'Upload failed', 'upload_error');
     }
     if (!req.file) return err(res, 400, 'No image file provided', 'no_file');
+
        if (uploadErr.code === 'LIMIT_FILE_SIZE') return err(res, 400, 'Image too large', 'file_too_large');
        return err(res, 400, 'Upload failed', 'upload_error');
     }
@@ -255,6 +283,44 @@ router.post('/upload-image', auth, (req, res) => {
   });
 });
 
+/**
+ * @swagger
+ * /api/products/{id}:
+ *   get:
+ *     summary: Get product by ID
+ *     tags: [Products]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Product detail
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { $ref: '#/components/schemas/Product' }
+ *       404:
+ *         description: Product not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ */
+// GET /api/products/:id
+router.get('/:id', async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT p.*, u.name as farmer_name, u.stellar_public_key as farmer_wallet,
+            hb.batch_code as harvest_batch_code, hb.harvest_date as harvest_batch_date, hb.notes as harvest_batch_notes,
+            (SELECT ROUND(AVG(rating)::numeric, 1) FROM reviews WHERE product_id = p.id) as avg_rating,
+            (SELECT COUNT(*)::bigint FROM reviews WHERE product_id = p.id) as review_count
+     FROM products p
+     JOIN users u ON p.farmer_id = u.id
+     LEFT JOIN harvest_batches hb ON hb.id = p.batch_id
+     WHERE p.id = $1`,
 // POST /api/products
 router.post('/', auth, validate.product, async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
@@ -533,7 +599,38 @@ router.post('/', auth, validate.product, async (req, res) => {
     return err(res, 400, 'Minimum price is required for PWYW products', 'validation_error');
   }
 
+  let batchId = null;
+  if (req.body.batch_id !== undefined && req.body.batch_id !== null && req.body.batch_id !== '') {
+    batchId = parseInt(req.body.batch_id, 10);
+    if (Number.isNaN(batchId) || batchId < 1) {
+      return err(res, 400, 'batch_id must be a positive integer', 'validation_error');
+    }
+    const { rows: bRows } = await db.query(
+      'SELECT id FROM harvest_batches WHERE id = $1 AND farmer_id = $2',
+      [batchId, req.user.id],
+    );
+    if (!bRows[0]) return err(res, 400, 'Invalid batch_id or not your batch', 'invalid_batch');
+  }
+
   const { rows } = await db.query(
+    `INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold, nutrition, pricing_type, min_weight, max_weight, batch_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+    [
+      req.user.id,
+      safeName,
+      safeDescription,
+      safeCategory,
+      price,
+      quantity,
+      safeUnit,
+      safeImageUrl,
+      parseInt(req.body.low_stock_threshold, 10) || 5,
+      nutrition ? JSON.stringify(nutrition) : null,
+      pricingType,
+      minWeight,
+      maxWeight,
+      batchId,
+    ],
     `INSERT INTO products (
       farmer_id, name, description, category, price, quantity, unit, image_url, 
       is_preorder, preorder_delivery_date, low_stock_threshold, nutrition, 
@@ -561,6 +658,7 @@ router.patch('/:id', auth, async (req, res) => {
   const { rows: existing } = await db.query('SELECT * FROM products WHERE id = $1 AND farmer_id = $2', [req.params.id, req.user.id]);
   if (!existing[0]) return err(res, 404, 'Not found or not yours', 'not_found');
 
+  const allowed = ['name', 'description', 'price', 'quantity', 'unit', 'category', 'low_stock_threshold', 'nutrition', 'pricing_type', 'min_weight', 'max_weight', 'batch_id', 'carbon_kg_per_unit'];
   const allowed = [
     'name', 'description', 'price', 'quantity', 'unit', 'category', 
     'low_stock_threshold', 'nutrition', 'pricing_model', 'min_price', 
@@ -572,6 +670,20 @@ router.patch('/:id', auth, async (req, res) => {
   for (const key of allowed) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
   }
+  if (Object.keys(updates).length === 0) return err(res, 400, 'No valid fields to update', 'validation_error');
+
+  if (updates.name !== undefined) updates.name = sanitizeText(updates.name);
+  if (updates.description !== undefined) updates.description = sanitizeText(updates.description);
+  if (updates.unit !== undefined) updates.unit = sanitizeText(updates.unit);
+  if (updates.category !== undefined) updates.category = sanitizeText(updates.category);
+  if (updates.price !== undefined) {
+    updates.price = parseFloat(updates.price);
+    if (Number.isNaN(updates.price) || updates.price <= 0) return err(res, 400, 'Price must be a positive number', 'validation_error');
+  }
+
+  if (updates.quantity !== undefined) {
+    updates.quantity = parseInt(updates.quantity, 10);
+    if (Number.isNaN(updates.quantity) || updates.quantity < 0) return err(res, 400, 'Quantity must be non-negative', 'validation_error');
 
   if (updates.name) updates.name = sanitizeText(updates.name);
   if (updates.description) updates.description = sanitizeText(updates.description);
@@ -579,9 +691,20 @@ router.patch('/:id', auth, async (req, res) => {
     updates.price = parseFloat(updates.price);
     if (isNaN(updates.price) || updates.price <= 0) return err(res, 400, 'Price must be positive', 'validation_error');
   }
-  if (updates.quantity !== undefined) {
-    updates.quantity = parseInt(updates.quantity, 10);
-    if (isNaN(updates.quantity) || updates.quantity < 0) return err(res, 400, 'Quantity must be non-negative', 'validation_error');
+
+  if (updates.batch_id !== undefined) {
+    if (updates.batch_id === null || updates.batch_id === '') {
+      updates.batch_id = null;
+    } else {
+      const bid = parseInt(updates.batch_id, 10);
+      if (Number.isNaN(bid) || bid < 1) return err(res, 400, 'batch_id must be a positive integer or null', 'validation_error');
+      const { rows: bRows } = await db.query(
+        'SELECT id FROM harvest_batches WHERE id = $1 AND farmer_id = $2',
+        [bid, req.user.id],
+      );
+      if (!bRows[0]) return err(res, 400, 'Invalid batch_id or not your batch', 'invalid_batch');
+      updates.batch_id = bid;
+    }
   }
   if (updates.pricing_model === 'pwyw' && updates.min_price === undefined && existing[0].min_price === null) {
     return err(res, 400, 'Minimum price is required for PWYW', 'validation_error');
@@ -724,6 +847,202 @@ router.delete('/:id', auth, async (req, res) => {
   await db.query('DELETE FROM products WHERE id = $1', [req.params.id]);
   await cache.del('products:{}');
   res.json({ success: true, message: 'Deleted' });
+});
+
+// GET /api/products/:id/images
+router.get('/:id/images', async (req, res) => {
+  const { rows } = await db.query(
+    'SELECT * FROM product_images WHERE product_id = $1 ORDER BY sort_order ASC, id ASC',
+    [req.params.id]
+  );
+  res.json({ success: true, data: rows });
+});
+
+// POST /api/products/:id/images
+router.post('/:id/images', auth, async (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can upload images', 'forbidden');
+
+  const { rows } = await db.query('SELECT * FROM products WHERE id = $1 AND farmer_id = $2', [req.params.id, req.user.id]);
+  if (!rows[0]) return err(res, 404, 'Product not found or not yours', 'not_found');
+
+  upload.array('images', 5)(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      if (uploadErr.code === 'LIMIT_FILE_SIZE') return err(res, 400, 'Each image must be 5 MB or smaller', 'file_too_large');
+      if (uploadErr.code === 'LIMIT_UNEXPECTED_FILE') return err(res, 400, 'Maximum 5 images allowed', 'too_many_files');
+      if (uploadErr.code === 'INVALID_TYPE') return err(res, 400, uploadErr.message, 'invalid_file_type');
+      return err(res, 400, 'Upload failed', 'upload_error');
+    }
+    if (!req.files || req.files.length === 0) return err(res, 400, 'No image files provided', 'no_file');
+
+    const { rows: countRows } = await db.query('SELECT COUNT(*) as count FROM product_images WHERE product_id = $1', [req.params.id]);
+    const existing = parseInt(countRows[0].count);
+    if (existing + req.files.length > 5) return err(res, 400, `Cannot exceed 5 images. Currently have ${existing}.`, 'too_many_files');
+
+    const { rows: maxRows } = await db.query('SELECT MAX(sort_order) as m FROM product_images WHERE product_id = $1', [req.params.id]);
+    const maxOrder = maxRows[0].m ?? -1;
+
+    for (let i = 0; i < req.files.length; i++) {
+      await db.query(
+        'INSERT INTO product_images (product_id, url, sort_order) VALUES ($1, $2, $3)',
+        [req.params.id, `/uploads/${req.files[i].filename}`, maxOrder + 1 + i]
+      );
+    }
+
+    const { rows: images } = await db.query(
+      'SELECT * FROM product_images WHERE product_id = $1 ORDER BY sort_order ASC, id ASC',
+      [req.params.id]
+    );
+    if (images.length > 0) {
+      await db.query('UPDATE products SET image_url = $1 WHERE id = $2', [images[0].url, req.params.id]);
+    }
+    res.json({ success: true, data: images });
+  });
+});
+
+// DELETE /api/products/:id/images/:imgId
+router.delete('/:id/images/:imgId', auth, async (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can delete images', 'forbidden');
+
+  const { rows: pRows } = await db.query('SELECT * FROM products WHERE id = $1 AND farmer_id = $2', [req.params.id, req.user.id]);
+  if (!pRows[0]) return err(res, 404, 'Product not found or not yours', 'not_found');
+
+  const { rows: iRows } = await db.query('SELECT * FROM product_images WHERE id = $1 AND product_id = $2', [req.params.imgId, req.params.id]);
+  if (!iRows[0]) return err(res, 404, 'Image not found', 'not_found');
+
+  await db.query('DELETE FROM product_images WHERE id = $1', [req.params.imgId]);
+
+  const fs = require('fs');
+  const filePath = require('path').join(__dirname, '../../uploads', require('path').basename(iRows[0].url));
+  try { fs.unlinkSync(filePath); } catch {}
+
+  const { rows: firstRows } = await db.query(
+    'SELECT url FROM product_images WHERE product_id = $1 ORDER BY sort_order ASC, id ASC LIMIT 1',
+    [req.params.id]
+  );
+  await db.query('UPDATE products SET image_url = $1 WHERE id = $2', [firstRows[0]?.url ?? null, req.params.id]);
+
+  res.json({ success: true, message: 'Image deleted' });
+});
+
+// PATCH /api/products/:id/images/reorder
+router.patch('/:id/images/reorder', auth, async (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can reorder images', 'forbidden');
+
+  const { rows } = await db.query('SELECT * FROM products WHERE id = $1 AND farmer_id = $2', [req.params.id, req.user.id]);
+  if (!rows[0]) return err(res, 404, 'Product not found or not yours', 'not_found');
+
+  const { order } = req.body;
+  if (!Array.isArray(order)) return err(res, 400, 'order must be an array', 'validation_error');
+
+  for (const { id, sort_order } of order) {
+    await db.query('UPDATE product_images SET sort_order = $1 WHERE id = $2 AND product_id = $3', [sort_order, id, req.params.id]);
+  }
+
+  const { rows: firstRows } = await db.query(
+    'SELECT url FROM product_images WHERE product_id = $1 ORDER BY sort_order ASC, id ASC LIMIT 1',
+    [req.params.id]
+  );
+  if (firstRows[0]) await db.query('UPDATE products SET image_url = $1 WHERE id = $2', [firstRows[0].url, req.params.id]);
+
+  const { rows: images } = await db.query(
+    'SELECT * FROM product_images WHERE product_id = $1 ORDER BY sort_order ASC, id ASC',
+    [req.params.id]
+  );
+  res.json({ success: true, data: images });
+});
+
+// GET /api/products/:id/carbon - Calculate carbon footprint
+router.get('/:id/carbon', async (req, res) => {
+  const { lat, lng } = req.query;
+  
+  const { rows } = await db.query(
+    `SELECT p.*, u.location, u.name as farmer_name
+     FROM products p
+     JOIN users u ON p.farmer_id = u.id
+     WHERE p.id = $1`,
+    [req.params.id]
+  );
+  
+  if (!rows[0]) return err(res, 404, 'Product not found', 'not_found');
+  
+  const product = rows[0];
+  const { estimateCarbonFootprint } = require('../utils/carbon');
+  
+  // Simple distance calculation if coordinates provided
+  let distanceKm = 0;
+  if (lat && lng && product.location) {
+    // Parse location if it contains coordinates (simplified)
+    const locMatch = product.location.match(/(-?\d+\.?\d*),\s*(-?\d+\.?\d*)/);
+    if (locMatch) {
+      const { calculateDistance } = require('../utils/carbon');
+      distanceKm = calculateDistance(parseFloat(lat), parseFloat(lng), parseFloat(locMatch[1]), parseFloat(locMatch[2]));
+    }
+  }
+  
+  const estimate = estimateCarbonFootprint(product, 1, distanceKm);
+  
+  res.json({
+    success: true,
+    data: {
+      productId: product.id,
+      productName: product.name,
+      category: product.category,
+      carbonKgPerUnit: estimate.carbonKg,
+      supermarketCarbonKg: estimate.supermarketCarbonKg,
+      savingsPercent: estimate.savingsPercent,
+      distanceKm: Math.round(distanceKm),
+    },
+  });
+});
+
+// GET /api/products/:id/tiers - get price tiers for a product
+router.get('/:id/tiers', async (req, res) => {
+  const { rows } = await db.query(
+    'SELECT id, min_quantity, price_per_unit FROM price_tiers WHERE product_id = $1 ORDER BY min_quantity ASC',
+    [req.params.id]
+  );
+  res.json({ success: true, data: rows });
+});
+
+// POST /api/products/:id/tiers - add/update price tiers (farmer only)
+router.post('/:id/tiers', auth, async (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can manage price tiers', 'forbidden');
+
+  const { rows } = await db.query('SELECT * FROM products WHERE id = $1 AND farmer_id = $2', [req.params.id, req.user.id]);
+  if (!rows[0]) return err(res, 404, 'Product not found or not yours', 'not_found');
+
+  const { tiers } = req.body;
+  if (!Array.isArray(tiers)) return err(res, 400, 'tiers must be an array', 'validation_error');
+
+  // Validate tiers
+  const sortedTiers = tiers.sort((a, b) => a.min_quantity - b.min_quantity);
+  for (let i = 0; i < sortedTiers.length; i++) {
+    const tier = sortedTiers[i];
+    if (!tier.min_quantity || tier.min_quantity < 1 || !Number.isInteger(tier.min_quantity)) {
+      return err(res, 400, 'min_quantity must be a positive integer', 'validation_error');
+    }
+    if (!tier.price_per_unit || tier.price_per_unit <= 0) {
+      return err(res, 400, 'price_per_unit must be a positive number', 'validation_error');
+    }
+    if (i > 0 && tier.min_quantity <= sortedTiers[i-1].min_quantity) {
+      return err(res, 400, 'min_quantity values must be increasing', 'validation_error');
+    }
+  }
+
+  // Delete existing tiers and insert new ones
+  await db.query('DELETE FROM price_tiers WHERE product_id = $1', [req.params.id]);
+  for (const tier of sortedTiers) {
+    await db.query(
+      'INSERT INTO price_tiers (product_id, min_quantity, price_per_unit) VALUES ($1, $2, $3)',
+      [req.params.id, tier.min_quantity, tier.price_per_unit]
+    );
+  }
+
+  const { rows: newTiers } = await db.query(
+    'SELECT id, min_quantity, price_per_unit FROM price_tiers WHERE product_id = $1 ORDER BY min_quantity ASC',
+    [req.params.id]
+  );
+  res.json({ success: true, data: newTiers });
 });
 
 module.exports = router;

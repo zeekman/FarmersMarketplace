@@ -5,6 +5,10 @@
  *   - DATABASE_URL set → PostgreSQL (via pg pool)
  *   - DATABASE_URL unset → SQLite (via better-sqlite3, for local dev)
  *
+ * Schema is managed by the migration runner (backend/migrate.js).
+ * Harvest batches and products.batch_id: migration 008_harvest_batches.sql.
+ * On startup this module runs all pending migrations automatically.
+ *
  * Exports a unified db object:
  *   db.query(sql, params) → Promise<{ rows, rowCount }>
  *   db.isPostgres         → boolean

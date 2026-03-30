@@ -21,11 +21,30 @@ const s = {
   label:     { display: 'block', fontSize: 13, color: '#555', marginBottom: 6 },
   row:       { display: 'flex', gap: 10, marginTop: 20 },
   errMsg:    { color: '#c0392b', fontSize: 13, marginTop: 8 },
+  btn:     { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, marginTop: 14 },
+  btnSm:   { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
+  btnGray: { background: '#888', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13, marginLeft: 8 },
+  err:     { color: '#c0392b', fontSize: 13, marginTop: 8, padding: '8px 12px', background: '#fff0f0', borderRadius: 6 },
+  ok:      { color: '#2d6a4f', fontSize: 13, marginTop: 8, padding: '8px 12px', background: '#d8f3dc', borderRadius: 6 },
+  warn:    { background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#5d4037', marginBottom: 14 },
+  mnemonic: {
+    background: '#1a1a2e', color: '#e0e0e0', borderRadius: 10, padding: 20,
+    fontFamily: 'monospace', fontSize: 15, lineHeight: 2, letterSpacing: 0.5,
+    wordBreak: 'break-word', marginTop: 14, userSelect: 'all',
+  },
+  wordGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 12px', marginTop: 14,
+  },
+  wordChip: {
+    background: '#1a1a2e', color: '#e0e0e0', borderRadius: 6, padding: '6px 10px',
+    fontFamily: 'monospace', fontSize: 13, display: 'flex', gap: 6, alignItems: 'center',
+  },
+  wordNum: { color: '#888', fontSize: 11, minWidth: 18 },
 };
 
 const CONFIRM_PHRASE = 'delete my account';
 
-export default function Settings() {
+function SettingsAccountBody() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -71,8 +90,7 @@ export default function Settings() {
   const confirmValid = confirmText.trim().toLowerCase() === CONFIRM_PHRASE;
 
   return (
-    <div style={s.page}>
-      <div style={s.title}>Settings</div>
+    <>
       <div style={s.sub}>Manage your account preferences.</div>
 
       <div style={s.card}>
@@ -175,39 +193,9 @@ export default function Settings() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
-import { api } from '../api/client';
-import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
-
-const s = {
-  page:    { maxWidth: 640, margin: '0 auto', padding: 24 },
-  title:   { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 24 },
-  card:    { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 },
-  label:   { display: 'block', fontSize: 13, color: '#555', marginBottom: 4, marginTop: 14 },
-  input:   { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' },
-  btn:     { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, marginTop: 14 },
-  btnSm:   { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
-  btnGray: { background: '#888', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13, marginLeft: 8 },
-  err:     { color: '#c0392b', fontSize: 13, marginTop: 8, padding: '8px 12px', background: '#fff0f0', borderRadius: 6 },
-  ok:      { color: '#2d6a4f', fontSize: 13, marginTop: 8, padding: '8px 12px', background: '#d8f3dc', borderRadius: 6 },
-  warn:    { background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#5d4037', marginBottom: 14 },
-  mnemonic: {
-    background: '#1a1a2e', color: '#e0e0e0', borderRadius: 10, padding: 20,
-    fontFamily: 'monospace', fontSize: 15, lineHeight: 2, letterSpacing: 0.5,
-    wordBreak: 'break-word', marginTop: 14, userSelect: 'all',
-  },
-  wordGrid: {
-    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 12px', marginTop: 14,
-  },
-  wordChip: {
-    background: '#1a1a2e', color: '#e0e0e0', borderRadius: 6, padding: '6px 10px',
-    fontFamily: 'monospace', fontSize: 13, display: 'flex', gap: 6, alignItems: 'center',
-  },
-  wordNum: { color: '#888', fontSize: 11, minWidth: 18 },
-};
 
 // ── Seed Phrase Backup Section ────────────────────────────────────────────────
 function SeedPhraseBackup() {
@@ -412,8 +400,14 @@ export default function Settings() {
   return (
     <div style={s.page}>
       <div style={s.title}>⚙️ Settings</div>
-      <SeedPhraseBackup />
-      {!user && <AccountRecovery />}
+      {user ? (
+        <>
+          <SettingsAccountBody />
+          <SeedPhraseBackup />
+        </>
+      ) : (
+        <AccountRecovery />
+      )}
     </div>
   );
 }

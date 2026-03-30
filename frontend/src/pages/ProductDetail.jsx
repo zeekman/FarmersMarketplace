@@ -217,6 +217,13 @@ export default function ProductDetail() {
     return product.price;
   };
 
+  const isFlashSaleActive = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
+  const baseUnitPrice = getTierPrice(qty);
+  const unitPrice = isFlashSaleActive ? Number(product.flash_sale_price) : baseUnitPrice;
+  const subtotal = product?.pricing_type === 'weight'
+    ? (product.price * (parseFloat(weight) || 0)).toFixed(2)
+    : (unitPrice * qty).toFixed(2);
+  const total = couponResult ? couponResult.final_total.toFixed(2) : subtotal;
     const isFlashSaleActive = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
     const baseUnitPrice = getTierPrice(qty);
     const unitPrice = isFlashSaleActive ? Number(product.flash_sale_price) : baseUnitPrice;
@@ -335,6 +342,20 @@ export default function ProductDetail() {
             {result.escrow ? (
               <>
                 <strong>{t('productDetail.escrowSuccess')}</strong>
+                <p style={{ marginTop: 8, fontSize: 14 }}>{t('productDetail.escrowOrderInfo', { id: result.orderId, price: result.totalPrice })}</p>
+                {(result.claimableBalanceId || result.balanceId) && (
+                  <p style={{ marginTop: 4, fontSize: 12, color: '#555' }}>
+                    {result.sorobanEscrow ? 'Escrow' : 'Balance'}:{' '}
+                    <a
+                      href={`https://stellar.expert/explorer/testnet/claimable-balance/${result.claimableBalanceId || result.balanceId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: '#2d6a4f', wordBreak: 'break-all' }}
+                    >
+                      {result.claimableBalanceId || result.balanceId}
+                    </a>
+                  </p>
+                )}
                 <p style={{ marginTop: 8, fontSize: 14 }}>
                   {t('productDetail.escrowOrderInfo', { id: result.orderId, price: result.totalPrice })}
                 </p>
@@ -437,6 +458,13 @@ export default function ProductDetail() {
                 {product.farmer_name}
               </span>
             </div>
+            {product.harvest_batch_code && (
+              <div style={{ fontSize: 14, color: '#555', marginTop: 6 }}>
+                <span style={{ fontWeight: 600, color: '#2d6a4f' }}>Harvest batch:</span>{' '}
+                {product.harvest_batch_code}
+                {product.harvest_batch_date ? ` · ${product.harvest_batch_date}` : ''}
+              </div>
+            )}
           </div>
           {user?.role === 'buyer' && (
             <button style={s.favoriteBtn} onClick={() => toggleFavorite(product.id).catch(() => {})}
@@ -531,6 +559,27 @@ export default function ProductDetail() {
             Pre-Order{product.preorder_delivery_date ? ` · Expected delivery ${product.preorder_delivery_date}` : ''}
           </div>
         ) : null}
+        {isFlashSaleActive ? (
+          <>
+            <div style={s.price}>
+              {unitPrice.toFixed(2)} XLM{' '}
+              <span style={{ fontSize: 14, fontWeight: 400 }}>/ {product.unit}</span>
+              <span style={{ marginLeft: 8, fontSize: 13, textDecoration: 'line-through', color: '#888' }}>
+                {baseUnitPrice.toFixed(2)} XLM
+              </span>
+            </div>
+            <div style={{ ...s.badge, background: '#fee2e2', color: '#b42318', fontWeight: 700, marginBottom: 8 }}>Flash Sale</div>
+            <FlashSaleCountdown endsAt={product.flash_sale_ends_at} />
+          </>
+        ) : (
+          <div style={s.price}>
+            {unitPrice.toFixed(2)} XLM{' '}
+            <span style={{ fontSize: 14, fontWeight: 400 }}>/ {product.unit}</span>
+            {tiers.length > 0 && (
+              <span style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>(bulk pricing available)</span>
+            )}
+          </div>
+        )}
         {product.pricing_model === 'fixed' ? (
           <>
             <div style={s.price}>
@@ -670,6 +719,8 @@ export default function ProductDetail() {
             <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
           </div>
         )}
+
+        {user?.role === 'buyer' && (
           <div style={{ marginBottom: 20 }}>
             <label style={s.label}>{t('productDetail.deliveryAddress')}</label>
             <select style={s.select} value={selectedAddressId || ''} onChange={e => setSelectedAddressId(e.target.value ? parseInt(e.target.value) : null)}>
@@ -680,6 +731,7 @@ export default function ProductDetail() {
               ))}
             </select>
             <button style={{ background: 'none', border: 'none', color: '#2d6a4f', cursor: 'pointer', fontSize: 13, padding: 0 }}
+              type="button"
               onClick={() => navigate('/addresses')}>
               {t('productDetail.manageAddresses')}
             </button>
