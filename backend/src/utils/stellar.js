@@ -379,7 +379,8 @@ async function getContractState(contractId, prefix = null) {
       const key = data ? StellarSdk.scValToNative(data.key()) : String(entry.key);
       const val = data ? StellarSdk.scValToNative(data.val()) : null;
       const durability = data?.durability()?.name || 'Persistent';
-      return { key: String(key), val, durability };
+      const lastModifiedLedgerSeq = entry.lastModifiedLedgerSeq ?? null;
+      return { key: String(key), val, durability, lastModifiedLedgerSeq };
     })
     .filter((e) => !prefix || String(e.key).startsWith(prefix));
 

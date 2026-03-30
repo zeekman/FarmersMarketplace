@@ -344,6 +344,94 @@ router.delete('/contracts/:id/acl/:address', async (req, res) => {
   res.json({ success: true, message: 'Access revoked' });
 });
 
+// GET /api/admin/contracts/:id/state/export — download contract storage as JSON or CSV
+router.get('/contracts/:id/state/export', async (req, res) => {
+  const registryId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(registryId)) {
+    return res.status(400).json({ success: false, error: 'Invalid contract registry id' });
+  }
+
+  const { rows: reg } = await db.query(
+    'SELECT contract_id FROM contracts_registry WHERE id = $1',
+    [registryId],
+  );
+  if (!reg[0]) return res.status(404).json({ success: false, error: 'Contract not found' });
+
+  const format = (req.query.format || 'json').toLowerCase();
+  if (!['json', 'csv'].includes(format)) {
+    return res.status(400).json({ success: false, error: 'format must be json or csv' });
+  }
+
+  const sinceLedger = req.query.since_ledger ? parseInt(req.query.since_ledger, 10) : null;
+  if (req.query.since_ledger !== undefined && !Number.isFinite(sinceLedger)) {
+    return res.status(400).json({ success: false, error: 'since_ledger must be an integer' });
+  }
+
+  const { getContractState } = require('../utils/stellar');
+  let entries;
+  try {
+    entries = await getContractState(reg[0].contract_id, null);
+  } catch (e) {
+    if (e.code === 404 || e.message?.includes('not found')) {
+      return res.status(404).json({ success: false, error: 'Contract not found on Soroban RPC' });
+    }
+    return res.status(502).json({ success: false, error: e.message || 'RPC error' });
+  }
+
+  // Incremental filter: entries carry lastModifiedLedgerSeq from the RPC response
+  if (sinceLedger !== null) {
+    entries = entries.filter(
+      (e) => e.lastModifiedLedgerSeq != null && e.lastModifiedLedgerSeq > sinceLedger,
+    );
+  }
+
+  const contractId = reg[0].contract_id;
+  const exportedAt = new Date().toISOString();
+  const ledgerSeq = entries[0]?.lastModifiedLedgerSeq ?? null;
+  const slug = contractId.slice(0, 8).toLowerCase();
+  const ts = exportedAt.slice(0, 10);
+
+  if (format === 'csv') {
+    const escape = (v) => {
+      const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g, '""')}"`
+        : s;
+    };
+    const rows = [
+      `# contract_id: ${contractId}`,
+      `# exported_at: ${exportedAt}`,
+      sinceLedger !== null ? `# since_ledger: ${sinceLedger}` : null,
+      'key,value,durability,last_modified_ledger',
+      ...entries.map((e) =>
+        [escape(e.key), escape(e.val), escape(e.durability), escape(e.lastModifiedLedgerSeq)].join(','),
+      ),
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="contract-state-${slug}-${ts}.csv"`);
+    return res.send(rows);
+  }
+
+  // JSON
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="contract-state-${slug}-${ts}.json"`);
+  res.json({
+    contract_id: contractId,
+    exported_at: exportedAt,
+    ledger_sequence: ledgerSeq,
+    ...(sinceLedger !== null && { since_ledger: sinceLedger }),
+    entries: entries.map(({ key, val, durability, lastModifiedLedgerSeq }) => ({
+      key,
+      value: val,
+      durability,
+      last_modified_ledger: lastModifiedLedgerSeq ?? null,
+    })),
+  });
+});
+
 // ── Contract Documentation & Analysis ──────────────────────────────────────
 
 const { getContractABI, analyzeContractFees } = require('../utils/stellar');

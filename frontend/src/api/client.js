@@ -232,6 +232,23 @@ export const api = {
   adminGetContractAcl: (registryId) => request(`/admin/contracts/${registryId}/acl`),
   adminGrantContractAcl: (registryId, body) => request(`/admin/contracts/${registryId}/acl`, { method: 'POST', body }),
   adminRevokeContractAcl: (registryId, address) => request(`/admin/contracts/${registryId}/acl/${encodeURIComponent(address)}`, { method: 'DELETE' }),
+  adminExportContractState: async (registryId, format = 'json', sinceLedger) => {
+    const qs = new URLSearchParams({ format });
+    if (sinceLedger != null && sinceLedger !== '') qs.set('since_ledger', sinceLedger);
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const res = await fetch(`${BASE}/admin/contracts/${registryId}/state/export?${qs}`, { headers });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Export failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `contract-state-${registryId}-${new Date().toISOString().slice(0, 10)}.${format}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 
   getAddresses: () => request('/addresses'),
 

@@ -42,6 +42,8 @@ export default function AdminDashboard() {
   const [contractState, setContractState] = useState(null);
   const [contractLoading, setContractLoading] = useState(false);
   const [contractError, setContractError] = useState('');
+  const [exportFormat, setExportFormat] = useState('json');
+  const [exportSinceLedger, setExportSinceLedger] = useState('');
 
   const [simContractId, setSimContractId] = useState('');
   const [simMethod, setSimMethod] = useState('');
@@ -579,30 +581,60 @@ export default function AdminDashboard() {
           contractState.length === 0
             ? <div style={{ color: '#888', fontSize: 14 }}>No storage entries found{contractPrefix ? ` matching prefix "${contractPrefix}"` : ''}.</div>
             : (
-              <table style={s.table}>
-                <thead>
-                  <tr>
-                    <th style={s.th}>Key</th>
-                    <th style={s.th}>Value</th>
-                    <th style={s.th}>Durability</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {contractState.map((entry, i) => (
-                    <tr key={i}>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{String(entry.key)}</td>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{JSON.stringify(entry.val)}</td>
-                      <td style={{ ...s.td, fontSize: 12 }}>
-                        <span style={{ padding: '2px 8px', borderRadius: 12, fontWeight: 600, fontSize: 11,
-                          background: entry.durability === 'Temporary' ? '#fff3cd' : '#d8f3dc',
-                          color: entry.durability === 'Temporary' ? '#856404' : '#2d6a4f' }}>
-                          {entry.durability}
-                        </span>
-                      </td>
+              <>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+                  <select
+                    value={exportFormat}
+                    onChange={e => setExportFormat(e.target.value)}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }}
+                  >
+                    <option value="json">JSON</option>
+                    <option value="csv">CSV</option>
+                  </select>
+                  <input
+                    type="number"
+                    placeholder="Since ledger (optional)"
+                    value={exportSinceLedger}
+                    onChange={e => setExportSinceLedger(e.target.value)}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13, width: 180 }}
+                  />
+                  {(() => {
+                    const reg = contracts.find(c => c.contract_id === contractId.trim());
+                    if (!reg) return null;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => api.adminExportContractState(reg.id, exportFormat, exportSinceLedger || undefined).catch(e => setContractError(e.message))}
+                        style={{ padding: '6px 16px', borderRadius: 6, background: '#1d4ed8', color: '#fff', fontWeight: 600, fontSize: 13, border: 'none', cursor: 'pointer' }}
+                      >⬇ Export</button>
+                    );
+                  })()}
+                </div>
+                <table style={s.table}>
+                  <thead>
+                    <tr>
+                      <th style={s.th}>Key</th>
+                      <th style={s.th}>Value</th>
+                      <th style={s.th}>Durability</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {contractState.map((entry, i) => (
+                      <tr key={i}>
+                        <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{String(entry.key)}</td>
+                        <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{JSON.stringify(entry.val)}</td>
+                        <td style={{ ...s.td, fontSize: 12 }}>
+                          <span style={{ padding: '2px 8px', borderRadius: 12, fontWeight: 600, fontSize: 11,
+                            background: entry.durability === 'Temporary' ? '#fff3cd' : '#d8f3dc',
+                            color: entry.durability === 'Temporary' ? '#856404' : '#2d6a4f' }}>
+                            {entry.durability}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
             )
         )}
       </div>
