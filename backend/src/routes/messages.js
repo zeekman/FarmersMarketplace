@@ -8,14 +8,24 @@ router.post('/', auth, async (req, res) => {
   const { receiver_id, product_id, content } = req.body;
   const sender_id = req.user.id;
 
-  if (!receiver_id || !content) return err(res, 400, 'receiver_id and content are required', 'validation_error');
+  if (!receiver_id || !content)
+    return err(res, 400, 'receiver_id and content are required', 'validation_error');
 
-  const sanitizedContent = content.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;').trim();
-  if (!sanitizedContent) return err(res, 400, 'Message content cannot be empty', 'validation_error');
+  const sanitizedContent = content
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .trim();
+  if (!sanitizedContent)
+    return err(res, 400, 'Message content cannot be empty', 'validation_error');
 
-  const { rows: receiverRows } = await db.query('SELECT id FROM users WHERE id = $1', [receiver_id]);
+  const { rows: receiverRows } = await db.query('SELECT id FROM users WHERE id = $1', [
+    receiver_id,
+  ]);
   if (!receiverRows[0]) return err(res, 404, 'Receiver not found', 'not_found');
-  if (sender_id === receiver_id) return err(res, 400, 'Cannot send message to yourself', 'validation_error');
+  if (sender_id === receiver_id)
+    return err(res, 400, 'Cannot send message to yourself', 'validation_error');
 
   try {
     const { rows } = await db.query(

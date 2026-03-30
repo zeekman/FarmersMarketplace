@@ -22,6 +22,8 @@ const s = {
   pagination: { display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' },
   pgBtn: (disabled) => ({ padding: '6px 14px', borderRadius: 6, border: '1px solid #ddd', cursor: disabled ? 'not-allowed' : 'pointer', background: disabled ? '#f5f5f5' : '#fff', color: disabled ? '#aaa' : '#333' }),
   err: { color: '#c0392b', fontSize: 14, marginBottom: 12 },
+  input: { padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 },
+  btn: (loading) => ({ padding: '8px 20px', borderRadius: 8, border: 'none', background: '#2d6a4f', color: '#fff', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer' }),
 };
 
 export default function AdminDashboard() {
@@ -50,6 +52,13 @@ export default function AdminDashboard() {
 
   const inputStyle = { padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 };
   const monoInputStyle = { ...inputStyle, fontFamily: 'monospace' };
+  // Contract event log
+  const [evtContractId, setEvtContractId] = useState('');
+  const [evtFilters, setEvtFilters] = useState({ type: '', from: '', to: '' });
+  const [evtPage, setEvtPage] = useState(1);
+  const [evtData, setEvtData] = useState(null);
+  const [evtLoading, setEvtLoading] = useState(false);
+  const [evtError, setEvtError] = useState('');
 
   async function loadStats() {
     try {
@@ -150,6 +159,21 @@ export default function AdminDashboard() {
       setSimFormError(err.message);
     } finally {
       setSimBusy(false);
+  async function loadContractEvents(e, page = 1) {
+    if (e) e.preventDefault();
+    if (!evtContractId.trim()) return;
+    setEvtLoading(true);
+    setEvtError('');
+    try {
+      const params = { ...evtFilters, page };
+      Object.keys(params).forEach((k) => { if (!params[k]) delete params[k]; });
+      const res = await api.getContractEvents(evtContractId.trim(), params);
+      setEvtData(res);
+      setEvtPage(page);
+    } catch (e) {
+      setEvtError(e.message);
+    } finally {
+      setEvtLoading(false);
     }
   }
 
@@ -428,6 +452,100 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             )
+        )}
+      </div>
+      {/* Soroban Contract Event Log */}
+      <div style={{ ...s.card, marginTop: 32 }}>
+        <h3 style={{ marginBottom: 16, color: '#333' }}>📋 Soroban Contract Event Log</h3>
+        <form onSubmit={(e) => loadContractEvents(e, 1)} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+          <input
+            style={{ ...s.input, flex: '2 1 240px', fontFamily: 'monospace' }}
+            placeholder="Contract ID (base32 or hex)"
+            value={evtContractId}
+            onChange={e => setEvtContractId(e.target.value)}
+            required
+          />
+          <select
+            style={{ ...s.input, flex: '1 1 120px' }}
+            value={evtFilters.type}
+            onChange={e => setEvtFilters(f => ({ ...f, type: e.target.value }))}
+          >
+            <option value="">All types</option>
+            <option value="contract">contract</option>
+            <option value="system">system</option>
+            <option value="diagnostic">diagnostic</option>
+          </select>
+          <input
+            type="datetime-local"
+            style={{ ...s.input, flex: '1 1 160px' }}
+            placeholder="From"
+            value={evtFilters.from}
+            onChange={e => setEvtFilters(f => ({ ...f, from: e.target.value }))}
+          />
+          <input
+            type="datetime-local"
+            style={{ ...s.input, flex: '1 1 160px' }}
+            placeholder="To"
+            value={evtFilters.to}
+            onChange={e => setEvtFilters(f => ({ ...f, to: e.target.value }))}
+          />
+          <button type="submit" disabled={evtLoading} style={s.btn(evtLoading)}>
+            {evtLoading ? 'Loading…' : 'Fetch Events'}
+          </button>
+        </form>
+        {evtError && <div style={s.err}>{evtError}</div>}
+        {evtData && (
+          evtData.events.length === 0
+            ? <div style={{ color: '#888', fontSize: 14 }}>No events found for this contract.</div>
+            : <>
+              <table style={s.table}>
+                <thead>
+                  <tr>
+                    <th style={s.th}>Ledger</th>
+                    <th style={s.th}>Timestamp</th>
+                    <th style={s.th}>Type</th>
+                    <th style={s.th}>Topics</th>
+                    <th style={s.th}>Data</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {evtData.events.map((ev) => (
+                    <tr key={ev.id}>
+                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12 }}>{ev.ledger}</td>
+                      <td style={{ ...s.td, fontSize: 12 }}>{ev.ledgerClosedAt ? new Date(ev.ledgerClosedAt).toLocaleString() : '—'}</td>
+                      <td style={s.td}>
+                        <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+                          background: ev.type === 'contract' ? '#d8f3dc' : '#dfe6e9',
+                          color: ev.type === 'contract' ? '#2d6a4f' : '#555' }}>
+                          {ev.type}
+                        </span>
+                      </td>
+                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 220 }}>
+                        {JSON.stringify(ev.topics)}
+                      </td>
+                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 200 }}>
+                        {JSON.stringify(ev.data)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={s.pagination}>
+                <button
+                  style={s.pgBtn(evtPage <= 1)}
+                  disabled={evtPage <= 1}
+                  onClick={() => loadContractEvents(null, evtPage - 1)}
+                >← Prev</button>
+                <span style={{ fontSize: 13, color: '#666' }}>
+                  Page {evtData.pagination.page} of {evtData.pagination.pages} ({evtData.pagination.total} events)
+                </span>
+                <button
+                  style={s.pgBtn(evtPage >= evtData.pagination.pages)}
+                  disabled={evtPage >= evtData.pagination.pages}
+                  onClick={() => loadContractEvents(null, evtPage + 1)}
+                >Next →</button>
+              </div>
+            </>
         )}
       </div>
     </div>

@@ -92,9 +92,8 @@ router.get('/mine', auth, async (req, res) => {
     res.json({
       success: true,
       data: result.data,
-      count: result.count
+      count: result.count,
     });
-
   } catch (error) {
     console.error('[Waitlist] Error getting buyer waitlist entries:', error);
     return err(res, 500, 'Internal server error', 'internal_error');

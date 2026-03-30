@@ -25,10 +25,7 @@ function enforceHttps(req, res, next) {
 function hsts(req, res, next) {
   if (process.env.NODE_ENV !== 'production') return next();
 
-  res.setHeader(
-    'Strict-Transport-Security',
-    `max-age=${HSTS_MAX_AGE}; includeSubDomains; preload`
-  );
+  res.setHeader('Strict-Transport-Security', `max-age=${HSTS_MAX_AGE}; includeSubDomains; preload`);
 
   next();
 }

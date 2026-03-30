@@ -20,12 +20,7 @@ const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 async function checkUser(userId, publicKey) {
   try {
     // Fetch recent payments
-    const payments = await server
-      .payments()
-      .forAccount(publicKey)
-      .order('desc')
-      .limit(50)
-      .call();
+    const payments = await server.payments().forAccount(publicKey).order('desc').limit(50).call();
 
     const now = Date.now();
 
@@ -55,12 +50,7 @@ async function checkUser(userId, publicKey) {
 
     // Check for failed transactions in the last hour
     const cutoff = new Date(now - FAILED_TX_WINDOW_MS).toISOString();
-    const txPage = await server
-      .transactions()
-      .forAccount(publicKey)
-      .order('desc')
-      .limit(50)
-      .call();
+    const txPage = await server.transactions().forAccount(publicKey).order('desc').limit(50).call();
 
     const recentFailed = txPage.records.filter(
       (tx) => !tx.successful && new Date(tx.created_at) >= new Date(cutoff)
@@ -73,14 +63,11 @@ async function checkUser(userId, publicKey) {
         [userId, 'failed_transactions', cutoff]
       );
       if (existing.rows.length === 0) {
-        await db.query(
-          `INSERT INTO account_alerts (user_id, type, message) VALUES ($1, $2, $3)`,
-          [
-            userId,
-            'failed_transactions',
-            `${recentFailed.length} failed transactions detected in the last hour.`,
-          ]
-        );
+        await db.query(`INSERT INTO account_alerts (user_id, type, message) VALUES ($1, $2, $3)`, [
+          userId,
+          'failed_transactions',
+          `${recentFailed.length} failed transactions detected in the last hour.`,
+        ]);
       }
     }
   } catch {

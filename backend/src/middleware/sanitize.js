@@ -14,7 +14,7 @@ function stripSensitiveFields(obj) {
   }
 
   if (Array.isArray(obj)) {
-    return obj.map(item => stripSensitiveFields(item));
+    return obj.map((item) => stripSensitiveFields(item));
   }
 
   const sanitized = {};
@@ -32,7 +32,7 @@ function stripSensitiveFields(obj) {
 function sanitizeResponse(req, res, next) {
   const originalJson = res.json;
 
-  res.json = function(data) {
+  res.json = function (data) {
     const sanitized = stripSensitiveFields(data);
     return originalJson.call(this, sanitized);
   };

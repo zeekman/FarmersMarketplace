@@ -130,6 +130,50 @@ echo "ALTER TABLE products DROP COLUMN IF EXISTS featured;" \
 npm run migrate
 ```
 
+## Database Backup and Restore
+
+The application includes automated database backup functionality to protect against data loss.
+
+### Manual Backup
+
+Create a timestamped backup of the database:
+
+```bash
+cd backend
+npm run backup
+```
+
+This creates a backup file in `backend/backups/` with format `market-YYYY-MM-DD.db`.
+
+### Manual Restore
+
+Restore the database from a backup file:
+
+```bash
+cd backend
+npm run restore -- backups/market-2024-01-01.db
+```
+
+**Important**: Before restoring, the current database is automatically backed up to `market.db.backup`.
+
+### Automated Daily Backups
+
+- Backups run automatically every day at midnight UTC
+- Only the last 7 backups are retained (older ones are automatically deleted)
+- Backup status and errors are logged using the structured logging system
+
+### Backup Location
+
+- Backup files are stored in: `backend/backups/`
+- File naming convention: `market-YYYY-MM-DD.db`
+- Maximum retention: 7 days
+
+### Recovery Procedures
+
+1. **Quick Restore**: Use `npm run restore` with the desired backup file
+2. **Emergency Recovery**: Copy `market.db.backup` (created before restore) back to `market.db`
+3. **Complete Reset**: Delete `market.db` and restart the application (fresh schema)
+
 ## PostgreSQL Setup
 
 The backend supports both SQLite (local dev) and PostgreSQL (production), controlled by the `DATABASE_URL` environment variable.

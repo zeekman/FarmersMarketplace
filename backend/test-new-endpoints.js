@@ -12,12 +12,12 @@ app.use(express.json());
 
 // Mock dependencies
 const mockDb = {
-  query: jest.fn()
+  query: jest.fn(),
 };
 
 const mockWaitlistService = {
   getWaitlistStatus: jest.fn(),
-  getBuyerWaitlistEntries: jest.fn()
+  getBuyerWaitlistEntries: jest.fn(),
 };
 
 // Mock WaitlistService
@@ -31,9 +31,11 @@ const WaitlistService = require('./src/services/WaitlistService');
 const mockAuth = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
-    return res.status(401).json({ success: false, error: 'No token provided', code: 'missing_token' });
+    return res
+      .status(401)
+      .json({ success: false, error: 'No token provided', code: 'missing_token' });
   }
-  
+
   // Mock user based on test scenario
   if (token === 'buyer-token') {
     req.user = { id: 1, role: 'buyer' };
@@ -92,7 +94,7 @@ app.get('/api/products/:id/waitlist/status', mockAuth, async (req, res) => {
     const response = {
       success: true,
       onWaitlist: result.onWaitlist,
-      totalWaiting: result.totalWaiting
+      totalWaiting: result.totalWaiting,
     };
 
     // Only include position if buyer is on waitlist
@@ -101,7 +103,6 @@ app.get('/api/products/:id/waitlist/status', mockAuth, async (req, res) => {
     }
 
     res.json(response);
-
   } catch (error) {
     console.error('[Products] Error getting waitlist status:', error);
     return err(res, 500, 'Internal server error', 'internal_error');
@@ -143,9 +144,8 @@ app.get('/api/waitlist/mine', mockAuth, async (req, res) => {
     res.json({
       success: true,
       data: result.data,
-      count: result.count
+      count: result.count,
     });
-
   } catch (error) {
     console.error('[Waitlist] Error getting buyer waitlist entries:', error);
     return err(res, 500, 'Internal server error', 'internal_error');
@@ -162,7 +162,7 @@ async function testWaitlistStatusEndpoint() {
     onWaitlist: true,
     position: 3,
     totalWaiting: 5,
-    code: 'ON_WAITLIST'
+    code: 'ON_WAITLIST',
   });
 
   const response1 = await request(app)
@@ -176,7 +176,7 @@ async function testWaitlistStatusEndpoint() {
     success: true,
     onWaitlist: false,
     totalWaiting: 5,
-    code: 'NOT_ON_WAITLIST'
+    code: 'NOT_ON_WAITLIST',
   });
 
   const response2 = await request(app)
@@ -196,7 +196,7 @@ async function testWaitlistStatusEndpoint() {
   mockWaitlistService.getWaitlistStatus.mockResolvedValue({
     success: false,
     error: 'Product not found',
-    code: 'PRODUCT_NOT_FOUND'
+    code: 'PRODUCT_NOT_FOUND',
   });
 
   const response4 = await request(app)
@@ -229,7 +229,7 @@ async function testWaitlistMineEndpoint() {
         created_at: '2024-01-01T10:00:00Z',
         product_name: 'Organic Tomatoes',
         product_price: 5.99,
-        product_stock: 0
+        product_stock: 0,
       },
       {
         id: 2,
@@ -239,12 +239,12 @@ async function testWaitlistMineEndpoint() {
         position: 3,
         created_at: '2024-01-02T11:00:00Z',
         product_name: 'Fresh Carrots',
-        product_price: 3.50,
-        product_stock: 0
-      }
+        product_price: 3.5,
+        product_stock: 0,
+      },
     ],
     count: 2,
-    code: 'SUCCESS'
+    code: 'SUCCESS',
   });
 
   const response1 = await request(app)
@@ -258,7 +258,7 @@ async function testWaitlistMineEndpoint() {
     success: true,
     data: [],
     count: 0,
-    code: 'SUCCESS'
+    code: 'SUCCESS',
   });
 
   const response2 = await request(app)
@@ -278,7 +278,7 @@ async function testWaitlistMineEndpoint() {
   mockWaitlistService.getBuyerWaitlistEntries.mockResolvedValue({
     success: false,
     error: 'Buyer not found',
-    code: 'BUYER_NOT_FOUND'
+    code: 'BUYER_NOT_FOUND',
   });
 
   const response4 = await request(app)
@@ -288,15 +288,14 @@ async function testWaitlistMineEndpoint() {
   console.log('Test 4 - Buyer not found:', response4.status, response4.body);
 
   // Test 5: No authentication
-  const response5 = await request(app)
-    .get('/api/waitlist/mine');
+  const response5 = await request(app).get('/api/waitlist/mine');
 
   console.log('Test 5 - No auth:', response5.status, response5.body);
 }
 
 async function runTests() {
   console.log('Starting manual tests for new GET waitlist endpoints...');
-  
+
   try {
     await testWaitlistStatusEndpoint();
     await testWaitlistMineEndpoint();

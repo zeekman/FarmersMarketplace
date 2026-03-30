@@ -65,21 +65,21 @@ describe('Database Schema & Constraints', () => {
     it('creates users table with correct columns', () => {
       const tableInfo = db.pragma('table_info(users)');
       expect(tableInfo.length).toBe(8);
-      const id = tableInfo.find(row => row.name === 'id');
+      const id = tableInfo.find((row) => row.name === 'id');
       expect(id.pk).toBe(1);
-      const email = tableInfo.find(row => row.name === 'email');
+      const email = tableInfo.find((row) => row.name === 'email');
       expect(email.notnull).toBe(1);
       expect(email.unique).toBe(1);
-      const role = tableInfo.find(row => row.name === 'role');
+      const role = tableInfo.find((row) => row.name === 'role');
       expect(role.notnull).toBe(1);
     });
 
     it('creates products table with correct columns & FK', () => {
       const tableInfo = db.pragma('table_info(products)');
       expect(tableInfo.length).toBe(10);
-      const id = tableInfo.find(row => row.name === 'id');
+      const id = tableInfo.find((row) => row.name === 'id');
       expect(id.pk).toBe(1);
-      const farmerId = tableInfo.find(row => row.name === 'farmer_id');
+      const farmerId = tableInfo.find((row) => row.name === 'farmer_id');
       expect(farmerId.notnull).toBe(1);
 
       const foreignKeys = db.pragma('foreign_key_list(products)');
@@ -92,22 +92,22 @@ describe('Database Schema & Constraints', () => {
     it('creates orders table with correct columns, FKs & CHECK', () => {
       const tableInfo = db.pragma('table_info(orders)');
       expect(tableInfo.length).toBe(10);
-      const buyerId = tableInfo.find(row => row.name === 'buyer_id');
+      const buyerId = tableInfo.find((row) => row.name === 'buyer_id');
       expect(buyerId.notnull).toBe(1);
-      const productId = tableInfo.find(row => row.name === 'product_id');
+      const productId = tableInfo.find((row) => row.name === 'product_id');
       expect(productId.notnull).toBe(1);
 
       const foreignKeys = db.pragma('foreign_key_list(orders)');
       expect(foreignKeys.length).toBe(2);
-      const buyerFK = foreignKeys.find(fk => fk.from === 'buyer_id');
+      const buyerFK = foreignKeys.find((fk) => fk.from === 'buyer_id');
       expect(buyerFK.table).toBe('users');
-      const productFK = foreignKeys.find(fk => fk.from === 'product_id');
+      const productFK = foreignKeys.find((fk) => fk.from === 'product_id');
       expect(productFK.table).toBe('products');
     });
 
     it('has category column on products with default', () => {
       const tableInfo = db.pragma('table_info(products)');
-      const category = tableInfo.find(row => row.name === 'category');
+      const category = tableInfo.find((row) => row.name === 'category');
       expect(category).toBeDefined();
       expect(category.dflt_value).toBe("'other'");
     });
@@ -115,42 +115,66 @@ describe('Database Schema & Constraints', () => {
 
   describe('Data Constraints Enforcement', () => {
     it('users: enforces UNIQUE email', () => {
-      db.exec("INSERT INTO users (name, email, password, role) VALUES ('Alice', 'test@email.com', 'pass', 'buyer')");
+      db.exec(
+        "INSERT INTO users (name, email, password, role) VALUES ('Alice', 'test@email.com', 'pass', 'buyer')"
+      );
       expect(() => {
-        db.exec("INSERT INTO users (name, email, password, role) VALUES ('Bob', 'test@email.com', 'pass', 'farmer')");
+        db.exec(
+          "INSERT INTO users (name, email, password, role) VALUES ('Bob', 'test@email.com', 'pass', 'farmer')"
+        );
       }).toThrow(/UNIQUE constraint failed|UNIQUE/);
     });
 
     it('users: enforces CHECK role constraint', () => {
       expect(() => {
-        db.exec("INSERT INTO users (name, email, password, role) VALUES ('Admin', 'admin@test.com', 'pass', 'admin')");
+        db.exec(
+          "INSERT INTO users (name, email, password, role) VALUES ('Admin', 'admin@test.com', 'pass', 'admin')"
+        );
       }).toThrow(/CHECK constraint failed|CHECK/);
     });
 
     it('products: enforces FK farmer_id', () => {
       // No users exist yet
       expect(() => {
-        db.exec("INSERT INTO products (farmer_id, name, price, quantity) VALUES (999, 'Apple', 1.0, 10)");
+        db.exec(
+          "INSERT INTO products (farmer_id, name, price, quantity) VALUES (999, 'Apple', 1.0, 10)"
+        );
       }).toThrow(/FOREIGN KEY constraint failed|FOREIGN KEY/);
     });
 
     it('orders: enforces FKs buyer_id & product_id', () => {
-      const userId = db.prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)').run('Alice', 'a@test.com', 'pass', 'buyer').lastInsertRowid;
-      const farmerId = db.prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)').run('Farmer', 'f@test.com', 'pass', 'farmer').lastInsertRowid;
-      const prodId = db.prepare('INSERT INTO products (farmer_id, name, price, quantity) VALUES (?, ?, ?, ?)').run(farmerId, 'Apple', 1.0, 10).lastInsertRowid;
+      const userId = db
+        .prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)')
+        .run('Alice', 'a@test.com', 'pass', 'buyer').lastInsertRowid;
+      const farmerId = db
+        .prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)')
+        .run('Farmer', 'f@test.com', 'pass', 'farmer').lastInsertRowid;
+      const prodId = db
+        .prepare('INSERT INTO products (farmer_id, name, price, quantity) VALUES (?, ?, ?, ?)')
+        .run(farmerId, 'Apple', 1.0, 10).lastInsertRowid;
 
       expect(() => {
-        db.exec(`INSERT INTO orders (buyer_id, product_id, quantity, total_price) VALUES (9999, ${prodId}, 1, 1.0)`);
+        db.exec(
+          `INSERT INTO orders (buyer_id, product_id, quantity, total_price) VALUES (9999, ${prodId}, 1, 1.0)`
+        );
       }).toThrow(/FOREIGN KEY constraint failed|FOREIGN KEY/);
     });
 
     it('orders: enforces CHECK status constraint', () => {
-      const userId = db.prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)').run('Bob', 'b@test.com', 'pass', 'buyer').lastInsertRowid;
-      const farmerId = db.prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)').run('Farm', 'farm@test.com', 'pass', 'farmer').lastInsertRowid;
-      const prodId = db.prepare('INSERT INTO products (farmer_id, name, price, quantity) VALUES (?, ?, ?, ?)').run(farmerId, 'Orange', 2.0, 5).lastInsertRowid;
+      const userId = db
+        .prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)')
+        .run('Bob', 'b@test.com', 'pass', 'buyer').lastInsertRowid;
+      const farmerId = db
+        .prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)')
+        .run('Farm', 'farm@test.com', 'pass', 'farmer').lastInsertRowid;
+      const prodId = db
+        .prepare('INSERT INTO products (farmer_id, name, price, quantity) VALUES (?, ?, ?, ?)')
+        .run(farmerId, 'Orange', 2.0, 5).lastInsertRowid;
 
       expect(() => {
-        db.exec(`INSERT INTO orders (buyer_id, product_id, quantity, total_price, status) VALUES (${userId}, ${prodId}, 1, 2.0, 'invalid')`);
+        db.exec(
+          `INSERT INTO orders (buyer_id, product_id, quantity, total_price, status) VALUES (${userId}, ${prodId}, 1, 2.0, 'invalid')`
+        );
       }).toThrow(/CHECK constraint failed|CHECK/);
     });
   });
@@ -160,8 +184,7 @@ describe('Database Schema & Constraints', () => {
       db.exec(schemaSql);
       expect(() => db.exec(schemaSql)).not.toThrow();
       const tables = db.pragma('table_list');
-      expect(tables.map(t => t.name).sort()).toEqual(['orders', 'products', 'users']);
+      expect(tables.map((t) => t.name).sort()).toEqual(['orders', 'products', 'users']);
     });
   });
 });
-

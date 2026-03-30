@@ -1,6 +1,6 @@
 /**
  * Integration tests for AutomaticOrderProcessor
- * 
+ *
  * Tests integration with existing database, payment system, and notification system.
  * These tests verify the AutomaticOrderProcessor works with the real system components.
  */
@@ -25,7 +25,7 @@ describe('AutomaticOrderProcessor Integration', () => {
       // This test verifies that AutomaticOrderProcessor can work with WaitlistService
       expect(processor).toBeInstanceOf(AutomaticOrderProcessor);
       expect(waitlistService).toBeInstanceOf(WaitlistService);
-      
+
       // Verify the processor has the required methods
       expect(typeof processor.createAutomaticOrder).toBe('function');
       expect(typeof processor.processPayment).toBe('function');
@@ -37,7 +37,7 @@ describe('AutomaticOrderProcessor Integration', () => {
   describe('Method signatures and validation', () => {
     test('createAutomaticOrder should validate inputs correctly', async () => {
       const result = await processor.createAutomaticOrder(null, null, null);
-      
+
       expect(result.success).toBe(false);
       expect(result.code).toBe('INVALID_INPUT');
       expect(result.error).toContain('waitlistEntry is required');
@@ -45,7 +45,7 @@ describe('AutomaticOrderProcessor Integration', () => {
 
     test('processPayment should validate inputs correctly', async () => {
       const result = await processor.processPayment(null, null, null);
-      
+
       expect(result.success).toBe(false);
       expect(result.code).toBe('INVALID_INPUT');
       expect(result.error).toContain('order is required');
@@ -53,7 +53,7 @@ describe('AutomaticOrderProcessor Integration', () => {
 
     test('processWaitlistOnRestock should validate inputs correctly', async () => {
       const result = await processor.processWaitlistOnRestock(null, null);
-      
+
       expect(result.success).toBe(false);
       expect(result.code).toBe('INVALID_INPUT');
       expect(result.error).toContain('product_id must be a positive integer');
@@ -64,7 +64,7 @@ describe('AutomaticOrderProcessor Integration', () => {
     test('should handle database connection errors gracefully', async () => {
       // Test with invalid product ID that would cause database errors
       const result = await processor.processWaitlistOnRestock(-999, 10);
-      
+
       expect(result.success).toBe(false);
       expect(result.code).toBe('INVALID_INPUT');
     });
@@ -74,14 +74,14 @@ describe('AutomaticOrderProcessor Integration', () => {
         id: 1,
         buyer_id: 100,
         product_id: 200,
-        quantity: 2
+        quantity: 2,
       };
 
       const mockProduct = {
         id: 200,
         farmer_id: 300,
         name: 'Test Product',
-        price: 10.0
+        price: 10.0,
       };
 
       const mockBuyer = {
@@ -89,7 +89,7 @@ describe('AutomaticOrderProcessor Integration', () => {
         name: 'Test Buyer',
         email: 'test@example.com',
         stellar_public_key: 'INVALID_KEY',
-        stellar_secret_key: 'INVALID_SECRET'
+        stellar_secret_key: 'INVALID_SECRET',
       };
 
       const result = await processor.createAutomaticOrder(
@@ -100,7 +100,9 @@ describe('AutomaticOrderProcessor Integration', () => {
 
       // Should fail due to invalid stellar keys or insufficient balance
       expect(result.success).toBe(false);
-      expect(['INSUFFICIENT_BALANCE', 'FARMER_WALLET_ERROR', 'INTERNAL_ERROR']).toContain(result.code);
+      expect(['INSUFFICIENT_BALANCE', 'FARMER_WALLET_ERROR', 'INTERNAL_ERROR']).toContain(
+        result.code
+      );
     });
   });
 
@@ -110,19 +112,19 @@ describe('AutomaticOrderProcessor Integration', () => {
         id: 1,
         buyer_id: 100,
         product_id: 200,
-        quantity: 5
+        quantity: 5,
       };
 
       const mockProduct = {
         id: 200,
         name: 'Test Product',
-        unit: 'kg'
+        unit: 'kg',
       };
 
       const mockBuyer = {
         id: 100,
         name: 'Test Buyer',
-        email: 'test@example.com'
+        email: 'test@example.com',
       };
 
       // This should not throw an error even if SMTP is not configured
@@ -135,7 +137,7 @@ describe('AutomaticOrderProcessor Integration', () => {
   describe('Service exports', () => {
     test('should be properly exported from services index', () => {
       const services = require('../services');
-      
+
       expect(services.AutomaticOrderProcessor).toBeDefined();
       expect(services.AutomaticOrderProcessor).toBe(AutomaticOrderProcessor);
     });
@@ -182,19 +184,19 @@ const TestDataGenerator = {
     quantity: 2,
     position: 1,
     created_at: new Date().toISOString(),
-    ...overrides
+    ...overrides,
   }),
 
   createMockProduct: (overrides = {}) => ({
     id: 200,
     farmer_id: 300,
     name: 'Test Product',
-    price: 10.50,
+    price: 10.5,
     category: 'vegetables',
     unit: 'kg',
     quantity: 0,
     is_active: true,
-    ...overrides
+    ...overrides,
   }),
 
   createMockBuyer: (overrides = {}) => ({
@@ -205,7 +207,7 @@ const TestDataGenerator = {
     stellar_public_key: 'GTEST_BUYER_PUBLIC_KEY',
     stellar_secret_key: 'STEST_BUYER_SECRET_KEY',
     is_active: true,
-    ...overrides
+    ...overrides,
   }),
 
   createMockFarmer: (overrides = {}) => ({
@@ -216,8 +218,8 @@ const TestDataGenerator = {
     stellar_public_key: 'GTEST_FARMER_PUBLIC_KEY',
     stellar_secret_key: 'STEST_FARMER_SECRET_KEY',
     is_active: true,
-    ...overrides
-  })
+    ...overrides,
+  }),
 };
 
 module.exports = { TestDataGenerator };

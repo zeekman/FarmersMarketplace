@@ -1,5 +1,5 @@
-import React, { useEffect, useContext } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import React, { lazy, Suspense, useEffect, useContext } from 'react';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { FavoritesProvider } from './context/FavoritesContext';
 import { CompareProvider } from './context/CompareContext';
@@ -8,20 +8,22 @@ import { setLoadingCallback, setLogoutCallback } from './api/client';
 import ErrorBoundary from './components/ErrorBoundary';
 import Navbar from './components/Navbar';
 import LoadingSpinner from './components/LoadingSpinner';
-import { LoginPage, RegisterPage } from './pages/Auth';
-import Dashboard from './pages/Dashboard';
-import Marketplace from './pages/Marketplace';
-import Compare from './pages/Compare';
-import ProductDetail from './pages/ProductDetail';
-import Wallet from './pages/Wallet';
-import Orders from './pages/Orders';
-import Subscriptions from './pages/Subscriptions';
-import FarmerProfile from './pages/FarmerProfile';
+import PageLoader from './components/PageLoader';
 
-import AdminDashboard from './pages/AdminDashboard';
-import AddressBook from './pages/AddressBook';
-import Settings from './pages/Settings';
-import { AccountRecovery } from './pages/Settings';
+const LoginPage = lazy(() => import('./pages/Auth').then(m => ({ default: m.LoginPage })));
+const RegisterPage = lazy(() => import('./pages/Auth').then(m => ({ default: m.RegisterPage })));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Marketplace = lazy(() => import('./pages/Marketplace'));
+const Compare = lazy(() => import('./pages/Compare'));
+const ProductDetail = lazy(() => import('./pages/ProductDetail'));
+const Wallet = lazy(() => import('./pages/Wallet'));
+const Orders = lazy(() => import('./pages/Orders'));
+const Subscriptions = lazy(() => import('./pages/Subscriptions'));
+const FarmerProfile = lazy(() => import('./pages/FarmerProfile'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const AddressBook = lazy(() => import('./pages/AddressBook'));
+const Settings = lazy(() => import('./pages/Settings'));
+const AccountRecovery = lazy(() => import('./pages/Settings').then(m => ({ default: m.AccountRecovery })));
 
 function PrivateRoute({ children, role }) {
   const { user, loading } = useAuth();
@@ -42,35 +44,44 @@ function Home() {
 function AppContent() {
   const { setLoading } = useContext(LoadingContext);
   const { logout } = useAuth();
+  const location = useLocation();
 
   useEffect(() => {
     setLoadingCallback(setLoading);
     setLogoutCallback(logout);
   }, [setLoading, logout]);
 
+  // Announce page changes to screen readers
+  useEffect(() => {
+    const announcer = document.getElementById('page-announcer');
+    if (announcer) announcer.textContent = `Navigated to ${document.title}`;
+  }, [location.pathname]);
+
   return (
     <>
       <Navbar />
       <LoadingSpinner />
-      <div style={{ paddingTop: 24 }}>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/marketplace" element={<Marketplace />} />
-          <Route path="/compare" element={<Compare />} />
-          <Route path="/product/:id" element={<ProductDetail />} />
-          <Route path="/dashboard" element={<PrivateRoute role="farmer"><Dashboard /></PrivateRoute>} />
-          <Route path="/wallet" element={<PrivateRoute><Wallet /></PrivateRoute>} />
-          <Route path="/orders" element={<PrivateRoute><Orders /></PrivateRoute>} />
-          <Route path="/subscriptions" element={<PrivateRoute role="buyer"><Subscriptions /></PrivateRoute>} />
-          <Route path="/admin" element={<PrivateRoute role="admin"><AdminDashboard /></PrivateRoute>} />
-          <Route path="/farmer/:id" element={<FarmerProfile />} />
-          <Route path="/addresses" element={<PrivateRoute role="buyer"><AddressBook /></PrivateRoute>} />
-          <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
-          <Route path="/recover" element={<AccountRecovery />} />
-        </Routes>
-      </div>
+      <main id="main-content" style={{ paddingTop: 24 }}>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/marketplace" element={<Marketplace />} />
+            <Route path="/compare" element={<Compare />} />
+            <Route path="/product/:id" element={<ProductDetail />} />
+            <Route path="/dashboard" element={<PrivateRoute role="farmer"><Dashboard /></PrivateRoute>} />
+            <Route path="/wallet" element={<PrivateRoute><Wallet /></PrivateRoute>} />
+            <Route path="/orders" element={<PrivateRoute><Orders /></PrivateRoute>} />
+            <Route path="/subscriptions" element={<PrivateRoute role="buyer"><Subscriptions /></PrivateRoute>} />
+            <Route path="/admin" element={<PrivateRoute role="admin"><AdminDashboard /></PrivateRoute>} />
+            <Route path="/farmer/:id" element={<FarmerProfile />} />
+            <Route path="/addresses" element={<PrivateRoute role="buyer"><AddressBook /></PrivateRoute>} />
+            <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
+            <Route path="/recover" element={<AccountRecovery />} />
+          </Routes>
+        </Suspense>
+      </main>
     </>
   );
 }
@@ -80,17 +91,12 @@ export default function App() {
     <ErrorBoundary>
       <AuthProvider>
         <FavoritesProvider>
-          <LoadingProvider>
-            <AppContent />
-          </LoadingProvider>
-        </FavoritesProvider>
-        <LoadingProvider>
-          <FavoritesProvider>
-            <CompareProvider>
+          <CompareProvider>
+            <LoadingProvider>
               <AppContent />
-            </CompareProvider>
-          </FavoritesProvider>
-        </LoadingProvider>
+            </LoadingProvider>
+          </CompareProvider>
+        </FavoritesProvider>
       </AuthProvider>
     </ErrorBoundary>
   );

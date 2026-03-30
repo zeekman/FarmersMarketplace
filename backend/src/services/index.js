@@ -8,5 +8,5 @@ const AutomaticOrderProcessor = require('./AutomaticOrderProcessor');
 
 module.exports = {
   WaitlistService,
-  AutomaticOrderProcessor
+  AutomaticOrderProcessor,
 };

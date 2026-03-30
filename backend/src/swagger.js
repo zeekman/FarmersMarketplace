@@ -6,7 +6,8 @@ const options = {
     info: {
       title: 'Farmers Marketplace API',
       version: '1.0.0',
-      description: 'REST API for the Farmers Marketplace — a platform where farmers list products and buyers pay using the Stellar Network (XLM).',
+      description:
+        'REST API for the Farmers Marketplace — a platform where farmers list products and buyers pay using the Stellar Network (XLM).',
     },
     servers: [{ url: 'http://localhost:4000', description: 'Local dev server' }],
     components: {
@@ -56,7 +57,10 @@ const options = {
             product_name: { type: 'string' },
             quantity: { type: 'integer' },
             total_price: { type: 'number' },
-            status: { type: 'string', enum: ['pending', 'paid', 'failed', 'processing', 'shipped', 'delivered'] },
+            status: {
+              type: 'string',
+              enum: ['pending', 'paid', 'failed', 'processing', 'shipped', 'delivered'],
+            },
             stellar_tx_hash: { type: 'string', nullable: true },
             created_at: { type: 'string', format: 'date-time' },
           },

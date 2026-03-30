@@ -26,6 +26,7 @@ const CATEGORIES = [
 ];
 const PAGE_SIZE = 20;
 const MAX_PRICE = 500;
+const ALL_ALLERGENS = ["gluten", "nuts", "dairy", "eggs", "soy", "shellfish"];
 
 const s = {
   page: { maxWidth: 1100, margin: "0 auto", padding: 24, paddingBottom: 140 },
@@ -259,6 +260,7 @@ const EMPTY_FILTERS = {
   lat: "",
   lng: "",
   radius: "",
+  excludeAllergens: [],
 };
 
 export default function Marketplace() {
@@ -310,6 +312,15 @@ export default function Marketplace() {
         total = res.total ?? 0;
         totalPages = res.totalPages ?? 1;
       }
+      // Client-side allergen exclusion filter
+      if (f.excludeAllergens && f.excludeAllergens.length > 0) {
+        data = data.filter(p => {
+          let allergens = [];
+          try { allergens = p.allergens ? JSON.parse(p.allergens) : []; } catch {}
+          return !f.excludeAllergens.some(a => allergens.includes(a));
+        });
+        total = data.length;
+      }
       setProducts(data);
       setPagination({ total, totalPages });
       const aucs = await api.getAuctions().catch(() => ({ data: [] }));
@@ -331,6 +342,7 @@ export default function Marketplace() {
     filters.minPrice,
     filters.maxPrice,
     filters.available,
+    filters.excludeAllergens,
   ]);
 
   useEffect(() => {
@@ -470,6 +482,7 @@ export default function Marketplace() {
           onChange={(e) =>
             set("category", e.target.value === "all" ? "" : e.target.value)
           }
+          aria-label="Filter by category"
         >
           {CATEGORIES.map((c) => (
             <option key={c} value={c === "all" ? "" : c}>
@@ -519,6 +532,7 @@ export default function Marketplace() {
           style={s.select}
           value={filters.available}
           onChange={(e) => set("available", e.target.value)}
+          aria-label="Filter by availability"
         >
           <option value="true">{t("marketplace.inStock")}</option>
           <option value="false">{t("marketplace.allProducts")}</option>
@@ -570,6 +584,40 @@ export default function Marketplace() {
         <button style={s.resetBtn} onClick={reset}>
           {t("marketplace.reset")}
         </button>
+
+        {/* Allergen exclusion filter */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          <span style={{ fontSize: 13, color: "#666" }}>Exclude allergens:</span>
+          {ALL_ALLERGENS.map((a) => {
+            const active = filters.excludeAllergens.includes(a);
+            return (
+              <button
+                key={a}
+                style={{
+                  padding: "5px 10px",
+                  borderRadius: 6,
+                  border: active ? "1px solid #c0392b" : "1px solid #ddd",
+                  background: active ? "#fee" : "#fff",
+                  color: active ? "#c0392b" : "#555",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  fontWeight: active ? 700 : 400,
+                }}
+                onClick={() =>
+                  setFilters((f) => ({
+                    ...f,
+                    excludeAllergens: active
+                      ? f.excludeAllergens.filter((x) => x !== a)
+                      : [...f.excludeAllergens, a],
+                  }))
+                }
+                aria-pressed={active}
+              >
+                {active ? "✕ " : ""}{a.charAt(0).toUpperCase() + a.slice(1)}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {loading ? (
@@ -591,6 +639,10 @@ export default function Marketplace() {
                 (e.currentTarget.style.transform = "translateY(-2px)")
               }
               onMouseLeave={(e) => (e.currentTarget.style.transform = "")}
+              role="button"
+              tabIndex={0}
+              aria-label={`View ${p.name}`}
+              onKeyDown={(e) => e.key === 'Enter' && navigate(`/product/${p.id}`)}
             >
               <div style={s.cardHeader}>
                 <div style={{ flex: 1 }}>
@@ -617,11 +669,8 @@ export default function Marketplace() {
                       e.stopPropagation();
                       toggleFavorite(p.id).catch(() => {});
                     }}
-                    title={
-                      isFavorited(p.id)
-                        ? "Remove from favorites"
-                        : "Add to favorites"
-                    }
+                    aria-label={isFavorited(p.id) ? "Remove from favorites" : "Add to favorites"}
+                    aria-pressed={isFavorited(p.id)}
                   >
                     {isFavorited(p.id) ? "❤️" : "🤍"}
                   </button>

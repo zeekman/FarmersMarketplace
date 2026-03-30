@@ -43,17 +43,23 @@ console.log(JSON.stringify({ quantity: 10 }, null, 2));
 console.log('');
 
 console.log('Response (with waitlist processing):');
-console.log(JSON.stringify({
-  success: true,
-  message: 'Restocked successfully',
-  waitlist: {
-    processed: 3,
-    skipped: 1,
-    totalEntries: 4,
-    remainingStock: 6,
-    errors: []
-  }
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      success: true,
+      message: 'Restocked successfully',
+      waitlist: {
+        processed: 3,
+        skipped: 1,
+        totalEntries: 4,
+        remainingStock: 6,
+        errors: [],
+      },
+    },
+    null,
+    2
+  )
+);
 console.log('');
 
 console.log('🔄 Processing Flow:');
