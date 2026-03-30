@@ -408,6 +408,7 @@ export const api = {
   adminDeactivateUser: (id) => request(`/admin/users/${id}`, { method: 'DELETE' }),
   adminGetStats: () => request('/admin/stats'),
   getContractState: (contractId, prefix) => request(`/contracts/${contractId}/state${prefix ? `?prefix=${encodeURIComponent(prefix)}` : ''}`),
+  getContractEvents: (contractId, params = {}) => request(`/contracts/${contractId}/events${toQs(params)}`),
   getWallet: function() { return request('/wallet'); },
   getTransactions: function() { return request('/wallet/transactions'); },
   fundWallet: function() { return request('/wallet/fund', { method: 'POST' }); },

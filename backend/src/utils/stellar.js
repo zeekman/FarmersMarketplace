@@ -706,6 +706,65 @@ async function pathPayment({
   return result.hash;
 }
 
+/**
+ * Fetch and decode Soroban contract events via getEvents RPC.
+ * @param {string} contractId - Contract address (base32 or hex)
+ * @param {{ type?: string, from?: string, to?: string, page?: number, limit?: number }} filters
+ */
+async function getContractEvents(contractId, filters = {}) {
+  const sorobanRpcUrl =
+    process.env.SOROBAN_RPC_URL ||
+    (isTestnet
+      ? "https://soroban-testnet.stellar.org"
+      : "https://soroban.stellar.org");
+  const sorobanServer = new StellarSdk.SorobanRpc.Server(sorobanRpcUrl);
+
+  const { type, from, to, page = 1, limit = 20 } = filters;
+
+  // Build ledger range from timestamps if provided
+  const latestLedger = await sorobanServer.getLatestLedger();
+  const startLedger = from
+    ? Math.max(1, latestLedger.sequence - Math.ceil((Date.now() / 1000 - Math.floor(new Date(from).getTime() / 1000)) / 5))
+    : Math.max(1, latestLedger.sequence - 17280); // ~1 day of ledgers
+
+  const rpcFilters = [{ type: type || 'contract', contractIds: [contractId] }];
+
+  const response = await sorobanServer.getEvents({
+    startLedger,
+    filters: rpcFilters,
+    limit: 200, // fetch more, then filter/paginate in memory
+  });
+
+  let events = (response.events || []).map((ev) => {
+    const topics = (ev.topic || []).map((t) => {
+      try { return StellarSdk.scValToNative(t); } catch { return t.toXDR('base64'); }
+    });
+    let data = null;
+    try { data = StellarSdk.scValToNative(ev.value); } catch { data = ev.value?.toXDR?.('base64') ?? null; }
+
+    return {
+      id: ev.id,
+      ledger: ev.ledger,
+      ledgerClosedAt: ev.ledgerClosedAt,
+      type: ev.type,
+      contractId: ev.contractId,
+      topics,
+      data,
+    };
+  });
+
+  // Filter by date range
+  if (from) events = events.filter((e) => new Date(e.ledgerClosedAt) >= new Date(from));
+  if (to)   events = events.filter((e) => new Date(e.ledgerClosedAt) <= new Date(to));
+
+  const total = events.length;
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const offset = (page - 1) * limit;
+  const items = events.slice(offset, offset + limit);
+
+  return { events: items, pagination: { page, pages, total, limit } };
+}
+
 module.exports = {
   isTestnet,
   server,
@@ -729,6 +788,7 @@ module.exports = {
   claimBalance,
   invokeEscrowContract,
   getContractState,
+  getContractEvents,
   resolveFederationAddress,
   mintRewardTokens,
 };
