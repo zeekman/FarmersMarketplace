@@ -1,6 +1,6 @@
 /**
  * WaitlistEntry Data Model
- * 
+ *
  * Handles waitlist entry data validation, serialization, and database operations.
  * Validates: Requirements 7.1, 7.2, 7.3
  */
@@ -13,7 +13,7 @@ class WaitlistEntry {
     this.quantity = data.quantity !== undefined ? data.quantity : null;
     this.position = data.position !== undefined ? data.position : null;
     this.created_at = data.created_at !== undefined ? data.created_at : null;
-    
+
     // Optional populated fields from joins
     this.buyer_name = data.buyer_name !== undefined ? data.buyer_name : null;
     this.buyer_email = data.buyer_email !== undefined ? data.buyer_email : null;
@@ -47,13 +47,17 @@ class WaitlistEntry {
     }
 
     // Date validation (if provided)
-    if (this.created_at !== null && !(this.created_at instanceof Date) && !this._isValidDateString(this.created_at)) {
+    if (
+      this.created_at !== null &&
+      !(this.created_at instanceof Date) &&
+      !this._isValidDateString(this.created_at)
+    ) {
       errors.push('created_at must be a valid date');
     }
 
     return {
       isValid: errors.length === 0,
-      errors
+      errors,
     };
   }
 
@@ -78,7 +82,7 @@ class WaitlistEntry {
       product_id: this.product_id,
       quantity: this.quantity,
       position: this.position,
-      created_at: this.created_at
+      created_at: this.created_at,
     };
 
     // Include populated fields if they exist
@@ -98,7 +102,7 @@ class WaitlistEntry {
    */
   static fromJSON(json) {
     let data;
-    
+
     if (typeof json === 'string') {
       try {
         data = JSON.parse(json);
@@ -129,7 +133,7 @@ class WaitlistEntry {
    */
   static fromDatabaseRow(row) {
     if (!row) return null;
-    
+
     return new WaitlistEntry({
       id: row.id,
       buyer_id: row.buyer_id,
@@ -140,7 +144,7 @@ class WaitlistEntry {
       buyer_name: row.buyer_name,
       buyer_email: row.buyer_email,
       product_name: row.product_name,
-      product_price: row.product_price
+      product_price: row.product_price,
     });
   }
 
@@ -177,7 +181,7 @@ class WaitlistEntry {
     return {
       isValid: errors.length === 0,
       errors,
-      data
+      data,
     };
   }
 
@@ -188,13 +192,15 @@ class WaitlistEntry {
    */
   equals(other) {
     if (!(other instanceof WaitlistEntry)) return false;
-    
-    return this.id === other.id &&
-           this.buyer_id === other.buyer_id &&
-           this.product_id === other.product_id &&
-           this.quantity === other.quantity &&
-           this.position === other.position &&
-           this.created_at === other.created_at;
+
+    return (
+      this.id === other.id &&
+      this.buyer_id === other.buyer_id &&
+      this.product_id === other.product_id &&
+      this.quantity === other.quantity &&
+      this.position === other.position &&
+      this.created_at === other.created_at
+    );
   }
 
   /**

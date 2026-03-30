@@ -8,15 +8,14 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:report": "playwright show-report",
-    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write . --ignore-path ../.prettierignore"
   },
   "devDependencies_note": "run: npm install --save-dev rollup-plugin-visualizer @axe-core/react --legacy-peer-deps",
   "dependencies": {
     "dompurify": "^3.3.3",
     "i18next": "^26.0.1",
     "leaflet": "^1.9.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
     "react-helmet-async": "^2.0.5",
     "react-i18next": "^17.0.1",
     "react-leaflet": "^5.0.0",

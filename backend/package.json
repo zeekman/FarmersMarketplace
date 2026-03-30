@@ -7,7 +7,9 @@
     "dev": "nodemon src/index.js",
     "test": "jest --forceExit",
     "migrate": "node migrate.js",
-    "migrate:rollback": "node migrate.js rollback"
+    "migrate:rollback": "node migrate.js rollback",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write . --ignore-path ../.prettierignore"
   },
   "jest": {
     "testEnvironment": "node",
@@ -30,10 +32,9 @@
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.1.0",
-    "bip39": "^3.1.0",
-    "stellar-hd-wallet": "^0.0.8",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^9.4.3",
+    "bip39": "^3.1.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "csv-parse": "^6.2.1",
@@ -48,12 +49,15 @@
     "pg": "^8.20.0",
     "qrcode": "^1.5.4",
     "sanitize-html": "^2.17.2",
-    "web-push": "^3.6.7",
+    "stellar-hd-wallet": "^0.0.8",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "web-push": "^3.6.7",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
     "jest": "^30.3.0",
     "nodemon": "^3.1.0",
     "supertest": "^7.2.2"

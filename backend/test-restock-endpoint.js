@@ -11,7 +11,7 @@ app.use(express.json());
 
 // Mock dependencies
 const mockDb = {
-  query: jest.fn()
+  query: jest.fn(),
 };
 
 const mockAuth = (req, res, next) => {
@@ -26,7 +26,7 @@ const mockErr = (res, status, message, code) => {
 const mockSendBackInStockEmail = jest.fn();
 
 const mockAutoProcessor = {
-  processWaitlistOnRestock: jest.fn()
+  processWaitlistOnRestock: jest.fn(),
 };
 
 // Mock the modules
@@ -61,12 +61,10 @@ describe('Enhanced Restock Endpoint', () => {
       skipped: 1,
       totalEntries: 3,
       remainingStock: 5,
-      errors: []
+      errors: [],
     });
 
-    const response = await request(app)
-      .patch('/api/products/1/restock')
-      .send({ quantity: 10 });
+    const response = await request(app).patch('/api/products/1/restock').send({ quantity: 10 });
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
@@ -76,7 +74,7 @@ describe('Enhanced Restock Endpoint', () => {
       skipped: 1,
       totalEntries: 3,
       remainingStock: 5,
-      errors: []
+      errors: [],
     });
 
     expect(mockAutoProcessor.processWaitlistOnRestock).toHaveBeenCalledWith(1, 10);
@@ -88,9 +86,7 @@ describe('Enhanced Restock Endpoint', () => {
       .mockResolvedValueOnce({ rows: [{ id: 1, name: 'Test Product', quantity: 5, farmer_id: 1 }] })
       .mockResolvedValueOnce(); // UPDATE query
 
-    const response = await request(app)
-      .patch('/api/products/1/restock')
-      .send({ quantity: 10 });
+    const response = await request(app).patch('/api/products/1/restock').send({ quantity: 10 });
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
@@ -111,12 +107,10 @@ describe('Enhanced Restock Endpoint', () => {
     mockAutoProcessor.processWaitlistOnRestock.mockResolvedValue({
       success: false,
       error: 'Database connection failed',
-      code: 'INTERNAL_ERROR'
+      code: 'INTERNAL_ERROR',
     });
 
-    const response = await request(app)
-      .patch('/api/products/1/restock')
-      .send({ quantity: 10 });
+    const response = await request(app).patch('/api/products/1/restock').send({ quantity: 10 });
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);

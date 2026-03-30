@@ -2,11 +2,18 @@ const db = require('../db/schema');
 
 async function getCachedResponse(key) {
   if (!key) return null;
-  const { rows } = await db.query('SELECT response, expires_at FROM idempotency_keys WHERE key = $1', [key]);
+  const { rows } = await db.query(
+    'SELECT response, expires_at FROM idempotency_keys WHERE key = $1',
+    [key]
+  );
   const row = rows[0];
   if (row) {
     if (new Date(row.expires_at) > new Date()) {
-      try { return JSON.parse(row.response); } catch { return null; }
+      try {
+        return JSON.parse(row.response);
+      } catch {
+        return null;
+      }
     }
     await db.query('DELETE FROM idempotency_keys WHERE key = $1', [key]);
   }

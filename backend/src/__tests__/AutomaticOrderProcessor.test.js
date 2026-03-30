@@ -1,6 +1,6 @@
 /**
  * Unit tests for AutomaticOrderProcessor
- * 
+ *
  * Tests the core functionality of automatic order creation and payment processing
  * for waitlist entries when products are restocked.
  */
@@ -11,12 +11,12 @@ const db = require('../db/schema');
 // Mock the stellar utilities
 jest.mock('../utils/stellar', () => ({
   sendPayment: jest.fn(),
-  getBalance: jest.fn()
+  getBalance: jest.fn(),
 }));
 
 // Mock the mailer utilities
 jest.mock('../utils/mailer', () => ({
-  sendOrderEmails: jest.fn()
+  sendOrderEmails: jest.fn(),
 }));
 
 const { sendPayment, getBalance } = require('../utils/stellar');
@@ -36,7 +36,7 @@ describe('AutomaticOrderProcessor', () => {
       buyer_id: 100,
       product_id: 200,
       quantity: 2,
-      position: 1
+      position: 1,
     };
 
     const mockProduct = {
@@ -45,7 +45,7 @@ describe('AutomaticOrderProcessor', () => {
       name: 'Test Product',
       price: 10.5,
       category: 'vegetables',
-      unit: 'kg'
+      unit: 'kg',
     };
 
     const mockBuyer = {
@@ -53,20 +53,20 @@ describe('AutomaticOrderProcessor', () => {
       name: 'Test Buyer',
       email: 'buyer@test.com',
       stellar_public_key: 'GTEST_BUYER_KEY',
-      stellar_secret_key: 'STEST_BUYER_SECRET'
+      stellar_secret_key: 'STEST_BUYER_SECRET',
     };
 
     const mockFarmer = {
       id: 300,
       name: 'Test Farmer',
       email: 'farmer@test.com',
-      stellar_public_key: 'GTEST_FARMER_KEY'
+      stellar_public_key: 'GTEST_FARMER_KEY',
     };
 
     beforeEach(() => {
       // Mock database queries
       db.query = jest.fn();
-      
+
       // Default successful responses
       getBalance.mockResolvedValue(50.0); // Sufficient balance
       sendPayment.mockResolvedValue('mock_tx_hash_123');
@@ -79,11 +79,17 @@ describe('AutomaticOrderProcessor', () => {
         .mockResolvedValueOnce({ rows: [mockFarmer] }) // Get farmer
         .mockResolvedValueOnce() // BEGIN transaction
         .mockResolvedValueOnce({ rowCount: 1 }) // Update stock
-        .mockResolvedValueOnce({ rows: [{ id: 1001, ...mockWaitlistEntry, total_price: 21.0, status: 'pending' }] }) // Insert order
+        .mockResolvedValueOnce({
+          rows: [{ id: 1001, ...mockWaitlistEntry, total_price: 21.0, status: 'pending' }],
+        }) // Insert order
         .mockResolvedValueOnce() // Update order with payment
         .mockResolvedValueOnce(); // COMMIT transaction
 
-      const result = await processor.createAutomaticOrder(mockWaitlistEntry, mockProduct, mockBuyer);
+      const result = await processor.createAutomaticOrder(
+        mockWaitlistEntry,
+        mockProduct,
+        mockBuyer
+      );
 
       expect(result.success).toBe(true);
       expect(result.orderId).toBe(1001);
@@ -95,7 +101,7 @@ describe('AutomaticOrderProcessor', () => {
         senderSecret: mockBuyer.stellar_secret_key,
         receiverPublicKey: mockFarmer.stellar_public_key,
         amount: 21.0,
-        memo: 'AutoOrder#1001'
+        memo: 'AutoOrder#1001',
       });
 
       // Verify notifications were sent
@@ -105,7 +111,11 @@ describe('AutomaticOrderProcessor', () => {
     test('should fail when buyer has insufficient balance', async () => {
       getBalance.mockResolvedValue(5.0); // Insufficient balance
 
-      const result = await processor.createAutomaticOrder(mockWaitlistEntry, mockProduct, mockBuyer);
+      const result = await processor.createAutomaticOrder(
+        mockWaitlistEntry,
+        mockProduct,
+        mockBuyer
+      );
 
       expect(result.success).toBe(false);
       expect(result.code).toBe('INSUFFICIENT_BALANCE');
@@ -116,10 +126,14 @@ describe('AutomaticOrderProcessor', () => {
 
     test('should fail when farmer wallet is not configured', async () => {
       const farmerWithoutWallet = { ...mockFarmer, stellar_public_key: null };
-      
+
       db.query.mockResolvedValueOnce({ rows: [farmerWithoutWallet] });
 
-      const result = await processor.createAutomaticOrder(mockWaitlistEntry, mockProduct, mockBuyer);
+      const result = await processor.createAutomaticOrder(
+        mockWaitlistEntry,
+        mockProduct,
+        mockBuyer
+      );
 
       expect(result.success).toBe(false);
       expect(result.code).toBe('FARMER_WALLET_ERROR');
@@ -132,7 +146,11 @@ describe('AutomaticOrderProcessor', () => {
         .mockResolvedValueOnce() // BEGIN transaction
         .mockResolvedValueOnce({ rowCount: 0 }); // Update stock fails (no rows affected)
 
-      const result = await processor.createAutomaticOrder(mockWaitlistEntry, mockProduct, mockBuyer);
+      const result = await processor.createAutomaticOrder(
+        mockWaitlistEntry,
+        mockProduct,
+        mockBuyer
+      );
 
       expect(result.success).toBe(false);
       expect(result.code).toBe('INSUFFICIENT_STOCK');
@@ -146,10 +164,16 @@ describe('AutomaticOrderProcessor', () => {
         .mockResolvedValueOnce({ rows: [mockFarmer] }) // Get farmer
         .mockResolvedValueOnce() // BEGIN transaction
         .mockResolvedValueOnce({ rowCount: 1 }) // Update stock
-        .mockResolvedValueOnce({ rows: [{ id: 1001, ...mockWaitlistEntry, total_price: 21.0, status: 'pending' }] }) // Insert order
+        .mockResolvedValueOnce({
+          rows: [{ id: 1001, ...mockWaitlistEntry, total_price: 21.0, status: 'pending' }],
+        }) // Insert order
         .mockResolvedValueOnce(); // ROLLBACK transaction
 
-      const result = await processor.createAutomaticOrder(mockWaitlistEntry, mockProduct, mockBuyer);
+      const result = await processor.createAutomaticOrder(
+        mockWaitlistEntry,
+        mockProduct,
+        mockBuyer
+      );
 
       expect(result.success).toBe(false);
       expect(result.code).toBe('PAYMENT_FAILED');
@@ -177,16 +201,16 @@ describe('AutomaticOrderProcessor', () => {
   describe('processPayment', () => {
     const mockOrder = {
       id: 1001,
-      total_price: 25.5
+      total_price: 25.5,
     };
 
     const mockBuyer = {
       stellar_public_key: 'GTEST_BUYER_KEY',
-      stellar_secret_key: 'STEST_BUYER_SECRET'
+      stellar_secret_key: 'STEST_BUYER_SECRET',
     };
 
     const mockFarmer = {
-      stellar_public_key: 'GTEST_FARMER_KEY'
+      stellar_public_key: 'GTEST_FARMER_KEY',
     };
 
     test('should process payment successfully', async () => {
@@ -203,7 +227,7 @@ describe('AutomaticOrderProcessor', () => {
         senderSecret: mockBuyer.stellar_secret_key,
         receiverPublicKey: mockFarmer.stellar_public_key,
         amount: mockOrder.total_price,
-        memo: 'AutoOrder#1001'
+        memo: 'AutoOrder#1001',
       });
     });
 
@@ -244,7 +268,7 @@ describe('AutomaticOrderProcessor', () => {
         id: productId,
         name: 'Test Product',
         price: 5.0,
-        farmer_id: 300
+        farmer_id: 300,
       };
 
       const mockWaitlistEntries = [
@@ -257,7 +281,7 @@ describe('AutomaticOrderProcessor', () => {
           buyer_name: 'Buyer 1',
           buyer_email: 'buyer1@test.com',
           stellar_public_key: 'GBUYER1',
-          stellar_secret_key: 'SBUYER1'
+          stellar_secret_key: 'SBUYER1',
         },
         {
           id: 2,
@@ -268,7 +292,7 @@ describe('AutomaticOrderProcessor', () => {
           buyer_name: 'Buyer 2',
           buyer_email: 'buyer2@test.com',
           stellar_public_key: 'GBUYER2',
-          stellar_secret_key: 'SBUYER2'
+          stellar_secret_key: 'SBUYER2',
         },
         {
           id: 3,
@@ -279,8 +303,8 @@ describe('AutomaticOrderProcessor', () => {
           buyer_name: 'Buyer 3',
           buyer_email: 'buyer3@test.com',
           stellar_public_key: 'GBUYER3',
-          stellar_secret_key: 'SBUYER3'
-        }
+          stellar_secret_key: 'SBUYER3',
+        },
       ];
 
       // Mock database responses
@@ -294,10 +318,11 @@ describe('AutomaticOrderProcessor', () => {
 
       // Mock createAutomaticOrder to succeed for first two, fail for third (insufficient stock)
       const originalCreateOrder = processor.createAutomaticOrder;
-      processor.createAutomaticOrder = jest.fn()
+      processor.createAutomaticOrder = jest
+        .fn()
         .mockResolvedValueOnce({ success: true, orderId: 2001 }) // First entry succeeds
         .mockResolvedValueOnce({ success: true, orderId: 2002 }); // Second entry succeeds
-        // Third entry won't be called due to insufficient stock
+      // Third entry won't be called due to insufficient stock
 
       // Mock deletion of processed entries
       db.query

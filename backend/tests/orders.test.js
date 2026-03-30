@@ -7,16 +7,34 @@ beforeEach(() => {
   mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
   stellar.getBalance.mockResolvedValue(1000);
   stellar.sendPayment.mockResolvedValue('TXHASH123');
-  stellar.createClaimableBalance.mockResolvedValue({ txHash: 'ESCROW_TX', balanceId: 'BALANCE_ID_001' });
+  stellar.createClaimableBalance.mockResolvedValue({
+    txHash: 'ESCROW_TX',
+    balanceId: 'BALANCE_ID_001',
+  });
   stellar.claimBalance.mockResolvedValue('CLAIM_TX_001');
 });
 
 const SECRET = process.env.JWT_SECRET || 'test-secret-for-jest';
 const farmerToken = jwt.sign({ id: 1, role: 'farmer' }, SECRET);
-const buyerToken  = jwt.sign({ id: 2, role: 'buyer' }, SECRET);
+const buyerToken = jwt.sign({ id: 2, role: 'buyer' }, SECRET);
 
-const product = { id: 10, name: 'Apples', price: 5.0, quantity: 10, farmer_id: 1, farmer_wallet: 'GFARMER' };
-const buyer   = { id: 2, name: 'Bob', email: 'bob@test.com', stellar_secret_key: 'SSECRET', stellar_public_key: 'GBUYER', referred_by: null, referral_bonus_sent: 0 };
+const product = {
+  id: 10,
+  name: 'Apples',
+  price: 5.0,
+  quantity: 10,
+  farmer_id: 1,
+  farmer_wallet: 'GFARMER',
+};
+const buyer = {
+  id: 2,
+  name: 'Bob',
+  email: 'bob@test.com',
+  stellar_secret_key: 'SSECRET',
+  stellar_public_key: 'GBUYER',
+  referred_by: null,
+  referral_bonus_sent: 0,
+};
 
 describe('POST /api/orders', () => {
   it('buyer places an order successfully', async () => {
@@ -25,13 +43,16 @@ describe('POST /api/orders', () => {
     stellar.sendPayment.mockResolvedValueOnce('TXHASH_OK');
 
     mockQuery
-      .mockResolvedValueOnce({ rows: [product], rowCount: 1 })   // product lookup
-      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 })     // buyer lookup
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })          // stock decrement
+      .mockResolvedValueOnce({ rows: [product], rowCount: 1 }) // product lookup
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 }) // buyer lookup
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // stock decrement
       .mockResolvedValueOnce({ rows: [{ id: 99 }], rowCount: 1 }) // INSERT order
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })          // UPDATE order paid
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE order paid
       .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1 }) // farmer lookup
-      .mockResolvedValueOnce({ rows: [{ quantity: 8, low_stock_threshold: 5, low_stock_alerted: 0 }], rowCount: 1 }); // low-stock
+      .mockResolvedValueOnce({
+        rows: [{ quantity: 8, low_stock_threshold: 5, low_stock_alerted: 0 }],
+        rowCount: 1,
+      }); // low-stock
 
     const res = await request(app)
       .post('/api/orders')
@@ -60,13 +81,13 @@ describe('POST /api/orders', () => {
     const { token: csrf, cookieStr } = await getCsrf();
     stellar.getBalance.mockResolvedValueOnce(9999);
     mockQuery
-      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 })  // buyer lookup (idempotency check first)
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 });      // product not found
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 }) // buyer lookup (idempotency check first)
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }); // product not found
 
     // Actually the route checks idempotency key first (no key sent), then product
     mockQuery.mockReset();
     mockQuery
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 })  // product not found
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // product not found
       .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 });
 
     // Reset and set up correctly: route order is: idempotency(skip), address(skip), product, buyer
@@ -122,10 +143,10 @@ describe('POST /api/orders', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [product], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })           // stock decrement
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // stock decrement
       .mockResolvedValueOnce({ rows: [{ id: 99 }], rowCount: 1 }) // INSERT order
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })           // UPDATE failed
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 });          // restore stock
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE failed
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }); // restore stock
 
     const res = await request(app)
       .post('/api/orders')
@@ -156,7 +177,9 @@ describe('GET /api/orders', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ count: '50' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    const res = await request(app).get('/api/orders?page=2&limit=10').set('Authorization', `Bearer ${buyerToken}`);
+    const res = await request(app)
+      .get('/api/orders?page=2&limit=10')
+      .set('Authorization', `Bearer ${buyerToken}`);
     expect(res.status).toBe(200);
     expect(res.body.page).toBe(2);
     expect(res.body.limit).toBe(10);
@@ -167,7 +190,9 @@ describe('GET /api/orders', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ count: '0' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    const res = await request(app).get('/api/orders?limit=999').set('Authorization', `Bearer ${buyerToken}`);
+    const res = await request(app)
+      .get('/api/orders?limit=999')
+      .set('Authorization', `Bearer ${buyerToken}`);
     expect(res.status).toBe(200);
     expect(res.body.limit).toBe(100);
   });
@@ -187,7 +212,9 @@ describe('GET /api/orders/sales', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ count: '1' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 1, product_name: 'Apples' }], rowCount: 1 });
-    const res = await request(app).get('/api/orders/sales').set('Authorization', `Bearer ${farmerToken}`);
+    const res = await request(app)
+      .get('/api/orders/sales')
+      .set('Authorization', `Bearer ${farmerToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
     expect(res.body.total).toBe(1);
@@ -196,7 +223,9 @@ describe('GET /api/orders/sales', () => {
   });
 
   it('returns 403 for buyers', async () => {
-    const res = await request(app).get('/api/orders/sales').set('Authorization', `Bearer ${buyerToken}`);
+    const res = await request(app)
+      .get('/api/orders/sales')
+      .set('Authorization', `Bearer ${buyerToken}`);
     expect(res.status).toBe(403);
   });
 });

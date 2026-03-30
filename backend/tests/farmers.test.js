@@ -1,19 +1,32 @@
 const jwt = require('jsonwebtoken');
 const { request, app, mockQuery, getCsrf } = require('./setup');
 
-beforeEach(() => { jest.clearAllMocks(); mockQuery.mockResolvedValue({ rows: [], rowCount: 0 }); });
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+});
 
-const SECRET      = process.env.JWT_SECRET || 'test-secret-for-jest';
+const SECRET = process.env.JWT_SECRET || 'test-secret-for-jest';
 const farmerToken = jwt.sign({ id: 1, role: 'farmer' }, SECRET);
-const buyerToken  = jwt.sign({ id: 2, role: 'buyer' }, SECRET);
+const buyerToken = jwt.sign({ id: 2, role: 'buyer' }, SECRET);
 
-const farmerRow = { id: 1, name: 'Alice', bio: 'Organic farmer', location: 'Nairobi', avatar_url: null, created_at: '2024-01-01' };
+const farmerRow = {
+  id: 1,
+  name: 'Alice',
+  bio: 'Organic farmer',
+  location: 'Nairobi',
+  avatar_url: null,
+  created_at: '2024-01-01',
+};
 
 describe('GET /api/farmers/:id', () => {
   it('returns public farmer profile with listings', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [farmerRow], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [{ id: 10, name: 'Tomatoes', price: 2.5, quantity: 50 }], rowCount: 1 });
+      .mockResolvedValueOnce({
+        rows: [{ id: 10, name: 'Tomatoes', price: 2.5, quantity: 50 }],
+        rowCount: 1,
+      });
     const res = await request(app).get('/api/farmers/1');
     expect(res.status).toBe(200);
     expect(res.body.data.name).toBe('Alice');
@@ -50,8 +63,11 @@ describe('PATCH /api/farmers/me', () => {
   it('farmer can update bio and location', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
     mockQuery
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })  // UPDATE
-      .mockResolvedValueOnce({ rows: [{ ...farmerRow, bio: 'Updated bio', location: 'Mombasa' }], rowCount: 1 }); // SELECT
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE
+      .mockResolvedValueOnce({
+        rows: [{ ...farmerRow, bio: 'Updated bio', location: 'Mombasa' }],
+        rowCount: 1,
+      }); // SELECT
     const res = await request(app)
       .patch('/api/farmers/me')
       .set('Authorization', `Bearer ${farmerToken}`)

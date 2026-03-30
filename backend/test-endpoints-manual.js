@@ -9,7 +9,7 @@ const request = require('supertest');
 // Mock the WaitlistService
 const mockWaitlistService = {
   getWaitlistStatus: jest.fn(),
-  getBuyerWaitlistEntries: jest.fn()
+  getBuyerWaitlistEntries: jest.fn(),
 };
 
 jest.mock('./src/services/WaitlistService', () => {
@@ -28,9 +28,11 @@ app.use(express.json());
 app.use((req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
-    return res.status(401).json({ success: false, error: 'No token provided', code: 'missing_token' });
+    return res
+      .status(401)
+      .json({ success: false, error: 'No token provided', code: 'missing_token' });
   }
-  
+
   if (token === 'buyer-token') {
     req.user = { id: 1, role: 'buyer' };
   } else if (token === 'farmer-token') {
@@ -54,7 +56,7 @@ async function testEndpoints() {
     onWaitlist: true,
     position: 2,
     totalWaiting: 5,
-    code: 'ON_WAITLIST'
+    code: 'ON_WAITLIST',
   });
 
   const response1 = await request(app)
@@ -71,7 +73,7 @@ async function testEndpoints() {
     success: true,
     onWaitlist: false,
     totalWaiting: 5,
-    code: 'NOT_ON_WAITLIST'
+    code: 'NOT_ON_WAITLIST',
   });
 
   const response2 = await request(app)
@@ -108,7 +110,7 @@ async function testEndpoints() {
         created_at: '2024-01-01T10:00:00Z',
         product_name: 'Organic Tomatoes',
         product_price: 5.99,
-        product_stock: 0
+        product_stock: 0,
       },
       {
         id: 2,
@@ -118,12 +120,12 @@ async function testEndpoints() {
         position: 3,
         created_at: '2024-01-02T11:00:00Z',
         product_name: 'Fresh Carrots',
-        product_price: 3.50,
-        product_stock: 0
-      }
+        product_price: 3.5,
+        product_stock: 0,
+      },
     ],
     count: 2,
-    code: 'SUCCESS'
+    code: 'SUCCESS',
   });
 
   const response4 = await request(app)
@@ -140,7 +142,7 @@ async function testEndpoints() {
     success: true,
     data: [],
     count: 0,
-    code: 'SUCCESS'
+    code: 'SUCCESS',
   });
 
   const response5 = await request(app)

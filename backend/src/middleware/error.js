@@ -14,7 +14,8 @@ function err(res, status, message, code) {
 }
 
 /** Express 4-arg error handler — mount last in app.js */
-function errorHandler(error, req, res, next) { // eslint-disable-line no-unused-vars
+function errorHandler(error, req, res, next) {
+  // eslint-disable-line no-unused-vars
   console.error(error);
   return err(res, 500, 'Internal server error', 'internal_error');
 }

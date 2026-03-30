@@ -1,9 +1,9 @@
 /**
  * AutomaticOrderProcessor - Handles automatic order creation and processing for waitlist entries
- * 
+ *
  * Integrates with existing order processing system, payment infrastructure, and notification system.
  * Processes waitlist entries in FIFO order when products are restocked.
- * 
+ *
  * Validates: Requirements 2.2, 2.3
  */
 
@@ -38,7 +38,7 @@ class AutomaticOrderProcessor {
           error: `Insufficient XLM balance. Required: ${required.toFixed(7)}, Available: ${balance.toFixed(7)}`,
           code: 'INSUFFICIENT_BALANCE',
           requiredBalance: required,
-          availableBalance: balance
+          availableBalance: balance,
         };
       }
 
@@ -53,7 +53,7 @@ class AutomaticOrderProcessor {
         return {
           success: false,
           error: 'Farmer wallet not configured',
-          code: 'FARMER_WALLET_ERROR'
+          code: 'FARMER_WALLET_ERROR',
         };
       }
 
@@ -63,7 +63,7 @@ class AutomaticOrderProcessor {
         product,
         buyer,
         farmer,
-        totalPrice
+        totalPrice,
       });
 
       if (!orderResult.success) {
@@ -76,8 +76,8 @@ class AutomaticOrderProcessor {
         product,
         buyer,
         farmer,
-        isAutomatic: true
-      }).catch(error => {
+        isAutomatic: true,
+      }).catch((error) => {
         console.error('[AutomaticOrderProcessor] Notification failed:', error.message);
       });
 
@@ -86,15 +86,14 @@ class AutomaticOrderProcessor {
         orderId: orderResult.order.id,
         txHash: orderResult.order.stellar_tx_hash,
         totalPrice,
-        code: 'ORDER_CREATED'
+        code: 'ORDER_CREATED',
       };
-
     } catch (error) {
       console.error('[AutomaticOrderProcessor] Error creating automatic order:', error);
       return {
         success: false,
         error: 'Failed to create automatic order: ' + error.message,
-        code: 'INTERNAL_ERROR'
+        code: 'INTERNAL_ERROR',
       };
     }
   }
@@ -119,7 +118,11 @@ class AutomaticOrderProcessor {
       if (!waitlistEntry.product_id || !Number.isInteger(waitlistEntry.product_id)) {
         errors.push('waitlistEntry.product_id must be a valid integer');
       }
-      if (!waitlistEntry.quantity || !Number.isInteger(waitlistEntry.quantity) || waitlistEntry.quantity <= 0) {
+      if (
+        !waitlistEntry.quantity ||
+        !Number.isInteger(waitlistEntry.quantity) ||
+        waitlistEntry.quantity <= 0
+      ) {
         errors.push('waitlistEntry.quantity must be a positive integer');
       }
     }
@@ -165,7 +168,7 @@ class AutomaticOrderProcessor {
 
     return {
       isValid: errors.length === 0,
-      error: errors.length > 0 ? errors.join(', ') : null
+      error: errors.length > 0 ? errors.join(', ') : null,
     };
   }
 
@@ -189,7 +192,7 @@ class AutomaticOrderProcessor {
         return {
           success: false,
           error: 'Insufficient stock available',
-          code: 'INSUFFICIENT_STOCK'
+          code: 'INSUFFICIENT_STOCK',
         };
       }
 
@@ -213,10 +216,11 @@ class AutomaticOrderProcessor {
       }
 
       // Update order with payment details
-      await db.query(
-        'UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3',
-        ['paid', paymentResult.txHash, order.id]
-      );
+      await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', [
+        'paid',
+        paymentResult.txHash,
+        order.id,
+      ]);
 
       // Commit transaction
       await db.query('COMMIT');
@@ -226,11 +230,10 @@ class AutomaticOrderProcessor {
         order: {
           ...order,
           status: 'paid',
-          stellar_tx_hash: paymentResult.txHash
+          stellar_tx_hash: paymentResult.txHash,
         },
-        txHash: paymentResult.txHash
+        txHash: paymentResult.txHash,
       };
-
     } catch (error) {
       await db.query('ROLLBACK');
       throw error;
@@ -260,7 +263,7 @@ class AutomaticOrderProcessor {
         return {
           success: false,
           error: `Insufficient balance for payment. Required: ${required.toFixed(7)}, Available: ${balance.toFixed(7)}`,
-          code: 'INSUFFICIENT_BALANCE'
+          code: 'INSUFFICIENT_BALANCE',
         };
       }
 
@@ -269,15 +272,14 @@ class AutomaticOrderProcessor {
         senderSecret: buyer.stellar_secret_key,
         receiverPublicKey: farmer.stellar_public_key,
         amount: order.total_price,
-        memo: `AutoOrder#${order.id}`
+        memo: `AutoOrder#${order.id}`,
       });
 
       return {
         success: true,
         txHash,
-        code: 'PAYMENT_SUCCESS'
+        code: 'PAYMENT_SUCCESS',
       };
-
     } catch (error) {
       console.error('[AutomaticOrderProcessor] Payment failed:', error);
 
@@ -286,14 +288,14 @@ class AutomaticOrderProcessor {
         return {
           success: false,
           error: 'Buyer wallet not found or unfunded',
-          code: 'UNFUNDED_ACCOUNT'
+          code: 'UNFUNDED_ACCOUNT',
         };
       }
 
       return {
         success: false,
         error: 'Payment failed: ' + error.message,
-        code: 'PAYMENT_FAILED'
+        code: 'PAYMENT_FAILED',
       };
     }
   }
@@ -340,7 +342,7 @@ class AutomaticOrderProcessor {
 
     return {
       isValid: errors.length === 0,
-      error: errors.length > 0 ? errors.join(', ') : null
+      error: errors.length > 0 ? errors.join(', ') : null,
     };
   }
 
@@ -356,26 +358,27 @@ class AutomaticOrderProcessor {
           id: order.id,
           quantity: order.quantity,
           total_price: order.total_price,
-          stellar_tx_hash: order.stellar_tx_hash
+          stellar_tx_hash: order.stellar_tx_hash,
         },
         product: {
           name: product.name,
           category: product.category || 'other',
-          unit: product.unit || 'unit'
+          unit: product.unit || 'unit',
         },
         buyer: {
           name: buyer.name,
-          email: buyer.email
+          email: buyer.email,
         },
         farmer: {
           name: farmer.name,
-          email: farmer.email
-        }
+          email: farmer.email,
+        },
       });
 
       // Log successful notification
-      console.log(`[AutomaticOrderProcessor] Notifications sent for ${isAutomatic ? 'automatic' : 'manual'} order #${order.id}`);
-
+      console.log(
+        `[AutomaticOrderProcessor] Notifications sent for ${isAutomatic ? 'automatic' : 'manual'} order #${order.id}`
+      );
     } catch (error) {
       console.error('[AutomaticOrderProcessor] Failed to send notifications:', error);
       // Don't throw - notifications are not critical for order success
@@ -400,9 +403,11 @@ class AutomaticOrderProcessor {
     try {
       // Send custom email for insufficient stock scenario
       const nodemailer = require('nodemailer');
-      
+
       if (!process.env.SMTP_HOST) {
-        console.warn('[AutomaticOrderProcessor] SMTP not configured - skipping insufficient stock notification');
+        console.warn(
+          '[AutomaticOrderProcessor] SMTP not configured - skipping insufficient stock notification'
+        );
         return;
       }
 
@@ -439,13 +444,17 @@ Farmers Marketplace`;
         from: process.env.SMTP_FROM || process.env.SMTP_USER,
         to: buyer.email,
         subject,
-        text: message
+        text: message,
       });
 
-      console.log(`[AutomaticOrderProcessor] Insufficient stock notification sent to ${buyer.email} for product #${product.id}`);
-
+      console.log(
+        `[AutomaticOrderProcessor] Insufficient stock notification sent to ${buyer.email} for product #${product.id}`
+      );
     } catch (error) {
-      console.error('[AutomaticOrderProcessor] Failed to send insufficient stock notification:', error);
+      console.error(
+        '[AutomaticOrderProcessor] Failed to send insufficient stock notification:',
+        error
+      );
     }
   }
 
@@ -458,11 +467,19 @@ Farmers Marketplace`;
   async processWaitlistOnRestock(productId, availableQuantity) {
     // Enhanced input validation
     if (!productId || !Number.isInteger(productId) || productId <= 0) {
-      return { success: false, error: 'product_id must be a positive integer', code: 'INVALID_INPUT' };
+      return {
+        success: false,
+        error: 'product_id must be a positive integer',
+        code: 'INVALID_INPUT',
+      };
     }
 
     if (!availableQuantity || !Number.isInteger(availableQuantity) || availableQuantity <= 0) {
-      return { success: false, error: 'availableQuantity must be a positive integer', code: 'INVALID_INPUT' };
+      return {
+        success: false,
+        error: 'availableQuantity must be a positive integer',
+        code: 'INVALID_INPUT',
+      };
     }
 
     try {
@@ -473,7 +490,11 @@ Farmers Marketplace`;
       );
 
       if (!productRows[0]) {
-        return { success: false, error: 'Product not found or inactive', code: 'PRODUCT_NOT_FOUND' };
+        return {
+          success: false,
+          error: 'Product not found or inactive',
+          code: 'PRODUCT_NOT_FOUND',
+        };
       }
 
       const product = productRows[0];
@@ -505,30 +526,31 @@ Farmers Marketplace`;
         if (entry.quantity > remainingStock) {
           // Skip this entry - not enough stock
           skipped++;
-          
+
           // Notify buyer about insufficient stock
-          this.notifyInsufficientStock(entry, product, {
-            name: entry.buyer_name,
-            email: entry.buyer_email
-          }, remainingStock).catch(error => {
+          this.notifyInsufficientStock(
+            entry,
+            product,
+            {
+              name: entry.buyer_name,
+              email: entry.buyer_email,
+            },
+            remainingStock
+          ).catch((error) => {
             console.error('[AutomaticOrderProcessor] Notification error:', error);
           });
-          
+
           continue;
         }
 
         // Try to create automatic order
-        const orderResult = await this.createAutomaticOrder(
-          entry,
-          product,
-          {
-            id: entry.buyer_id,
-            name: entry.buyer_name,
-            email: entry.buyer_email,
-            stellar_public_key: entry.stellar_public_key,
-            stellar_secret_key: entry.stellar_secret_key
-          }
-        );
+        const orderResult = await this.createAutomaticOrder(entry, product, {
+          id: entry.buyer_id,
+          name: entry.buyer_name,
+          email: entry.buyer_email,
+          stellar_public_key: entry.stellar_public_key,
+          stellar_secret_key: entry.stellar_secret_key,
+        });
 
         if (orderResult.success) {
           // Order created successfully
@@ -537,12 +559,11 @@ Farmers Marketplace`;
           processedEntries.push(entry.id);
 
           // Remove waitlist entry
-          await db.query(
-            'DELETE FROM waitlist_entries WHERE id = $1',
-            [entry.id]
-          );
+          await db.query('DELETE FROM waitlist_entries WHERE id = $1', [entry.id]);
 
-          console.log(`[AutomaticOrderProcessor] Processed waitlist entry #${entry.id}, order #${orderResult.orderId}`);
+          console.log(
+            `[AutomaticOrderProcessor] Processed waitlist entry #${entry.id}, order #${orderResult.orderId}`
+          );
         } else {
           // Order creation failed
           skipped++;
@@ -550,10 +571,13 @@ Farmers Marketplace`;
             entryId: entry.id,
             buyerId: entry.buyer_id,
             error: orderResult.error,
-            code: orderResult.code
+            code: orderResult.code,
           });
 
-          console.error(`[AutomaticOrderProcessor] Failed to process waitlist entry #${entry.id}:`, orderResult.error);
+          console.error(
+            `[AutomaticOrderProcessor] Failed to process waitlist entry #${entry.id}:`,
+            orderResult.error
+          );
         }
       }
 
@@ -569,15 +593,14 @@ Farmers Marketplace`;
         errors,
         remainingStock,
         totalEntries: waitlistRows.length,
-        code: 'PROCESSING_COMPLETE'
+        code: 'PROCESSING_COMPLETE',
       };
-
     } catch (error) {
       console.error('[AutomaticOrderProcessor] Error processing waitlist on restock:', error);
       return {
         success: false,
         error: 'Failed to process waitlist: ' + error.message,
-        code: 'INTERNAL_ERROR'
+        code: 'INTERNAL_ERROR',
       };
     }
   }
@@ -602,15 +625,16 @@ Farmers Marketplace`;
 
       // Update positions sequentially
       for (let i = 0; i < rows.length; i++) {
-        await db.query(
-          'UPDATE waitlist_entries SET position = $1 WHERE id = $2',
-          [i + 1, rows[i].id]
-        );
+        await db.query('UPDATE waitlist_entries SET position = $1 WHERE id = $2', [
+          i + 1,
+          rows[i].id,
+        ]);
       }
 
       await db.query('COMMIT');
-      console.log(`[AutomaticOrderProcessor] Recalculated positions for ${rows.length} remaining waitlist entries`);
-
+      console.log(
+        `[AutomaticOrderProcessor] Recalculated positions for ${rows.length} remaining waitlist entries`
+      );
     } catch (error) {
       await db.query('ROLLBACK');
       console.error('[AutomaticOrderProcessor] Failed to recalculate positions:', error);
