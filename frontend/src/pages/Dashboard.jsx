@@ -504,6 +504,40 @@ export default function Dashboard() {
     }
   }
 
+  const [salesExportFrom, setSalesExportFrom] = React.useState('');
+  const [salesExportTo, setSalesExportTo] = React.useState('');
+
+  function triggerExport(path) {
+    const token = localStorage.getItem('token');
+    window.location.href = `/api${path}&_token=${encodeURIComponent(token || '')}`;
+  }
+
+  function exportProducts(format) {
+    const token = localStorage.getItem('token');
+    const a = document.createElement('a');
+    a.href = `/api/products/export?format=${format}`;
+    // Use fetch to pass auth header, then trigger download
+    fetch(a.href, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        Object.assign(document.createElement('a'), { href: url, download: `products.${format}` }).click();
+        URL.revokeObjectURL(url);
+      });
+  }
+
+  function exportSales(format) {
+    const token = localStorage.getItem('token');
+    const qs = new URLSearchParams({ format, ...(salesExportFrom && { from: salesExportFrom }), ...(salesExportTo && { to: salesExportTo }) });
+    fetch(`/api/orders/sales/export?${qs}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        Object.assign(document.createElement('a'), { href: url, download: `sales.${format}` }).click();
+        URL.revokeObjectURL(url);
+      });
+  }
+
   return (
     <div style={s.page}>
       <div style={s.title}>🌾 Farmer Dashboard</div>
@@ -780,6 +814,10 @@ export default function Dashboard() {
 
         <div style={s.card}>
           <h3 style={{ marginBottom: 16, color: '#333' }}>My Listings ({products.length})</h3>
+          <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+            <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportProducts('csv')}>⬇ CSV</button>
+            <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportProducts('pdf')}>⬇ PDF</button>
+          </div>
           {products.length === 0 && <p style={{ color: '#888', fontSize: 14 }}>No products yet. Add your first listing.</p>}
           {products.map(p => (
             <div key={p.id} style={s.product}>
@@ -1144,6 +1182,12 @@ export default function Dashboard() {
         <h3 style={{ padding: '16px 20px', borderBottom: '1px solid #eee', margin: 0, color: '#333' }}>
           📋 {t('dashboard.incomingOrders', { count: sales.length })}
         </h3>
+        <div style={{ padding: '12px 20px', borderBottom: '1px solid #eee', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <input type="date" value={salesExportFrom} onChange={e => setSalesExportFrom(e.target.value)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }} placeholder="From" />
+          <input type="date" value={salesExportTo} onChange={e => setSalesExportTo(e.target.value)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }} placeholder="To" />
+          <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportSales('csv')}>⬇ CSV</button>
+          <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportSales('pdf')}>⬇ PDF</button>
+        </div>
         {sales.length === 0 ? (
           <p style={{ padding: '20px', color: '#888', fontSize: 14 }}>{t('dashboard.noOrders')}</p>
         ) : (

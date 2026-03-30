@@ -76,6 +76,9 @@ router.use("/api/wallet/fund", fundLimiter);
 router.use("/api/v1/wallet/fund", fundLimiter);
 router.use("/api/wallet/send", sendLimiter);
 
+// Export routes (must be before /products and /orders to avoid /:id catch-all)
+router.use("/api", require("./export"));
+
 // Routes
 router.use("/api/auth", require("./auth"));
 router.use("/api/products", require("./products"));
