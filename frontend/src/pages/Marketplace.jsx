@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useFavorites } from "../context/FavoritesContext";
@@ -416,6 +417,10 @@ export default function Marketplace() {
 
   return (
     <div style={s.page}>
+      <Helmet>
+        <title>Marketplace – Farmers Marketplace</title>
+        <meta name="description" content="Browse fresh produce from local farmers. Buy vegetables, fruits, grains, dairy and more directly from the source." />
+      </Helmet>
       <div
         style={{
           display: "flex",

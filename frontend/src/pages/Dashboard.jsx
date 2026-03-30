@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 
 const s = {
@@ -526,6 +527,10 @@ export default function Dashboard() {
 
   return (
     <div style={s.page}>
+      <Helmet>
+        <title>Farmer Dashboard – Farmers Marketplace</title>
+        <meta name="description" content="Manage your product listings, track sales, and grow your farm business on Farmers Marketplace." />
+      </Helmet>
       <div style={s.title}>🌾 Farmer Dashboard</div>
       <div style={{ ...s.card, marginBottom: 24 }}>
         <h3 style={{ marginBottom: 12, color: '#333' }}>Flash Sales</h3>

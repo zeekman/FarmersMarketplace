@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import Spinner from '../components/Spinner';
@@ -150,6 +151,10 @@ export default function Orders() {
 
   return (
     <div style={s.page}>
+      <Helmet>
+        <title>My Orders – Farmers Marketplace</title>
+        <meta name="description" content="View and track your orders on Farmers Marketplace." />
+      </Helmet>
       <div style={s.title}>📦 My Orders</div>
       <div style={s.sub}>Track your purchases and verify transactions</div>
 
