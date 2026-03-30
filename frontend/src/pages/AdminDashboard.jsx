@@ -74,6 +74,14 @@ export default function AdminDashboard() {
   const [aclForm, setAclForm] = useState({ address: '', role: 'admin' });
   const [aclMsg, setAclMsg] = useState('');
 
+  // Contract version comparison
+  const [cmpRegistryId, setCmpRegistryId] = useState('');
+  const [cmpV1, setCmpV1] = useState('');
+  const [cmpV2, setCmpV2] = useState('');
+  const [cmpResult, setCmpResult] = useState(null);
+  const [cmpLoading, setCmpLoading] = useState(false);
+  const [cmpError, setCmpError] = useState('');
+
   async function loadStats() {
     try {
       const res = await api.adminGetStats();
@@ -808,6 +816,96 @@ export default function AdminDashboard() {
               </table>
             )}
           </>
+        )}
+      </div>
+
+      {/* Contract Version Comparison */}
+      <div style={{ ...s.card, marginTop: 24 }}>
+        <h3 style={{ marginBottom: 16, color: '#333' }}>🔀 Contract Version Comparison</h3>
+        <p style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>
+          Compare function signatures between two WASM versions of a registered contract.
+          Results are cached for 10 minutes.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 10, alignItems: 'end', marginBottom: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#555' }}>Registry ID</label>
+            <input style={inputStyle} type="number" placeholder="Contract registry ID" value={cmpRegistryId} onChange={(e) => setCmpRegistryId(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#555' }}>v1 WASM Hash (old)</label>
+            <input style={monoInputStyle} placeholder="64-char hex" value={cmpV1} onChange={(e) => setCmpV1(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#555' }}>v2 WASM Hash (new)</label>
+            <input style={monoInputStyle} placeholder="64-char hex" value={cmpV2} onChange={(e) => setCmpV2(e.target.value)} />
+          </div>
+          <button
+            style={s.btn(cmpLoading)}
+            disabled={cmpLoading}
+            onClick={async () => {
+              setCmpError('');
+              setCmpResult(null);
+              if (!cmpRegistryId || !cmpV1.trim() || !cmpV2.trim()) {
+                setCmpError('Registry ID, v1, and v2 are required.');
+                return;
+              }
+              setCmpLoading(true);
+              try {
+                const res = await api.adminCompareContractVersions(cmpRegistryId, cmpV1.trim(), cmpV2.trim());
+                setCmpResult(res.data);
+              } catch (err) {
+                setCmpError(err.message || 'Comparison failed');
+              } finally {
+                setCmpLoading(false);
+              }
+            }}
+          >
+            {cmpLoading ? 'Comparing…' : 'Compare'}
+          </button>
+        </div>
+        {cmpError && <div style={{ color: '#c0392b', fontSize: 13, marginBottom: 12 }}>{cmpError}</div>}
+        {cmpResult && (
+          <div>
+            {cmpResult.added.length === 0 && cmpResult.removed.length === 0 && cmpResult.changed.length === 0 ? (
+              <div style={{ color: '#2d6a4f', fontSize: 14 }}>✅ Identical — no differences found.</div>
+            ) : (
+              <>
+                {cmpResult.added.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, color: '#2d6a4f', marginBottom: 6 }}>➕ Added ({cmpResult.added.length})</div>
+                    {cmpResult.added.map((fn) => (
+                      <div key={fn.name} style={{ background: '#d8f3dc', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
+                        <strong>{fn.name}</strong> {fn.signature}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {cmpResult.removed.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, color: '#c0392b', marginBottom: 6 }}>➖ Removed ({cmpResult.removed.length})</div>
+                    {cmpResult.removed.map((fn) => (
+                      <div key={fn.name} style={{ background: '#fee', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
+                        <strong>{fn.name}</strong> {fn.signature}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {cmpResult.changed.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, color: '#b8860b', marginBottom: 6 }}>✏️ Changed ({cmpResult.changed.length})</div>
+                    {cmpResult.changed.map((fn) => (
+                      <div key={fn.name} style={{ background: '#ffeaa7', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
+                        <strong>{fn.name}</strong><br />
+                        <span style={{ color: '#c0392b' }}>− {fn.old_signature}</span><br />
+                        <span style={{ color: '#2d6a4f' }}>+ {fn.new_signature}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+            {cmpResult.cached && <div style={{ fontSize: 11, color: '#aaa', marginTop: 8 }}>Cached result</div>}
+          </div>
         )}
       </div>
     </div>

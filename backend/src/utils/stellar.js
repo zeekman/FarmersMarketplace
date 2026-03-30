@@ -1181,6 +1181,82 @@ async function getContractEvents(contractId, filters = {}) {
   return { events: items, pagination: { page, pages, total, limit } };
 }
 
+/**
+ * Fetch the function signatures exposed by a contract on the Soroban network.
+ * Returns a Map of functionName → signature string, e.g. "(amount: i128) -> void".
+ * @param {string} contractId  Contract address (base32 or hex)
+ * @returns {Promise<Map<string, string>>}
+ */
+async function getContractFunctionSignatures(contractId) {
+  const sorobanRpcUrl =
+    process.env.SOROBAN_RPC_URL ||
+    (isTestnet
+      ? 'https://soroban-testnet.stellar.org'
+      : 'https://soroban.stellar.org');
+  const sorobanServer = new StellarSdk.SorobanRpc.Server(sorobanRpcUrl);
+
+  const contractAddress = new StellarSdk.Address(contractId);
+  const ledgerKey = StellarSdk.xdr.LedgerKey.contractData(
+    new StellarSdk.xdr.LedgerKeyContractData({
+      contract: contractAddress.toScAddress(),
+      key: StellarSdk.xdr.ScVal.scvLedgerKeyContractInstance(),
+      durability: StellarSdk.xdr.ContractDataDurability.persistent(),
+    })
+  );
+
+  let response;
+  try {
+    response = await sorobanServer.getLedgerEntries(ledgerKey);
+  } catch (e) {
+    if (e.message?.includes('not found') || e.code === 404) {
+      const notFound = new Error('Contract not found');
+      notFound.code = 404;
+      throw notFound;
+    }
+    throw e;
+  }
+
+  const entries = response.entries || [];
+  if (!entries.length) {
+    const notFound = new Error('Contract instance not found on ledger');
+    notFound.code = 404;
+    throw notFound;
+  }
+
+  const data = entries[0].val?.contractData?.();
+  if (!data) return new Map();
+
+  const scVal = data.val();
+  let instance;
+  try {
+    instance = scVal.contractInstance();
+  } catch {
+    return new Map();
+  }
+
+  const spec = instance.contractSpec?.();
+  if (!spec || !spec.length) return new Map();
+
+  const signatures = new Map();
+  for (const entry of spec) {
+    try {
+      const fn = entry.functionV0?.();
+      if (!fn) continue;
+      const name = fn.name?.().toString() || '';
+      const inputs = (fn.inputs?.() || [])
+        .map((i) => `${i.name?.()}: ${i.type?.switch?.()?.name || 'unknown'}`)
+        .join(', ');
+      const outputs = (fn.outputs?.() || [])
+        .map((o) => o.switch?.()?.name || 'unknown')
+        .join(', ');
+      signatures.set(name, `(${inputs}) -> ${outputs || 'void'}`);
+    } catch {
+      // skip unparseable entries
+    }
+  }
+  return signatures;
+}
+
 module.exports = {
   isTestnet,
   server,
@@ -1212,4 +1288,5 @@ module.exports = {
   analyzeContractFees,
   resolveFederationAddress,
   mintRewardTokens,
+  getContractFunctionSignatures,
 };
