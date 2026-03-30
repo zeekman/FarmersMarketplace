@@ -1,3 +1,5 @@
+const logger = require('../logger');
+
 /**
  * Send a unified error response: { success: false, message, code }
  * @param {import('express').Response} res
@@ -14,6 +16,14 @@ function err(res, status, message, code) {
 }
 
 /** Express 4-arg error handler — mount last in app.js */
+function errorHandler(error, req, res, next) { // eslint-disable-line no-unused-vars
+  logger.error('Unhandled error', {
+    error: error.message,
+    stack: error.stack,
+    requestId: req.requestId,
+    method: req.method,
+    url: req.url
+  });
 function errorHandler(error, req, res, next) {
   // eslint-disable-line no-unused-vars
   console.error(error);

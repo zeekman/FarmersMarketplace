@@ -8,6 +8,8 @@
     "test": "jest --forceExit",
     "migrate": "node migrate.js",
     "migrate:rollback": "node migrate.js rollback",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js"
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write . --ignore-path ../.prettierignore"
   },
@@ -42,6 +44,7 @@
     "express": "^4.18.3",
     "express-rate-limit": "^8.3.1",
     "express-validator": "^7.3.1",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.2.1",
@@ -52,6 +55,9 @@
     "stellar-hd-wallet": "^0.0.8",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "uuid": "^13.0.0",
+    "web-push": "^3.6.7",
+    "winston": "^3.19.0",
     "web-push": "^3.6.7",
     "zod": "^4.3.6"
   },

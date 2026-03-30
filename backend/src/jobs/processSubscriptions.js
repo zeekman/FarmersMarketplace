@@ -1,4 +1,5 @@
 const cron = require('node-cron');
+const logger = require('../logger');
 const db = require('../db/schema');
 const { sendPayment } = require('../utils/stellar');
 const { nextOrderDate } = require('../routes/subscriptions');
@@ -21,7 +22,7 @@ async function processSubscriptions() {
     .all(now);
 
   if (due.length === 0) return;
-  console.log(`[subscriptions] Processing ${due.length} due subscription(s)`);
+  logger.info(`[subscriptions] Processing ${due.length} due subscription(s)`);
 
   for (const sub of due) {
     const totalPrice = sub.price * sub.quantity;
