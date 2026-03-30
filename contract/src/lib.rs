@@ -1,4 +1,45 @@
+#![no_std]
 
+mod errors;
+mod types;
+
+use errors::EscrowError;
+use types::{EscrowData, EscrowStatus};
+
+use soroban_sdk::{
+    contract, contractimpl, symbol_short,
+    token::Client as TokenClient,
+    Address, Env,
+};
+
+const ESCROW_KEY: &str = "escrow";
+
+#[contract]
+pub struct EscrowContract;
+
+#[contractimpl]
+impl EscrowContract {
+    /// Create a new escrow. Transfers `amount` of `token` from `payer` to this contract.
+    /// `deadline` is an optional ledger timestamp after which the payer may reclaim funds.
+    pub fn create(
+        env: Env,
+        payer: Address,
+        freelancer: Address,
+        token: Address,
+        amount: i128,
+        deadline: Option<u64>,
+    ) -> Result<(), EscrowError> {
+        if amount <= 0 {
+            return Err(EscrowError::InvalidAmount);
+        }
+        if env.storage().instance().has(&symbol_short!("escrow")) {
+            return Err(EscrowError::AlreadyExists);
+        }
+
+        payer.require_auth();
+
+        // Transfer funds from payer into the contract
+        TokenClient::new(&env, &token).transf
 #![no_std]
 
 mod errors;
