@@ -45,7 +45,23 @@ db.exec(`
 // Migrate existing DB: add category column if missing
 try { db.exec(`ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'other'`); } catch {}
 // Migrate: add grade column if missing
-try { db.exec(`ALTER TABLE products ADD COLUMN grade TEXT`); } catch {}
+try { db.exec(`ALTER TABLE products ADD COLUMN grade TEXT`); } catch (e) {}
+
+// Create idempotency cache table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS idempotency (
+    \`key\` TEXT PRIMARY KEY,
+    status INTEGER NOT NULL,
+    body TEXT NOT NULL,
+    expires DATETIME NOT NULL DEFAULT (datetime('now', '+24 hours'))
+  )
+`);
+
+// Cleanup expired cache entries on startup
+try {
+  db.exec('DELETE FROM idempotency WHERE expires < datetime("now")');
+} catch (e) {}
 
 module.exports = db;
+
 

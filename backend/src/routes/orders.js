@@ -5,15 +5,48 @@ const validate = require('../middleware/validate');
 const { sendPayment, getBalance } = require('../utils/stellar');
 const { sendOrderEmails } = require('../utils/mailer');
 
-// POST /api/orders - buyer places + pays for an order
+const cacheResponse = (key, statusCode, body) => {
+  const status = JSON.stringify(statusCode);
+  const bodyStr = JSON.stringify(body);
+  db.prepare(`
+    INSERT OR REPLACE INTO idempotency (\`key\`, status, body, expires)
+    VALUES (?, ?, ?, datetime('now', '+24 hours'))
+  `).run(key, status, bodyStr);
+};
+
+const getCachedResponse = (key) => {
+  const cached = db.prepare(
+    'SELECT status, body FROM idempotency WHERE \`key\` = ? AND expires > datetime("now")'
+  ).get(key);
+  if (cached) {
+    const status = parseInt(cached.status);
+    const body = JSON.parse(cached.body);
+    return { status, body };
+  }
+  return null;
+};
+
+// POST /api/orders - buyer places + pays for an order (idempotent)
 router.post('/', auth, validate.order, async (req, res) => {
   if (req.user.role !== 'buyer')
     return res.status(403).json({ error: 'Only buyers can place orders' });
 
+  const idempotencyKey = req.get('Idempotency-Key') || '';
+  if (idempotencyKey) {
+    const cached = getCachedResponse(idempotencyKey);
+    if (cached) {
+      return res.status(cached.status).json(cached.body);
+    }
+  }
+
   const { product_id } = req.body;
   const quantity = parseInt(req.body.quantity, 10);
-  if (!product_id || isNaN(quantity) || quantity < 1)
-    return res.status(400).json({ error: 'product_id and a positive quantity are required' });
+  if (!product_id || isNaN(quantity) || quantity < 1) {
+    const status = 400;
+    const body = { error: 'product_id and a positive quantity are required' };
+    if (idempotencyKey) cacheResponse(idempotencyKey, status, body);
+    return res.status(status).json(body);
+  }
 
   const product = db.prepare(`
     SELECT p.*, u.stellar_public_key as farmer_wallet
@@ -21,22 +54,29 @@ router.post('/', auth, validate.order, async (req, res) => {
     WHERE p.id = ?
   `).get(product_id);
 
-  if (!product) return res.status(404).json({ error: 'Product not found' });
+  if (!product) {
+    const status = 404;
+    const body = { error: 'Product not found' };
+    if (idempotencyKey) cacheResponse(idempotencyKey, status, body);
+    return res.status(status).json(body);
+  }
 
   const buyer = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   const totalPrice = product.price * quantity;
 
-  // Verify buyer has sufficient XLM balance (amount + network fee)
   const balance = await getBalance(buyer.stellar_public_key);
   const required = totalPrice + 0.00001;
-  if (balance < required)
-    return res.status(402).json({
+  if (balance < required) {
+    const status = 402;
+    const body = {
       error: 'Insufficient XLM balance',
       required: required.toFixed(7),
       available: balance.toFixed(7),
-    });
+    };
+    if (idempotencyKey) cacheResponse(idempotencyKey, status, body);
+    return res.status(status).json(body);
+  }
 
-  // Atomically decrement stock only if sufficient quantity exists, then create order
   const reserveStock = db.transaction((buyerId, productId, qty, total) => {
     const deducted = db.prepare(
       'UPDATE products SET quantity = quantity - ? WHERE id = ? AND quantity >= ?'
@@ -55,11 +95,13 @@ router.post('/', auth, validate.order, async (req, res) => {
   try {
     orderId = reserveStock(req.user.id, product_id, quantity, totalPrice);
   } catch (err) {
-    return res.status(400).json({ error: err.message });
+    const status = 400;
+    const body = { error: err.message };
+    if (idempotencyKey) cacheResponse(idempotencyKey, status, body);
+    return res.status(status).json(body);
   }
 
   try {
-    // Execute Stellar payment
     const txHash = await sendPayment({
       senderSecret: buyer.stellar_secret_key,
       receiverPublicKey: product.farmer_wallet,
@@ -77,12 +119,17 @@ router.post('/', auth, validate.order, async (req, res) => {
       farmer,
     }).catch(err => console.error('Email notification failed:', err.message));
 
-    res.json({ orderId, status: 'paid', txHash, totalPrice });
+    const status = 200;
+    const body = { orderId, status: 'paid', txHash, totalPrice };
+    if (idempotencyKey) cacheResponse(idempotencyKey, status, body);
+    res.status(status).json(body);
   } catch (err) {
-    // Payment failed — restore stock and mark order failed
     db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?').run(quantity, product_id);
     db.prepare('UPDATE orders SET status = ? WHERE id = ?').run('failed', orderId);
-    res.status(402).json({ error: 'Payment failed: ' + err.message, orderId });
+    const status = 402;
+    const body = { error: 'Payment failed: ' + err.message, orderId };
+    if (idempotencyKey) cacheResponse(idempotencyKey, status, body);
+    res.status(status).json(body);
   }
 });
 
@@ -116,3 +163,4 @@ router.get('/sales', auth, (req, res) => {
 });
 
 module.exports = router;
+
