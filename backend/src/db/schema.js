@@ -33,6 +33,7 @@ db.exec(`
     buyer_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
     quantity INTEGER NOT NULL,
+    weight REAL,
     total_price REAL NOT NULL,
     status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'paid', 'failed')),
     stellar_tx_hash TEXT,
@@ -46,6 +47,11 @@ db.exec(`
 try { db.exec(`ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'other'`); } catch {}
 // Migrate: add grade column if missing
 try { db.exec(`ALTER TABLE products ADD COLUMN grade TEXT`); } catch (e) {}
+
+// Migrate: add weight column to orders if missing
+try { 
+  db.exec(`ALTER TABLE orders ADD COLUMN weight REAL`);
+} catch (e) {}
 
 // Create idempotency cache table
 db.exec(`
@@ -63,5 +69,4 @@ try {
 } catch (e) {}
 
 module.exports = db;
-
 

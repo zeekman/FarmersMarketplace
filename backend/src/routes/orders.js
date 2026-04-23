@@ -39,8 +39,10 @@ router.post('/', auth, validate.order, async (req, res) => {
     }
   }
 
-  const { product_id } = req.body;
+  const { product_id, weight: weightStr } = req.body;
   const quantity = parseInt(req.body.quantity, 10);
+  const weight = weightStr ? parseFloat(weightStr) : null;
+  if (isNaN(weight)) weight = null;
   if (!product_id || isNaN(quantity) || quantity < 1) {
     const status = 400;
     const body = { error: 'product_id and a positive quantity are required' };
@@ -85,8 +87,8 @@ router.post('/', auth, validate.order, async (req, res) => {
     if (deducted.changes === 0) throw new Error('Insufficient stock');
 
     const order = db.prepare(
-      'INSERT INTO orders (buyer_id, product_id, quantity, total_price, status) VALUES (?, ?, ?, ?, ?)'
-    ).run(buyerId, productId, qty, total, 'pending');
+'INSERT INTO orders (buyer_id, product_id, quantity, weight, total_price, status) VALUES (?, ?, ?, ?, ?, ?)'
+).run(buyerId, productId, qty, weight, total, 'pending');
 
     return order.lastInsertRowid;
   });

@@ -75,6 +75,51 @@ describe('POST /api/orders idempotency', () => {
 });
 
 describe('POST /api/orders', () => {
+  it('buyer places an order successfully when weight is provided (parsed as float)', async () => {
+    mockGet
+      .mockReturnValueOnce(product)  // product lookup
+      .mockReturnValueOnce(buyer);   // buyer lookup
+      .mockReturnValueOnce({ id: 1 }); // farmer in sendOrderEmails
+    mockRun
+      .mockReturnValueOnce({ changes: 1 })
+      .mockReturnValueOnce({ lastInsertRowid: 99 })
+      .mockReturnValueOnce({}); 
+    stellar.getBalance.mockResolvedValue(99999);
+    stellar.sendPayment.mockResolvedValue('TXHASH_OK');
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ product_id: 10, quantity: 2, weight: '1.5' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('paid');
+    // Verify weight stored by mocking the order query or checking INSERT
+    expect(mockRun.mock.calls[1].slice(1)).toContain(1.5); // weight param in INSERT
+  });
+
+  it('buyer places an order successfully when no weight provided (null)', async () => {
+    mockGet
+      .mockReturnValueOnce(product)
+      .mockReturnValueOnce(buyer)
+      .mockReturnValueOnce({ id: 1 });
+    mockRun
+      .mockReturnValueOnce({ changes: 1 })
+      .mockReturnValueOnce({ lastInsertRowid: 99 })
+      .mockReturnValueOnce({}); 
+    stellar.getBalance.mockResolvedValue(99999);
+    stellar.sendPayment.mockResolvedValue('TXHASH_OK');
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ product_id: 10, quantity: 2 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('paid');
+    expect(mockRun.mock.calls[1].slice(1)).toContain(null); // weight param null
+  });
+
   it('buyer places an order successfully', async () => {
     mockGet
       .mockReturnValueOnce(product)  // product lookup

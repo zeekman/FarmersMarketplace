@@ -29,6 +29,7 @@ const schemas = {
   order: [
     body('product_id').isInt({ gt: 0 }).withMessage('product_id must be a positive integer'),
     body('quantity').isInt({ gt: 0 }).withMessage('quantity must be a positive integer'),
+    body('weight').optional().isFloat().withMessage('weight must be a positive number'),
     handle,
   ],
 };
