@@ -1,12 +1,14 @@
 # 🌿 Farmers Marketplace
 
+[![CI](https://github.com/techisigu/FarmersMarketplace/workflows/CI/badge.svg)](https://github.com/techisigu/FarmersMarketplace/actions)
+
 A minimal MVP marketplace where farmers list products and buyers pay using the **Stellar Network (XLM)**.
 
 ## Stack
 
 - Frontend: React + Vite
 - Backend: Node.js + Express
-- Database: SQLite (via better-sqlite3)
+- Database: SQLite (local dev, default) / PostgreSQL (production)
 - Payments: Stellar Testnet (XLM)
 
 ## Project Structure
@@ -74,25 +76,179 @@ Runs on http://localhost:3000
 
 ## API Endpoints
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | /api/auth/register | — | Register user |
-| POST | /api/auth/login | — | Login |
-| GET | /api/products | — | Browse all products |
-| GET | /api/products/:id | — | Product detail |
-| POST | /api/products | farmer | Create listing |
-| GET | /api/products/mine/list | farmer | My listings |
-| DELETE | /api/products/:id | farmer | Remove listing |
-| POST | /api/orders | buyer | Place + pay order |
-| GET | /api/orders | buyer | Order history |
-| GET | /api/orders/sales | farmer | Incoming sales |
-| GET | /api/wallet | auth | Balance |
-| GET | /api/wallet/transactions | auth | TX history |
-| POST | /api/wallet/fund | auth | Fund via Friendbot (testnet) |
+Interactive API documentation is available at **[http://localhost:4000/api/docs](http://localhost:4000/api/docs)** when the backend is running.
+
+| Method | Path                                     | Auth   | Description                                                        |
+| ------ | ---------------------------------------- | ------ | ------------------------------------------------------------------ |
+| POST   | /api/auth/register                       | —      | Register user                                                      |
+| POST   | /api/auth/login                          | —      | Login                                                              |
+| GET    | /api/products                            | —      | Browse all products                                                |
+| GET    | /api/products/:id                        | —      | Product detail                                                     |
+| POST   | /api/products                            | farmer | Create listing                                                     |
+| GET    | /api/products/mine/list                  | farmer | My listings                                                        |
+| DELETE | /api/products/:id                        | farmer | Remove listing                                                     |
+| POST   | /api/orders                              | buyer  | Place + pay order                                                  |
+| GET    | /api/orders                              | buyer  | Order history                                                      |
+| GET    | /api/orders/sales                        | farmer | Incoming sales                                                     |
+| GET    | /api/wallet                              | auth   | Balance                                                            |
+| GET    | /api/wallet/transactions                 | auth   | TX history                                                         |
+| POST   | /api/wallet/fund                         | auth   | Fund via Friendbot (testnet)                                       |
+| GET    | /api/contracts/:contractId/state?prefix= | auth   | View Soroban contract storage entries (JSON: key, val, durability) |
+
+## Database Migrations
+
+Schema changes are managed through versioned SQL migration files in `backend/migrations/`.
+
+### Running migrations
+
+```bash
+cd backend
+npm run migrate           # apply all pending migrations
+npm run migrate:rollback  # revert the last applied migration
+```
+
+Migrations run automatically on app startup — no manual step needed for development.
+
+### How it works
+
+- Migration files: `backend/migrations/NNN_description.sql`
+- Rollback files:  `backend/migrations/NNN_description.undo.sql` (optional)
+- Applied migrations are tracked in a `migrations` table in the database
+- Running `migrate` twice is safe — already-applied migrations are skipped
+
+### Creating a new migration
+
+```bash
+# Up migration
+echo "ALTER TABLE products ADD COLUMN featured INTEGER DEFAULT 0;" \
+  > backend/migrations/002_add_featured.sql
+
+# Rollback (optional)
+echo "ALTER TABLE products DROP COLUMN IF EXISTS featured;" \
+  > backend/migrations/002_add_featured.undo.sql
+
+npm run migrate
+```
+
+## Database Backup and Restore
+
+The application includes automated database backup functionality to protect against data loss.
+
+### Manual Backup
+
+Create a timestamped backup of the database:
+
+```bash
+cd backend
+npm run backup
+```
+
+This creates a backup file in `backend/backups/` with format `market-YYYY-MM-DD.db`.
+
+### Manual Restore
+
+Restore the database from a backup file:
+
+```bash
+cd backend
+npm run restore -- backups/market-2024-01-01.db
+```
+
+**Important**: Before restoring, the current database is automatically backed up to `market.db.backup`.
+
+### Automated Daily Backups
+
+- Backups run automatically every day at midnight UTC
+- Only the last 7 backups are retained (older ones are automatically deleted)
+- Backup status and errors are logged using the structured logging system
+
+### Backup Location
+
+- Backup files are stored in: `backend/backups/`
+- File naming convention: `market-YYYY-MM-DD.db`
+- Maximum retention: 7 days
+
+### Recovery Procedures
+
+1. **Quick Restore**: Use `npm run restore` with the desired backup file
+2. **Emergency Recovery**: Copy `market.db.backup` (created before restore) back to `market.db`
+3. **Complete Reset**: Delete `market.db` and restart the application (fresh schema)
+
+## PostgreSQL Setup
+
+The backend supports both SQLite (local dev) and PostgreSQL (production), controlled by the `DATABASE_URL` environment variable.
+
+### Local development (SQLite — default)
+
+No extra setup needed. SQLite is used automatically when `DATABASE_URL` is not set.
+
+### Production (PostgreSQL)
+
+1. Add `DATABASE_URL` to your `.env`:
+   ```
+   DATABASE_URL=postgresql://user:password@localhost:5432/farmersmarketplace
+   ```
+2. The schema is created automatically on first start.
+
+### Docker Compose (PostgreSQL + backend + frontend)
+
+```bash
+cp backend/.env.example backend/.env
+# Edit backend/.env — set JWT_SECRET etc.
+docker compose up
+```
+
+This starts:
+- `postgres` — PostgreSQL 16 on port 5432
+- `backend`  — Express API on port 4000 (connected to postgres)
+- `frontend` — React app on port 3000
+
+### Migrate existing SQLite data to PostgreSQL
+
+```bash
+DATABASE_URL=postgresql://user:pass@host:5432/dbname \
+  node backend/scripts/migrate-sqlite-to-pg.js
+```
+
+## Contract Testing (Soroban)
+
+Test Soroban contracts against a local Stellar node using the built-in test harness.
+
+### Start the local node
+
+```bash
+docker-compose -f docker-compose.test.yml up -d
+```
+
+This starts a `stellar/quickstart` node on port 8000 with Soroban RPC enabled.
+
+### Run contract tests
+
+```bash
+cd backend
+npm run test:contracts
+```
+
+### Test helpers
+
+`backend/src/__tests__/helpers/soroban.js` exposes:
+
+- `fundAccount(publicKey)` — fund via local Friendbot
+- `deployContract(wasmBuffer, keypair)` — upload WASM and create contract instance
+- `invokeContract(contractId, method, args, keypair)` — call a contract function
+
+### Environment variables (optional)
+
+| Variable | Default | Description |
+|---|---|---|
+| `TEST_HORIZON_URL` | `http://localhost:8000` | Local Horizon endpoint |
+| `TEST_SOROBAN_RPC_URL` | `http://localhost:8000/soroban/rpc` | Local Soroban RPC |
+| `TEST_NETWORK_PASSPHRASE` | `Standalone Network ; February 2017` | Local network passphrase |
+| `SKIP_CONTRACT_TESTS` | `false` | Set to `true` to skip in CI without Docker |
 
 ## Notes
 
 - Stellar wallets are auto-created on registration
 - All payments use **XLM on Stellar Testnet** — no real money involved
-- SQLite database file (`market.db`) is created automatically on first run
-- To reset: delete `backend/market.db`
+- SQLite database file (`market.db`) is created automatically on first run (when `DATABASE_URL` is not set)
+- To reset SQLite: delete `backend/market.db`

@@ -38,4 +38,79 @@ Date:     ${new Date().toUTCString()}
   ]);
 }
 
-module.exports = { sendOrderEmails };
+async function sendLowStockAlert({ product, farmer }) {
+  if (!process.env.SMTP_HOST) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: farmer.email,
+    subject: `⚠️ Low Stock Alert – ${product.name}`,
+    text: `Hi ${farmer.name},\n\nYour product "${product.name}" is running low on stock.\n\nCurrent quantity: ${product.quantity} ${product.unit}\nThreshold: ${product.low_stock_threshold} ${product.unit}\n\nPlease restock or update your listing.\n\nFarmers Marketplace`,
+  });
+}
+
+async function sendStatusUpdateEmail({ order, product, buyer, newStatus }) {
+  if (!process.env.SMTP_HOST) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: buyer.email,
+    subject: `Order #${order.id} Status Update – ${newStatus.toUpperCase()}`,
+    text: `Hi ${buyer.name},\n\nYour order status has been updated.\n\nOrder #${order.id}\nProduct: ${product.name}\nNew Status: ${newStatus}\n\nThank you for shopping at Farmers Marketplace!`,
+  });
+}
+
+async function sendFreshnessAlert({ product, farmer, daysLeft }) {
+  if (!process.env.SMTP_HOST) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: farmer.email,
+    subject: `⚠️ Product Expiring Soon – ${product.name}`,
+    text: `Hi ${farmer.name},\n\nYour product "${product.name}" is approaching its best-before date.\n\nBest Before: ${product.best_before}\nDays Left: ${daysLeft}\n\nPlease consider updating the listing or removing it from sale.\n\nFarmers Marketplace`,
+  });
+}
+
+async function sendReturnEmail({ type, order, buyer, farmer, reason, txHash, rejectReason }) {
+  if (!process.env.SMTP_HOST) return;
+  if (type === 'filed') {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: farmer.email,
+      subject: `↩️ Return Request – Order #${order.id} (${order.product_name})`,
+      text: `Hi ${farmer.name},\n\nBuyer ${buyer.name} has filed a return request for Order #${order.id}.\n\nReason: ${reason}\n\nPlease log in to approve or reject this request.\n\nFarmers Marketplace`,
+    });
+  } else if (type === 'approved') {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: buyer.email,
+      subject: `✅ Return Approved – Order #${order.id} (${order.product_name})`,
+      text: `Hi ${buyer.name},\n\nYour return request for Order #${order.id} has been approved.\n\nRefund of ${order.total_price} XLM has been sent.\nTX Hash: ${txHash}\n\nFarmers Marketplace`,
+    });
+  } else if (type === 'rejected') {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: buyer.email,
+      subject: `❌ Return Rejected – Order #${order.id} (${order.product_name})`,
+      text: `Hi ${buyer.name},\n\nYour return request for Order #${order.id} has been rejected.${rejectReason ? `\n\nReason: ${rejectReason}` : ''}\n\nFarmers Marketplace`,
+    });
+  }
+}
+
+async function sendContractAlert({ to, alert }) {
+  if (!process.env.SMTP_HOST) return;
+  const typeLabel = alert.alert_type === 'failed_invocations' ? '⚠️ Failed Invocations' : '🚨 Large Transfer';
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `[Contract Alert] ${typeLabel} – ${alert.contract_id}`,
+    text: `Admin Alert\n\nType: ${alert.alert_type}\nContract: ${alert.contract_id}\n\n${alert.message}\n\nTime: ${alert.created_at}\n\nLog in to the admin dashboard to acknowledge this alert.\n\nFarmers Marketplace`,
+  });
+}
+
+module.exports = {
+  transporter,
+  sendOrderEmails,
+  sendLowStockAlert,
+  sendStatusUpdateEmail,
+  sendBackInStockEmail,
+  sendReturnEmail,
+  sendContractAlert,
+};

@@ -1,19 +1,56 @@
 const jwt = require('jsonwebtoken');
-const { request, app, mockGet, mockAll, mockRun } = require('./setup');
+const { request, app, mockQuery, getCsrf } = require('./setup');
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+});
 
-const SECRET = process.env.JWT_SECRET || 'secret';
+const SECRET = process.env.JWT_SECRET || 'test-secret-for-jest';
 const farmerToken = jwt.sign({ id: 1, role: 'farmer' }, SECRET);
-const buyerToken  = jwt.sign({ id: 2, role: 'buyer'  }, SECRET);
+const buyerToken = jwt.sign({ id: 2, role: 'buyer' }, SECRET);
 
 describe('GET /api/products', () => {
-  it('returns paginated product list', async () => {
-    mockGet.mockReturnValueOnce({ count: 0 });
-    mockAll.mockReturnValueOnce([]);
+  it('returns paginated product list with pagination metadata', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ count: '0' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
     const res = await request(app).get('/api/products');
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual([]);
+    expect(res.body.total).toBe(0);
+    expect(res.body.page).toBe(1);
+    expect(res.body.limit).toBe(20);
+    expect(res.body.totalPages).toBe(0);
+  });
+
+  it('respects page and limit query params', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ count: '30' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const res = await request(app).get('/api/products?page=2&limit=10');
+    expect(res.status).toBe(200);
+    expect(res.body.page).toBe(2);
+    expect(res.body.limit).toBe(10);
+    expect(res.body.totalPages).toBe(3);
+  });
+
+  it('clamps limit to 100', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ count: '0' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const res = await request(app).get('/api/products?limit=500');
+    expect(res.status).toBe(200);
+    expect(res.body.limit).toBe(100);
+  });
+
+  it('defaults to page 1 when page param is omitted', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ count: '0' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const res = await request(app).get('/api/products');
+    expect(res.status).toBe(200);
+    expect(res.body.page).toBe(1);
   });
 
   describe('filters', () => {
@@ -46,10 +83,13 @@ describe('GET /api/products', () => {
 
 describe('POST /api/products', () => {
   it('farmer can create a product', async () => {
-    mockRun.mockReturnValueOnce({ lastInsertRowid: 5 });
+    const { token: csrf, cookieStr } = await getCsrf();
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 5 }], rowCount: 1 });
     const res = await request(app)
       .post('/api/products')
       .set('Authorization', `Bearer ${farmerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
       .send({ name: 'Tomatoes', price: 2.5, quantity: 100, unit: 'kg' });
     expect(res.status).toBe(200);
     expect(res.body.id).toBe(5);
@@ -65,22 +105,33 @@ describe('POST /api/products', () => {
   });
 
   it('buyer cannot create a product', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
     const res = await request(app)
       .post('/api/products')
       .set('Authorization', `Bearer ${buyerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
       .send({ name: 'Tomatoes', price: 2.5, quantity: 100 });
     expect(res.status).toBe(403);
   });
 
   it('returns 401 without auth', async () => {
-    const res = await request(app).post('/api/products').send({ name: 'X', price: 1, quantity: 1 });
+    const { token: csrf, cookieStr } = await getCsrf();
+    const res = await request(app)
+      .post('/api/products')
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
+      .send({ name: 'X', price: 1, quantity: 1 });
     expect(res.status).toBe(401);
   });
 
   it('returns 400 for missing name', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
     const res = await request(app)
       .post('/api/products')
       .set('Authorization', `Bearer ${farmerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
       .send({ price: 1, quantity: 1 });
     expect(res.status).toBe(400);
   });
@@ -88,27 +139,30 @@ describe('POST /api/products', () => {
 
 describe('GET /api/products/:id', () => {
   it('returns 404 for unknown product', async () => {
-    mockGet.mockReturnValueOnce(undefined);
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
     const res = await request(app).get('/api/products/9999');
     expect(res.status).toBe(404);
   });
 
   it('returns product details', async () => {
-    mockGet.mockReturnValueOnce({ id: 1, name: 'Carrots', price: 1.0, farmer_name: 'Alice' });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 1, name: 'Carrots', price: 1.0, farmer_name: 'Alice' }],
+      rowCount: 1,
+    });
     const res = await request(app).get('/api/products/1');
     expect(res.status).toBe(200);
-    expect(res.body.name).toBe('Carrots');
+    expect(res.body.data.name).toBe('Carrots');
   });
 });
 
 describe('GET /api/products/mine/list', () => {
-  it('returns farmer\'s own products', async () => {
-    mockAll.mockReturnValueOnce([{ id: 1, name: 'Beans' }]);
+  it("returns farmer's own products", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 1, name: 'Beans' }], rowCount: 1 });
     const res = await request(app)
       .get('/api/products/mine/list')
       .set('Authorization', `Bearer ${farmerToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.length).toBe(1);
+    expect(res.body.data).toHaveLength(1);
   });
 
   it('returns 403 for buyers', async () => {
@@ -121,18 +175,26 @@ describe('GET /api/products/mine/list', () => {
 
 describe('DELETE /api/products/:id', () => {
   it('farmer can delete their own product', async () => {
-    mockGet.mockReturnValueOnce({ id: 1, farmer_id: 1 });
+    const { token: csrf, cookieStr } = await getCsrf();
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1, farmer_id: 1 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
     const res = await request(app)
       .delete('/api/products/1')
-      .set('Authorization', `Bearer ${farmerToken}`);
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
     expect(res.status).toBe(200);
   });
 
-  it('returns 404 for another farmer\'s product', async () => {
-    mockGet.mockReturnValueOnce(undefined);
+  it("returns 404 for another farmer's product", async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
     const res = await request(app)
       .delete('/api/products/1')
-      .set('Authorization', `Bearer ${farmerToken}`);
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
     expect(res.status).toBe(404);
   });
 });

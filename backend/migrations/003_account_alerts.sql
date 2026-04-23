@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS account_alerts (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
+  type       TEXT NOT NULL,
+  message    TEXT NOT NULL,
+  read_at    DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);

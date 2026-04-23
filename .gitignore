@@ -1,4 +1,20 @@
 node_modules/
+package-lock.json
 *.db
 .env
 dist/
+
+# Playwright
+frontend/playwright-report/
+frontend/test-results/
+frontend/.playwright/
+
+# Rust
+contract/target/
+contract/Cargo.lock
+contracts/escrow/target/
+# Test artifacts
+coverage/
+**/__snapshots__/
+**/*.snap
+backend/src/__tests__/tmp/
