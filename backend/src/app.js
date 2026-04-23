@@ -50,8 +50,6 @@ app.use(helmet({
   } : false
 }));
 
-const corsOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
-const allowedOrigins = corsOrigins.split(',').map(o => o.trim());
 const corsOrigins =
   process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
 const allowedOrigins = corsOrigins.split(',').map((o) => o.trim());

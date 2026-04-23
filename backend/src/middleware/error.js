@@ -24,9 +24,6 @@ function errorHandler(error, req, res, next) { // eslint-disable-line no-unused-
     method: req.method,
     url: req.url
   });
-function errorHandler(error, req, res, next) {
-  // eslint-disable-line no-unused-vars
-  console.error(error);
   return err(res, 500, 'Internal server error', 'internal_error');
 }
 

@@ -238,4 +238,18 @@ module.exports = {
       mnemonic: z.string().min(1, 'mnemonic is required'),
     })
   ),
+
+  dispute: validate(
+    z.object({
+      order_id: z.coerce.number().int().positive('order_id must be a positive integer'),
+      reason: z.string().min(1, 'reason is required').max(1000, 'reason must be 1000 characters or fewer').trim(),
+    })
+  ),
+
+  resolveDispute: validate(
+    z.object({
+      status: z.enum(['under_review', 'resolved']),
+      resolution: z.string().max(1000, 'resolution must be 1000 characters or fewer').optional(),
+    })
+  ),
 };
