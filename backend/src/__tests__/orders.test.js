@@ -84,6 +84,38 @@ describe('POST /api/orders', () => {
   });
 
   it('returns 409 when stock is insufficient', async () => {
+  it('accepts quantity at MAX_ORDER_QUANTITY (10000)', async () => {
+    stellar.getBalance.mockResolvedValueOnce(9999999);
+    stellar.sendPayment.mockResolvedValueOnce('FAKE_TX_MAX');
+
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ ...product, quantity: 10000 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 99 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [farmer], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ quantity: 0, low_stock_threshold: 5, low_stock_alerted: 0 }], rowCount: 1 });
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ product_id: 10, quantity: 10000 });
+
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 400 when quantity exceeds MAX_ORDER_QUANTITY (10000)', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ product_id: 10, quantity: 10001 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+  });
+
+  it('returns 400 when stock is insufficient', async () => {
     stellar.getBalance.mockResolvedValueOnce(9999);
     mockDb.query
       .mockResolvedValueOnce({ rows: [product], rowCount: 1 })

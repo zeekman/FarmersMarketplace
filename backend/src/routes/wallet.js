@@ -4,7 +4,6 @@ const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const cache = require('../cache');
-const validate = require("../middleware/validate");
 const {
   isTestnet,
   getBalance,
@@ -15,8 +14,6 @@ const {
   addTrustline,
   removeTrustline,
   mergeAccount,
-} = require("../utils/stellar");
-const { err } = require("../middleware/error");
   lookupFederationAddress,
 } = require('../utils/stellar');
 const { err } = require('../middleware/error');
@@ -60,6 +57,10 @@ function availableAfterReserve(balance) {
  *                 referralCode: { type: string }
  */
 router.get('/', auth, async (req, res) => {
+  const cacheKey = `wallet:${req.user.id}`;
+  const cached = await cache.get(cacheKey);
+  if (cached) return res.json(cached);
+
   try {
     const { rows } = await db.query(
       'SELECT stellar_public_key, referral_code FROM users WHERE id = $1',
@@ -67,20 +68,13 @@ router.get('/', auth, async (req, res) => {
     );
     const user = rows[0];
     if (!user) return err(res, 404, 'User not found', 'user_not_found');
-  const cacheKey = `wallet:${req.user.id}`;
-  const cached = await cache.get(cacheKey);
-  if (cached) return res.json(cached);
-
-  const { rows } = await db.query('SELECT stellar_public_key, referral_code FROM users WHERE id = $1', [req.user.id]);
-  const user = rows[0];
-  if (!user) return err(res, 404, "User not found", "user_not_found");
 
     const [balance, balances] = await Promise.all([
       getBalance(user.stellar_public_key),
       getAllBalances(user.stellar_public_key),
     ]);
 
-    res.json({
+    const payload = {
       success: true,
       publicKey: user.stellar_public_key,
       balance,
@@ -88,21 +82,12 @@ router.get('/', auth, async (req, res) => {
       baseReserve: BASE_RESERVE_XLM,
       balances,
       referralCode: user.referral_code,
-    });
+    };
+    await cache.set(cacheKey, payload, 30);
+    return res.json(payload);
   } catch (e) {
     return err(res, 500, e.message, 'wallet_error');
   }
-  const payload = {
-    success: true,
-    publicKey: user.stellar_public_key,
-    balance,
-    availableBalance: availableAfterReserve(balance),
-    baseReserve: BASE_RESERVE_XLM,
-    balances,
-    referralCode: user.referral_code,
-  };
-  await cache.set(cacheKey, payload, 30);
-  res.json(payload);
 });
 
 /**
@@ -111,6 +96,20 @@ router.get('/', auth, async (req, res) => {
  *   get:
  *     summary: Get recent transactions
  *     tags: [Wallet]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: cursor
+ *         schema: { type: string }
+ *         description: Horizon paging token for cursor-based pagination
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+ *         description: Number of transactions to return (max 200)
+ *     responses:
+ *       200:
+ *         description: Transaction list with pagination cursors
  */
 router.get('/transactions', auth, async (req, res) => {
   try {
@@ -119,11 +118,17 @@ router.get('/transactions', auth, async (req, res) => {
     ]);
     if (!rows[0]) return err(res, 404, 'User not found', 'user_not_found');
 
-    const txs = await getTransactions(rows[0].stellar_public_key);
+    const cursor = req.query.cursor || undefined;
+    const limit = Math.min(parseInt(req.query.limit ?? '20', 10) || 20, 200);
+
+    const { records, next_cursor, prev_cursor } = await getTransactions(
+      rows[0].stellar_public_key,
+      { cursor, limit }
+    );
 
     // Enrich each tx with federation addresses (failures are silently ignored)
     const enriched = await Promise.all(
-      txs.map(async (tx) => {
+      records.map(async (tx) => {
         const [fromFederation, toFederation] = await Promise.all([
           lookupFederationAddress(tx.from),
           lookupFederationAddress(tx.to),
@@ -136,7 +141,7 @@ router.get('/transactions', auth, async (req, res) => {
       })
     );
 
-    res.json({ success: true, data: enriched });
+    res.json({ success: true, data: enriched, next_cursor, prev_cursor });
   } catch (e) {
     return err(res, 500, e.message, 'transactions_error');
   }
@@ -159,6 +164,7 @@ router.post('/fund', auth, async (req, res) => {
 
   try {
     await fundTestnetAccount(rows[0].stellar_public_key);
+    await cache.del(`wallet:${req.user.id}`);
     const balance = await getBalance(rows[0].stellar_public_key);
     return res.json({
       success: true,
@@ -180,6 +186,10 @@ router.post('/fund', auth, async (req, res) => {
 router.post('/send', auth, validate.sendXLM, async (req, res) => {
   const { destination, memo } = req.body;
   const amount = parseFloat(req.body.amount);
+
+  if (!StellarSdk.StrKey.isValidEd25519PublicKey(destination)) {
+    return err(res, 400, 'Invalid Stellar destination address', 'invalid_destination');
+  }
 
   try {
     const { rows } = await db.query(
@@ -205,21 +215,6 @@ router.post('/send', auth, validate.sendXLM, async (req, res) => {
       });
     }
 
-// POST /api/wallet/fund
-router.post('/fund', auth, async (req, res) => {
-  if (!stellar.isTestnet) return err(res, 400, 'Only available on testnet', 'testnet_only');
-  const { rows } = await db.query('SELECT stellar_public_key FROM users WHERE id = $1', [req.user.id]);
-  if (!rows[0]) return err(res, 404, 'User not found', 'user_not_found');
-  try {
-    await fundTestnetAccount(rows[0].stellar_public_key);
-    await cache.del(`wallet:${req.user.id}`);
-    const balance = await getBalance(rows[0].stellar_public_key);
-    return res.json({ success: true, message: 'Account funded with 10,000 XLM (testnet)', balance });
-  } catch (e) {
-    return err(res, 500, e.message || 'Failed to fund account', 'fund_failed');
-  }
-});
-  try {
     const txHash = await sendPayment({
       senderSecret: user.stellar_secret_key,
       receiverPublicKey: destination,
@@ -400,33 +395,33 @@ router.delete('/trustline', auth, async (req, res) => {
   }
 });
 
-router.post("/merge", auth, async (req, res) => {
-  const destination = String(req.body.destination || "").trim();
-  const password = String(req.body.password || "").trim();
+router.post('/merge', auth, async (req, res) => {
+  const destination = String(req.body.destination || '').trim();
+  const password = String(req.body.password || '').trim();
 
   if (!destination) {
-    return err(res, 400, "destination is required", "validation_error");
+    return err(res, 400, 'destination is required', 'validation_error');
   }
   if (!StellarSdk.StrKey.isValidEd25519PublicKey(destination)) {
-    return err(res, 400, "Invalid destination address", "invalid_destination");
+    return err(res, 400, 'Invalid destination address', 'invalid_destination');
   }
   if (!password) {
-    return err(res, 400, "password is required", "validation_error");
+    return err(res, 400, 'password is required', 'validation_error');
   }
 
-  const bcrypt = require("bcryptjs");
+  const bcrypt = require('bcryptjs');
   const { rows } = await db.query(
-    "SELECT stellar_public_key, stellar_secret_key, password_hash FROM users WHERE id = $1",
-    [req.user.id],
+    'SELECT stellar_public_key, stellar_secret_key, password_hash FROM users WHERE id = $1',
+    [req.user.id]
   );
   const user = rows[0];
-  if (!user) return err(res, 404, "User not found", "user_not_found");
+  if (!user) return err(res, 404, 'User not found', 'user_not_found');
 
   const valid = await bcrypt.compare(password, user.password_hash);
-  if (!valid) return err(res, 401, "Incorrect password", "invalid_password");
+  if (!valid) return err(res, 401, 'Incorrect password', 'invalid_password');
 
   if (destination === user.stellar_public_key) {
-    return err(res, 400, "Cannot merge account into itself", "same_destination");
+    return err(res, 400, 'Cannot merge account into itself', 'same_destination');
   }
 
   try {
@@ -435,18 +430,15 @@ router.post("/merge", auth, async (req, res) => {
       destinationPublicKey: destination,
     });
 
-    // Update user's wallet keys to the destination account
-    // The destination public key is now the user's wallet; secret is unknown to us
-    // so we clear the secret key (user controls destination externally)
     await db.query(
-      "UPDATE users SET stellar_public_key = $1, stellar_secret_key = NULL WHERE id = $2",
-      [destination, req.user.id],
+      'UPDATE users SET stellar_public_key = $1, stellar_secret_key = NULL WHERE id = $2',
+      [destination, req.user.id]
     );
 
     return res.json({ success: true, txHash, destination });
   } catch (e) {
-    if (e.code === "destination_not_found") {
-      return err(res, 400, e.message, "destination_not_found");
+    if (e.code === 'destination_not_found') {
+      return err(res, 400, e.message, 'destination_not_found');
     }
     const stellarMsg =
       e?.response?.data?.extras?.result_codes?.operations?.[0] || e.message;

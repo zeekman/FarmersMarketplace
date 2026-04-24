@@ -32,7 +32,11 @@ describe('GET /api/wallet', () => {
 describe('GET /api/wallet/transactions', () => {
   it('returns transaction list', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: 'GPUB' }], rowCount: 1 });
-    stellar.getTransactions.mockResolvedValueOnce([{ id: 'tx1', amount: '10' }]);
+    stellar.getTransactions.mockResolvedValueOnce({
+      records: [{ id: 'tx1', amount: '10' }],
+      next_cursor: null,
+      prev_cursor: null,
+    });
     const res = await request(app)
       .get('/api/wallet/transactions')
       .set('Authorization', `Bearer ${token}`);

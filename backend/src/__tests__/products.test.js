@@ -9,10 +9,19 @@ const request = require('supertest');
 const jwt = require('jsonwebtoken');
 
 const mockDb = jest.requireMock('../db/schema');
+const mockCache = jest.requireMock('../cache');
+
+jest.mock('../cache', () => ({
+  get: jest.fn().mockResolvedValue(null),
+  set: jest.fn().mockResolvedValue(undefined),
+  del: jest.fn().mockResolvedValue(undefined),
+}));
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockDb.query = jest.fn().mockResolvedValue({ rows: [], rowCount: 0 });
+  mockCache.get.mockResolvedValue(null);
+  mockCache.set.mockResolvedValue(undefined);
 });
 
 const app = require('../app');
@@ -179,5 +188,94 @@ describe('GET /api/products/mine/list', () => {
   it('unauthenticated request receives 401', async () => {
     const res = await request(app).get('/api/products/mine/list');
     expect(res.status).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #388 — product listing cache role isolation
+// ---------------------------------------------------------------------------
+describe('GET /api/products — cache role isolation (#388)', () => {
+  const productRow = {
+    id: 1,
+    name: 'Tomatoes',
+    price: 2.5,
+    quantity: 100,
+    farmer_name: 'Joe',
+    low_stock_threshold: 5,
+  };
+
+  it('farmer response includes low_stock_threshold', async () => {
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ count: '1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [productRow], rowCount: 1 });
+
+    const res = await request(app)
+      .get('/api/products')
+      .set('Authorization', `Bearer ${farmerToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].low_stock_threshold).toBe(5);
+  });
+
+  it('buyer response does not include low_stock_threshold', async () => {
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ count: '1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [productRow], rowCount: 1 });
+
+    const res = await request(app)
+      .get('/api/products')
+      .set('Authorization', `Bearer ${buyerToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].low_stock_threshold).toBeUndefined();
+  });
+
+  it('unauthenticated response does not include low_stock_threshold', async () => {
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ count: '1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [productRow], rowCount: 1 });
+
+    const res = await request(app).get('/api/products');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].low_stock_threshold).toBeUndefined();
+  });
+
+  it('farmer and buyer requests use separate cache keys', async () => {
+    // Simulate farmer cache hit — buyer must NOT receive it
+    const farmerPayload = {
+      success: true,
+      data: [{ ...productRow }],
+      total: 1,
+      page: 1,
+      limit: 20,
+      totalPages: 1,
+    };
+
+    // First call: farmer hits cache
+    mockCache.get.mockResolvedValueOnce(farmerPayload);
+    const farmerRes = await request(app)
+      .get('/api/products')
+      .set('Authorization', `Bearer ${farmerToken}`);
+    expect(farmerRes.status).toBe(200);
+    expect(farmerRes.body.data[0].low_stock_threshold).toBe(5);
+
+    // Second call: buyer — cache returns null (different key), DB is queried
+    mockCache.get.mockResolvedValueOnce(null);
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ count: '1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [productRow], rowCount: 1 });
+
+    const buyerRes = await request(app)
+      .get('/api/products')
+      .set('Authorization', `Bearer ${buyerToken}`);
+    expect(buyerRes.status).toBe(200);
+    expect(buyerRes.body.data[0].low_stock_threshold).toBeUndefined();
+
+    // Verify the two cache.set calls used different keys
+    const setCalls = mockCache.set.mock.calls;
+    const keys = setCalls.map(([k]) => k);
+    expect(keys.some((k) => k.includes(':farmer:'))).toBe(true);
+    expect(keys.some((k) => k.includes(':buyer:'))).toBe(true);
   });
 });

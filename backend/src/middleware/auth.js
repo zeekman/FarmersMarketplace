@@ -6,9 +6,11 @@ module.exports = (req, res, next) => {
   if (!token) return err(res, 401, 'No token provided', 'missing_token');
 
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = jwt.verify(token, process.env.JWT_SECRET, { clockTolerance: 30 });
     next();
-  } catch {
+  } catch (e) {
+    if (e instanceof jwt.TokenExpiredError)
+      return err(res, 401, 'Token expired', 'token_expired');
     err(res, 401, 'Invalid token', 'invalid_token');
   }
 };

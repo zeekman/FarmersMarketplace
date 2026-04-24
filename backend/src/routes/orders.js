@@ -14,8 +14,6 @@ const {
   claimBalance,
   mintRewardTokens,
   invokeEscrowContract,
-  pathPayment,
-  getPathPaymentEstimate,
   generatePaymentLink,
 } = require('../utils/stellar');
 const {
@@ -118,11 +116,11 @@ router.post('/', auth, validate.order, async (req, res) => {
   const { allowed: geoAllowed } = await checkGeoFence(product, buyer, clientIp);
   if (!geoAllowed) return err(res, 403, 'Not available in your region', 'region_restricted');
 
-  const weight = req.body.weight ? parseFloat(req.body.weight) : null;
+  const parsedWeight = req.body.weight ? parseFloat(req.body.weight) : (weight ? parseFloat(weight) : null);
   if (product.pricing_type === 'weight') {
-    if (!weight || isNaN(weight) || weight <= 0) return err(res, 400, 'weight is required for weight-based products', 'validation_error');
-    if (weight < product.min_weight) return err(res, 400, `weight must be at least ${product.min_weight} ${product.unit}`, 'validation_error');
-    if (weight > product.max_weight) return err(res, 400, `weight cannot exceed ${product.max_weight} ${product.unit}`, 'validation_error');
+    if (!parsedWeight || isNaN(parsedWeight) || parsedWeight <= 0) return err(res, 400, 'weight is required for weight-based products', 'validation_error');
+    if (parsedWeight < product.min_weight) return err(res, 400, `weight must be at least ${product.min_weight} ${product.unit}`, 'validation_error');
+    if (parsedWeight > product.max_weight) return err(res, 400, `weight cannot exceed ${product.max_weight} ${product.unit}`, 'validation_error');
   }
 
   // MOQ validation
@@ -135,15 +133,12 @@ router.post('/', auth, validate.order, async (req, res) => {
     'SELECT id, name, email, stellar_public_key, stellar_secret_key, referred_by, referral_bonus_sent FROM users WHERE id = $1',
     [req.user.id]
   );
-  const buyer = bRows[0];
+  // buyer already fetched above; use bRows for the more detailed version
+  const buyerDetailed = bRows[0] || buyer;
 
-  const subtotal = (isFlashSaleActive(product) ? Number(product.flash_sale_price) : Number(product.price)) * quantity;
-  const subtotal = product.pricing_type === 'weight'
-    ? product.price * weight
-    : product.price * quantity;
   let subtotal;
   if (product.pricing_type === 'weight') {
-    subtotal = Number(product.price) * weight;
+    subtotal = Number(product.price) * parsedWeight;
   } else {
     const unitPrice = await getEffectiveUnitPrice(product, product_id, quantity);
     subtotal = unitPrice * quantity;
@@ -782,3 +777,4 @@ router.post('/:id/refund', auth, async (req, res) => {
 });
 
 module.exports = router;
+
