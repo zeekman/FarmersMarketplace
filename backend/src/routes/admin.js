@@ -42,7 +42,8 @@ router.delete('/users/:id', async (req, res) => {
   if (!rows[0]) return res.status(404).json({ success: false, error: 'User not found' });
   if (rows[0].role === 'admin')
     return res.status(400).json({ success: false, error: 'Cannot deactivate another admin' });
-  await db.query('UPDATE users SET active = 0 WHERE id = $1', [req.params.id]);
+  const deactivatedAt = new Date().toISOString();
+  await db.query('UPDATE users SET active = 0, deactivated_at = $1 WHERE id = $2', [deactivatedAt, req.params.id]);
   res.json({ success: true, message: 'User deactivated' });
 });
 

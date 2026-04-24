@@ -108,6 +108,7 @@ if (USE_POSTGRES) {
       stellar_public_key TEXT,
       stellar_secret_key TEXT,
       active INTEGER DEFAULT 1,
+      deactivated_at DATETIME,
       verification_status TEXT DEFAULT 'unverified',
       verification_docs TEXT,
       bio TEXT,
@@ -158,8 +159,9 @@ try { db.exec(`ALTER TABLE products ADD COLUMN low_stock_threshold INTEGER DEFAU
 try { db.exec(`ALTER TABLE products ADD COLUMN low_stock_alerted INTEGER DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE products ADD COLUMN harvest_date DATE`); } catch {}
 try { db.exec(`ALTER TABLE products ADD COLUMN best_before DATE`); } catch {}
-try { db.exec(`ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1`); } catch {}
-// Allow admin role — SQLite doesn't support ALTER COLUMN, so we handle it in auth logic
+ try { db.exec(`ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1`); } catch {}
+ try { db.exec(`ALTER TABLE users ADD COLUMN deactivated_at DATETIME`); } catch {}
+ // Allow admin role — SQLite doesn't support ALTER COLUMN, so we handle it in auth logic
 try { db.exec(`ALTER TABLE users ADD COLUMN bio TEXT`); } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN location TEXT`); } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN avatar_url TEXT`); } catch {}
