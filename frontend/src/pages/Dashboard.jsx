@@ -1491,6 +1491,11 @@ export default function Dashboard() {
                         {o.harvest_batch_date ? ` · ${o.harvest_batch_date}` : ''}
                       </div>
                     )}
+                    {o.stellar_memo && (
+                      <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
+                        📝 Memo: <span style={{ fontFamily: 'monospace' }}>{o.stellar_memo}</span>
+                      </div>
+                    )}
                     {m && <div style={{ fontSize: 12, color: m.type === 'ok' ? '#2d6a4f' : '#c0392b', marginTop: 4 }}>{m.text}</div>}
                     {/* Return request section */}
                     {o.return_status === 'pending' && (

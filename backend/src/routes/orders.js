@@ -15,6 +15,7 @@ const {
   mintRewardTokens,
   invokeEscrowContract,
   generatePaymentLink,
+  getMemo,
 } = require('../utils/stellar');
 const {
   sendOrderEmails,
@@ -525,8 +526,6 @@ router.post('/', auth, validate.order, async (req, res) => {
 // GET /api/orders
 router.get('/', auth, async (req, res) => {
   const { status } = req.query;
-  const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
   const offset = (page - 1) * limit;
@@ -539,16 +538,6 @@ router.get('/', auth, async (req, res) => {
   }
 
   const where = `WHERE ${conditions.join(' AND ')}`;
-  const { rows: cRows } = await db.query(`SELECT COUNT(*) as count FROM orders o ${where}`, params);
-  const total = parseInt(cRows[0].count);
-
-  const { rows: data } = await db.query(
-    `SELECT o.*, p.name as product_name, p.unit, p.pricing_model, u.name as farmer_name
-     FROM orders o JOIN products p ON o.product_id = p.id JOIN users u ON p.farmer_id = u.id
-     ${where} ORDER BY o.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-    [...params, limit, offset]
-  );
-  res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
   const { rows: countRows } = await db.query(`SELECT COUNT(*) as count FROM orders o ${where}`, params);
   const total = parseInt(countRows[0].count, 10);
 
@@ -564,16 +553,23 @@ router.get('/', auth, async (req, res) => {
      LEFT JOIN harvest_batches hb ON hb.id = p.batch_id
      LEFT JOIN addresses a ON o.address_id = a.id
      LEFT JOIN return_requests rr ON rr.order_id = o.id
-    `SELECT o.*, p.name as product_name, p.unit, u.name as farmer_name
-     FROM orders o
-     JOIN products p ON o.product_id = p.id
-     JOIN users u ON p.farmer_id = u.id
      ${where}
      ORDER BY o.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset],
   );
 
-  res.json({ success: true, data, total, page, limit });
+  // Enrich paid orders with memo; use cached value or fetch from Horizon
+  await Promise.all(data.map(async (o) => {
+    if (o.status !== 'paid' || !o.stellar_tx_hash) return;
+    if (o.stellar_memo) return;
+    const memo = await getMemo(o.stellar_tx_hash);
+    if (memo) {
+      o.stellar_memo = memo;
+      db.query('UPDATE orders SET stellar_memo = $1 WHERE id = $2', [memo, o.id]).catch(() => {});
+    }
+  }));
+
+  res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
 });
 
 /**
@@ -610,22 +606,9 @@ router.get('/', auth, async (req, res) => {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Error' }
  */
-// GET /api/orders/sales - farmer's incoming orders
 // GET /api/orders/sales
 router.get('/sales', auth, async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
-  const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
-  const offset = (page - 1) * limit;
-
-  const { rows: cRows } = await db.query(`SELECT COUNT(*) as count FROM orders o JOIN products p ON o.product_id = p.id WHERE p.farmer_id = $1`, [req.user.id]);
-  const total = parseInt(cRows[0].count);
-
-  const { rows: data } = await db.query(
-    `SELECT o.*, p.name as product_name, u.name as buyer_name
-     FROM orders o JOIN products p ON o.product_id = p.id JOIN users u ON o.buyer_id = u.id
-     WHERE p.farmer_id = $1 ORDER BY o.created_at DESC LIMIT $2 OFFSET $3`,
-
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
   const offset = (page - 1) * limit;
@@ -633,8 +616,6 @@ router.get('/sales', auth, async (req, res) => {
   const { rows: countRows } = await db.query(
     `SELECT COUNT(*) as count FROM orders o JOIN products p ON o.product_id = p.id WHERE p.farmer_id = $1`,
     [req.user.id],
-    'SELECT COUNT(*) as count FROM orders o JOIN products p ON o.product_id = p.id WHERE p.farmer_id = $1',
-    [req.user.id]
   );
   const total = parseInt(countRows[0].count, 10);
 
@@ -655,22 +636,17 @@ router.get('/sales', auth, async (req, res) => {
     [req.user.id, limit, offset],
   );
 
-  res.json({
-    success: true,
-    data,
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-  });
-    `SELECT o.*, p.name as product_name, u.name as buyer_name
-     FROM orders o
-     JOIN products p ON o.product_id = p.id
-     JOIN users u ON o.buyer_id = u.id
-     WHERE p.farmer_id = $1
-     ORDER BY o.created_at DESC LIMIT $2 OFFSET $3`,
-    [req.user.id, limit, offset]
-  );
+  // Enrich paid orders with memo; use cached value or fetch from Horizon
+  await Promise.all(data.map(async (o) => {
+    if (o.status !== 'paid' || !o.stellar_tx_hash) return;
+    if (o.stellar_memo) return;
+    const memo = await getMemo(o.stellar_tx_hash);
+    if (memo) {
+      o.stellar_memo = memo;
+      db.query('UPDATE orders SET stellar_memo = $1 WHERE id = $2', [memo, o.id]).catch(() => {});
+    }
+  }));
+
   res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
 });
 
