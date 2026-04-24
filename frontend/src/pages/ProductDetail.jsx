@@ -14,6 +14,8 @@ import PriceHistoryChart from '../components/PriceHistoryChart';
 import { Helmet } from 'react-helmet-async';
 import { useTranslation } from 'react-i18next';
 import QRCode from 'qrcode.react';
+import { useReviewForm } from '../hooks/useReviewForm';
+import { usePaymentLink } from '../hooks/usePaymentLink';
 
 const POLL_INTERVAL_MS = 3000;
 const TIMEOUT_MS = 60000;
@@ -77,29 +79,20 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [confirming, setConfirming] = useState(null); // { orderId, startedAt }
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState('');
-  const [paymentLinkData, setPaymentLinkData] = useState(null);
-  const [paymentLinkLoading, setPaymentLinkLoading] = useState(false);
-  const [paymentLinkError, setPaymentLinkError] = useState('');
-  const { usd } = useXlmRate();
+   const [progress, setProgress] = useState(0);
+   const [error, setError] = useState('');
+   const { usd } = useXlmRate();
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [useEscrow, setUseEscrow] = useState(false);
   const [alertSet, setAlertSet] = useState(false);
   const [alertLoading, setAlertLoading] = useState(false);
   const [images, setImages] = useState([]);
-  const [activeImg, setActiveImg] = useState(0);
-  const [paidOrders, setPaidOrders] = useState([]);
-  const [reviewRating, setReviewRating] = useState(5);
-  const [reviewComment, setReviewComment] = useState('');
-  const [reviewOrderId, setReviewOrderId] = useState('');
-  const [reviewLoading, setReviewLoading] = useState(false);
-  const [reviewError, setReviewError] = useState('');
-  const [reviewSuccess, setReviewSuccess] = useState('');
-  const [customPrice, setCustomPrice] = useState('');
+   const [activeImg, setActiveImg] = useState(0);
+   const [paidOrders, setPaidOrders] = useState([]);
+   const [customPrice, setCustomPrice] = useState('');
 
-  // Price tiers state
+   // Price tiers state
   const [tiers, setTiers] = useState([]);
   // Price history state
   const [priceHistory, setPriceHistory] = useState([]);
@@ -130,12 +123,22 @@ export default function ProductDetail() {
   const [feeInfo, setFeeInfo] = useState(null); // { feePercent, feeAmount, farmerAmount }
   const [shareMeta, setShareMeta] = useState(null);
 
-  const loadReviews = useCallback(async () => {
-    try { const res = await api.getProductReviews(id); setReviews(res.data ?? []); }
-    catch { setReviews([]); }
-  }, [id]);
+   const loadReviews = useCallback(async () => {
+     try { const res = await api.getProductReviews(id); setReviews(res.data ?? []); }
+     catch { setReviews([]); }
+   }, [id]);
 
-  useEffect(() => {
+   const handleReviewSuccess = useCallback(() => {
+     loadReviews();
+     api.getProduct(id).then(res => setProduct(res.data ?? res)).catch(() => {});
+   }, [loadReviews, id]);
+
+   const review = useReviewForm(id, { onSuccess: handleReviewSuccess });
+   const { setReviewOrderId } = review;
+
+   const { paymentLinkData, paymentLinkLoading, paymentLinkError, generatePaymentLink, setPaymentLinkError } = usePaymentLink();
+
+   useEffect(() => {
     api.getProduct(id).then(res => {
       const p = res.data ?? res;
       setProduct(p);
@@ -183,14 +186,14 @@ export default function ProductDetail() {
     api.getMyAlert(id).then(res => setAlertSet(res.subscribed)).catch(() => {});
   }, [id, user]);
 
-  useEffect(() => {
-    if (user?.role !== 'buyer') return;
-    api.getOrders({ limit: 100 }).then(res => {
-      const orders = (res.data ?? []).filter(o => o.product_id === parseInt(id) && o.status === 'paid');
-      setPaidOrders(orders);
-      if (orders.length > 0) setReviewOrderId(String(orders[0].id));
-    }).catch(() => {});
-  }, [id, user]);
+   useEffect(() => {
+     if (user?.role !== 'buyer') return;
+     api.getOrders({ limit: 100 }).then(res => {
+       const orders = (res.data ?? []).filter(o => o.product_id === parseInt(id) && o.status === 'paid');
+       setPaidOrders(orders);
+       if (orders.length > 0) setReviewOrderId(String(orders[0].id));
+     }).catch(() => {});
+   }, [id, user, setReviewOrderId]);
 
   // Load buyer's non-XLM assets for path payment selector
   useEffect(() => {
@@ -370,55 +373,20 @@ export default function ProductDetail() {
     }
   }
 
-  async function handleGeneratePaymentLink() {
-    if (!user) return navigate('/login');
-    if (user.role === 'farmer') return setPaymentLinkError(t('productDetail.farmersCannotOrder'));
-    if (addresses.length > 0 && !selectedAddressId) return setPaymentLinkError(t('productDetail.selectAddress'));
+   const handleGeneratePaymentLink = useCallback(() => {
+     if (!user) return navigate('/login');
+     if (user.role === 'farmer') return setPaymentLinkError(t('productDetail.farmersCannotOrder'));
+     if (addresses.length > 0 && !selectedAddressId) return setPaymentLinkError(t('productDetail.selectAddress'));
 
-    setPaymentLinkLoading(true);
-    setPaymentLinkError('');
-    setPaymentLinkData(null);
+     generatePaymentLink({
+       productId: product.id,
+       quantity: qty,
+       addressId: selectedAddressId,
+       couponCode: couponResult ? couponCode : undefined
+     });
+   }, [user, navigate, addresses.length, selectedAddressId, generatePaymentLink, product.id, qty, couponResult, couponCode, t]);
 
-    try {
-      const createRes = await api.placeOrder({
-        product_id: product.id,
-        quantity: qty,
-        address_id: selectedAddressId || undefined,
-        coupon_code: couponResult ? couponCode.trim() : undefined,
-        payment_method: 'sep7',
-      });
-
-      const linkRes = await api.getOrderPaymentLink(createRes.orderId);
-      setPaymentLinkData({
-        orderId: createRes.orderId,
-        ...linkRes,
-      });
-    } catch (e) {
-      setPaymentLinkError(getStellarErrorMessage(e) || getErrorMessage(e));
-    } finally {
-      setPaymentLinkLoading(false);
-    }
-  }
-
-  async function handleReviewSubmit(e) {
-    e.preventDefault();
-    setReviewError('');
-    setReviewSuccess('');
-    if (!reviewOrderId) return setReviewError(t('productDetail.noEligibleOrder'));
-    setReviewLoading(true);
-    try {
-      await api.submitReview({ order_id: parseInt(reviewOrderId), rating: reviewRating, comment: reviewComment.trim() || undefined });
-      setReviewSuccess(t('productDetail.reviewSubmitted'));
-      setReviewComment('');
-      setReviewRating(5);
-      loadReviews();
-      api.getProduct(id).then(res => setProduct(res.data ?? res)).catch(() => {});
-    } catch (e) {
-      setReviewError(getErrorMessage(e));
-    } finally {
-      setReviewLoading(false);
-    }
-  }
+   const handleReviewSubmit = review.handleReviewSubmit;
 
   if (result) {
     return (
@@ -1049,34 +1017,34 @@ export default function ProductDetail() {
           ))
         )}
 
-        {user?.role === 'buyer' && paidOrders.length > 0 && !reviewSuccess && (
-          <form onSubmit={handleReviewSubmit} style={{ marginTop: 24, borderTop: '1px solid #f0f0f0', paddingTop: 20 }}>
-            <div style={{ ...s.sectionTitle, fontSize: 15, marginBottom: 12 }}>{t('productDetail.leaveReview')}</div>
-            {paidOrders.length > 1 && (
-              <div style={{ marginBottom: 12 }}>
-                <label style={s.label}>{t('productDetail.order')}</label>
-                <select style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}
-                  value={reviewOrderId} onChange={e => setReviewOrderId(e.target.value)}>
-                  {paidOrders.map(o => <option key={o.id} value={o.id}>Order #{o.id} — {o.quantity} {o.unit}</option>)}
-                </select>
-              </div>
-            )}
-            <div style={{ marginBottom: 12 }}>
-              <label style={s.label}>{t('productDetail.rating')}</label>
-              <StarRating value={reviewRating} size={28} onChange={setReviewRating} />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={s.label}>{t('productDetail.comment')}</label>
-              <textarea style={s.textarea} placeholder={t('productDetail.commentPlaceholder')}
-                value={reviewComment} onChange={e => setReviewComment(e.target.value)} maxLength={1000} />
-            </div>
-            {reviewError && <div style={s.err}>{reviewError}</div>}
-            <button type="submit" style={s.btnSm} disabled={reviewLoading}>
-              {reviewLoading ? t('productDetail.submitting') : t('productDetail.submitReview')}
-            </button>
-          </form>
-        )}
-        {reviewSuccess && <div style={{ ...s.success, marginTop: 16 }}>{reviewSuccess}</div>}
+         {user?.role === 'buyer' && paidOrders.length > 0 && !review.reviewSuccess && (
+           <form onSubmit={handleReviewSubmit} style={{ marginTop: 24, borderTop: '1px solid #f0f0f0', paddingTop: 20 }}>
+             <div style={{ ...s.sectionTitle, fontSize: 15, marginBottom: 12 }}>{t('productDetail.leaveReview')}</div>
+             {paidOrders.length > 1 && (
+               <div style={{ marginBottom: 12 }}>
+                 <label style={s.label}>{t('productDetail.order')}</label>
+                 <select style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}
+                   value={review.reviewOrderId} onChange={e => review.setReviewOrderId(e.target.value)}>
+                   {paidOrders.map(o => <option key={o.id} value={o.id}>Order #{o.id} — {o.quantity} {o.unit}</option>)}
+                 </select>
+               </div>
+             )}
+             <div style={{ marginBottom: 12 }}>
+               <label style={s.label}>{t('productDetail.rating')}</label>
+               <StarRating value={review.reviewRating} size={28} onChange={review.setReviewRating} />
+             </div>
+             <div style={{ marginBottom: 14 }}>
+               <label style={s.label}>{t('productDetail.comment')}</label>
+               <textarea style={s.textarea} placeholder={t('productDetail.commentPlaceholder')}
+                 value={review.reviewComment} onChange={e => review.setReviewComment(e.target.value)} maxLength={1000} />
+             </div>
+             {review.reviewError && <div style={s.err}>{review.reviewError}</div>}
+             <button type="submit" style={s.btnSm} disabled={review.reviewLoading}>
+               {review.reviewLoading ? t('productDetail.submitting') : t('productDetail.submitReview')}
+             </button>
+           </form>
+         )}
+         {review.reviewSuccess && <div style={{ ...s.success, marginTop: 16 }}>{review.reviewSuccess}</div>}
       </div>
     </div>
   );
