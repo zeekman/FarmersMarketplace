@@ -11,6 +11,7 @@ const {
 const validate = require('../middleware/validate');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
+const logger = require('../logger');
 
 const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
@@ -85,15 +86,18 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-async function storeRefreshToken(userId, rawToken) {
+async function storeRefreshToken(userId, rawToken, familyId = null) {
   const hash = hashToken(rawToken);
+  const family = familyId || hash; // new family starts with its own hash as ID
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL).toISOString();
   await db.query(
-    'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
-    [userId, hash, expiresAt]
+    'INSERT INTO refresh_tokens (user_id, token_hash, expires_at, family_id, used) VALUES ($1, $2, $3, $4, 0)',
+    [userId, hash, expiresAt, family]
   );
+  return family;
 }
 
+// Returns { newToken, familyId } on success, { reuse: true, userId, familyId } on replay, null on expired/not-found.
 async function rotateRefreshToken(userId, oldRawToken) {
   const oldHash = hashToken(oldRawToken);
   const { rows } = await db.query(
@@ -102,14 +106,26 @@ async function rotateRefreshToken(userId, oldRawToken) {
   );
   const existing = rows[0];
   if (!existing) return null;
+
+  // Replay detected: token exists but was already used — nuke the entire family
+  if (existing.used) {
+    await db.query(
+      'DELETE FROM refresh_tokens WHERE user_id = $1 AND family_id = $2',
+      [userId, existing.family_id]
+    );
+    return { reuse: true, userId, familyId: existing.family_id };
+  }
+
   if (new Date(existing.expires_at) < new Date()) {
     await db.query('DELETE FROM refresh_tokens WHERE id = $1', [existing.id]);
     return null;
   }
-  await db.query('DELETE FROM refresh_tokens WHERE id = $1', [existing.id]);
+
+  // Mark old token as used (soft-delete keeps it for reuse detection)
+  await db.query('UPDATE refresh_tokens SET used = 1 WHERE id = $1', [existing.id]);
   const newRawToken = generateRefreshToken();
-  await storeRefreshToken(userId, newRawToken);
-  return newRawToken;
+  await storeRefreshToken(userId, newRawToken, existing.family_id);
+  return { newToken: newRawToken, familyId: existing.family_id };
 }
 
 /**
@@ -294,14 +310,25 @@ router.post('/refresh', async (req, res) => {
   ]);
   const stored = rows[0];
   if (!stored) return res.status(401).json({ error: 'Invalid refresh token' });
+
   if (new Date(stored.expires_at) < new Date()) {
     await db.query('DELETE FROM refresh_tokens WHERE id = $1', [stored.id]);
     res.clearCookie('refreshToken', { path: '/api/auth' });
     return res.status(401).json({ error: 'Refresh token expired' });
   }
 
-  const newRawToken = await rotateRefreshToken(stored.user_id, rawToken);
-  if (!newRawToken) return res.status(401).json({ error: 'Invalid refresh token' });
+  const result = await rotateRefreshToken(stored.user_id, rawToken);
+  if (!result) return res.status(401).json({ error: 'Invalid refresh token' });
+
+  if (result.reuse) {
+    logger.warn('refresh_token_reuse_detected', {
+      event: 'token_reuse_detected',
+      userId: result.userId,
+      familyId: result.familyId,
+    });
+    res.clearCookie('refreshToken', { path: '/api/auth' });
+    return res.status(401).json({ error: 'Token reuse detected', code: 'token_reuse_detected' });
+  }
 
   const { rows: userRows } = await db.query('SELECT id, role FROM users WHERE id = $1', [
     stored.user_id,
@@ -310,7 +337,7 @@ router.post('/refresh', async (req, res) => {
   if (!user) return res.status(401).json({ error: 'User not found' });
 
   const accessToken = signAccessToken({ id: user.id, role: user.role });
-  res.cookie('refreshToken', newRawToken, COOKIE_OPTIONS);
+  res.cookie('refreshToken', result.newToken, COOKIE_OPTIONS);
   res.json({ token: accessToken });
 });
 

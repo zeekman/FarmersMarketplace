@@ -1,35 +1,40 @@
 const router = require('express').Router();
+const { z } = require('zod');
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
-const { body, validationResult } = require('express-validator');
 const { sendPayment, getBalance } = require('../utils/stellar');
 const { err } = require('../middleware/error');
 
-const validate = (rules) => [
-  ...rules,
-  (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return err(res, 400, errors.array()[0].msg, 'validation_error');
+const MIN_MINUTES = parseInt(process.env.MIN_AUCTION_DURATION_MINUTES ?? '5', 10);
+
+function validateBody(schema) {
+  return (req, res, next) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      const msg = result.error.issues[0]?.message || 'Validation error';
+      return err(res, 400, msg, 'validation_error');
+    }
+    req.body = result.data;
     next();
-  },
-];
+  };
+}
+
+const createAuctionSchema = z.object({
+  product_id: z.coerce.number().int().positive(),
+  start_price: z.coerce.number().positive(),
+  ends_at: z.iso
+    .datetime({ offset: true })
+    .refine(
+      (v) => new Date(v) >= new Date(Date.now() + MIN_MINUTES * 60 * 1000),
+      `ends_at must be at least ${MIN_MINUTES} minutes in the future`
+    ),
+});
 
 // POST /api/auctions - farmer creates auction
-router.post(
-  '/',
-  auth,
-  validate([
-    body('product_id').isInt({ gt: 0 }),
-    body('start_price').isFloat({ gt: 0 }),
-    body('ends_at').isISO8601().withMessage('ends_at must be a valid ISO date'),
-  ]),
-  (req, res) => {
+router.post('/', auth, validateBody(createAuctionSchema), (req, res) => {
     if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
 
     const { product_id, start_price, ends_at } = req.body;
-    const endsDate = new Date(ends_at);
-    if (endsDate <= new Date())
-      return err(res, 400, 'ends_at must be in the future', 'validation_error');
 
     const product = db
       .prepare('SELECT * FROM products WHERE id = ? AND farmer_id = ?')
@@ -49,8 +54,7 @@ router.post(
       .run(product_id, req.user.id, start_price, ends_at);
 
     res.status(201).json({ success: true, auctionId: lastInsertRowid });
-  }
-);
+});
 
 // GET /api/auctions - list active auctions
 router.get('/', (req, res) => {

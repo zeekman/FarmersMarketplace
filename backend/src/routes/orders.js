@@ -14,8 +14,6 @@ const {
   claimBalance,
   mintRewardTokens,
   invokeEscrowContract,
-  pathPayment,
-  getPathPaymentEstimate,
   generatePaymentLink,
 } = require('../utils/stellar');
 const {
@@ -113,15 +111,16 @@ router.post('/', auth, validate.order, async (req, res) => {
   const buyer = buyerRows[0];
 
   // Geo-fence check
-  const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+  // Use req.ip which respects app.set('trust proxy') configuration
+  const clientIp = req.ip || req.socket?.remoteAddress || '';
   const { allowed: geoAllowed } = await checkGeoFence(product, buyer, clientIp);
   if (!geoAllowed) return err(res, 403, 'Not available in your region', 'region_restricted');
 
-  const weight = req.body.weight ? parseFloat(req.body.weight) : null;
+  const parsedWeight = req.body.weight ? parseFloat(req.body.weight) : (weight ? parseFloat(weight) : null);
   if (product.pricing_type === 'weight') {
-    if (!weight || isNaN(weight) || weight <= 0) return err(res, 400, 'weight is required for weight-based products', 'validation_error');
-    if (weight < product.min_weight) return err(res, 400, `weight must be at least ${product.min_weight} ${product.unit}`, 'validation_error');
-    if (weight > product.max_weight) return err(res, 400, `weight cannot exceed ${product.max_weight} ${product.unit}`, 'validation_error');
+    if (!parsedWeight || isNaN(parsedWeight) || parsedWeight <= 0) return err(res, 400, 'weight is required for weight-based products', 'validation_error');
+    if (parsedWeight < product.min_weight) return err(res, 400, `weight must be at least ${product.min_weight} ${product.unit}`, 'validation_error');
+    if (parsedWeight > product.max_weight) return err(res, 400, `weight cannot exceed ${product.max_weight} ${product.unit}`, 'validation_error');
   }
 
   // MOQ validation
@@ -134,15 +133,13 @@ router.post('/', auth, validate.order, async (req, res) => {
     'SELECT id, name, email, stellar_public_key, stellar_secret_key, referred_by, referral_bonus_sent FROM users WHERE id = $1',
     [req.user.id]
   );
-  const buyer = bRows[0];
 
-  const subtotal = (isFlashSaleActive(product) ? Number(product.flash_sale_price) : Number(product.price)) * quantity;
-  const subtotal = product.pricing_type === 'weight'
-    ? product.price * weight
-    : product.price * quantity;
+  // buyer already fetched above; use bRows for the more detailed version
+  const buyerDetailed = bRows[0] || buyer;
+
   let subtotal;
   if (product.pricing_type === 'weight') {
-    subtotal = Number(product.price) * weight;
+    subtotal = Number(product.price) * parsedWeight;
   } else {
     const unitPrice = await getEffectiveUnitPrice(product, product_id, quantity);
     subtotal = unitPrice * quantity;
@@ -240,24 +237,20 @@ router.post('/', auth, validate.order, async (req, res) => {
   const usePathPayment = source_asset && source_asset.code && source_asset.code !== 'XLM';
   if (!usePathPayment) {
     const balance = await getBalance(buyer.stellar_public_key);
-    if (balance < totalPrice + 0.00001) return res.status(402).json({ success: false, message: 'Insufficient balance', code: 'insufficient_balance' });
-  const balance = await getBalance(buyer.stellar_public_key);
-  const required = totalPrice + 0.00001;
-  if (balance < required) {
-    return res.status(402).json({ success: false, message: 'Insufficient XLM balance', code: 'insufficient_balance' });
+    const required = totalPrice + 0.00001;
+    if (balance < required) {
+      return res.status(402).json({ success: false, message: 'Insufficient XLM balance', code: 'insufficient_balance' });
+    }
   }
 
   // 4. Atomic Stock Check & Initial Order Save
   const { rowCount } = await db.query('UPDATE products SET quantity = quantity - $1 WHERE id = $2 AND quantity >= $3', [quantity, product_id, quantity]);
-  if (rowCount === 0) return err(res, 400, 'Insufficient stock', 'insufficient_stock');
+  if (rowCount === 0) return err(res, 409, 'Out of stock', 'out_of_stock');
 
   const { rows: orderRows } = await db.query(
     `INSERT INTO orders (buyer_id, product_id, quantity, total_price, custom_price, status, address_id) 
      VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
     [req.user.id, product_id, quantity, totalPrice, custom_price || null, 'pending', address_id || null]
-  const { rows: oRows } = await db.query(
-    'INSERT INTO orders (buyer_id, product_id, quantity, total_price, status, address_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-    [req.user.id, product_id, quantity, totalPrice, 'pending', address_id || null]
   );
   const orderId = orderRows[0].id;
 
@@ -349,15 +342,9 @@ router.post('/', auth, validate.order, async (req, res) => {
         memo: `Order#${orderId}`
       });
       await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
-      await db.query('UPDATE orders SET status=$1, stellar_tx_hash=$2 WHERE id=$3', ['paid', txHash, orderId]);
 
     } else {
       txHash = await sendPayment({ senderSecret: buyer.stellar_secret_key, receiverPublicKey: product.farmer_wallet, amount: totalPrice, memo: `Order#${orderId}` });
-      await db.query('UPDATE orders SET status=$1, stellar_tx_hash=$2 WHERE id=$3', ['paid', txHash, orderId]);
-      txHash = await invokeEscrowContract({
-        action: 'deposit', senderSecret: buyer.stellar_secret_key, orderId, buyerPublicKey: buyer.stellar_public_key, farmerPublicKey: product.farmer_wallet, amount: totalPrice,
-        timeoutUnix: Math.floor(Date.now()/1000) + timeoutDays * 86400
-      });
       await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
     }
 
@@ -366,14 +353,6 @@ router.post('/', auth, validate.order, async (req, res) => {
       [product.farmer_id],
     );
     const farmer = farmerRows[0];
-      balanceId = `soroban:${orderId}`;
-    } else {
-      txHash = await sendPayment({ senderSecret: buyer.stellar_secret_key, receiverPublicKey: product.farmer_wallet, amount: totalPrice, memo: `Order#${orderId}` });
-    }
-
-    // 6. Post-Payment Actions
-    const { rows: fRows } = await db.query('SELECT * FROM users WHERE id = $1', [product.farmer_id]);
-    const farmer = fRows[0];
 
     // Referral bonus (one-time)
     if (buyer.referred_by && buyer.referral_bonus_sent === 0) {
@@ -419,7 +398,8 @@ router.post('/', auth, validate.order, async (req, res) => {
       [product_id],
     );
     const updated = updRows[0];
-    if (updated && updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
+    // Only send alert if threshold is set (not null/0) and stock is at or below threshold
+    if (updated && updated.low_stock_threshold && updated.low_stock_threshold > 0 && updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
       await db.query('UPDATE products SET low_stock_alerted = 1 WHERE id = $1', [product_id]);
       sendLowStockAlert({ product: { ...product, quantity: updated.quantity }, farmer })
         .catch((lowStockErr) => logger.error('Low-stock alert failed:', { error: lowStockErr.message }));
@@ -515,7 +495,8 @@ router.post('/', auth, validate.order, async (req, res) => {
     // Low-stock check
     const { rows: updRows } = await db.query('SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = $1', [product_id]);
     const updated = updRows[0];
-    if (updated && updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
+    // Only send alert if threshold is set (not null/0) and stock is at or below threshold
+    if (updated && updated.low_stock_threshold && updated.low_stock_threshold > 0 && updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
       await db.query('UPDATE products SET low_stock_alerted = 1 WHERE id = $1', [product_id]);
       sendLowStockAlert({ product: { ...product, quantity: updated.quantity }, farmer: fRows[0] })
         .catch(e => logger.error('Low-stock alert failed:', { error: e.message }));
@@ -779,3 +760,4 @@ router.post('/:id/refund', auth, async (req, res) => {
 });
 
 module.exports = router;
+

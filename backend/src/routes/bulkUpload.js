@@ -45,6 +45,21 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
       return err(res, 400, 'Maximum 500 rows per upload', 'validation_error');
     }
 
+    // Validate required column headers
+    const REQUIRED_HEADERS = ['name', 'price', 'quantity'];
+    if (records.length > 0) {
+      const presentHeaders = Object.keys(records[0]);
+      const missingHeaders = REQUIRED_HEADERS.filter((h) => !presentHeaders.includes(h));
+      if (missingHeaders.length > 0) {
+        return err(
+          res,
+          400,
+          `Missing required columns: ${missingHeaders.join(', ')}`,
+          'missing_columns'
+        );
+      }
+    }
+
     const insertStmt = db.prepare(
       'INSERT INTO products (farmer_id, name, description, price, quantity, unit, category) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );

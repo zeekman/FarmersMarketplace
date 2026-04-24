@@ -13,8 +13,11 @@ module.exports = async (req, res, next) => {
     if (!rows[0] || rows[0].active !== 1) {
       return err(res, 401, 'Account deactivated', 'deactivated');
     }
+    req.user = jwt.verify(token, process.env.JWT_SECRET, { clockTolerance: 30 });
     next();
-  } catch {
+  } catch (e) {
+    if (e instanceof jwt.TokenExpiredError)
+      return err(res, 401, 'Token expired', 'token_expired');
     err(res, 401, 'Invalid token', 'invalid_token');
   }
 };

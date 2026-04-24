@@ -14,18 +14,56 @@
  *   db.query(sql, params) → Promise<{ rows, rowCount }>
  *   db.exec(sql)           → Promise<void>  (DDL / multi-statement)
  *   db.isPostgres         → boolean
+ *
+ * Boolean normalization: SQLite stores booleans as 0/1 integers, PostgreSQL as true/false.
+ * This layer normalizes both to consistent boolean values for the active column.
  */
 
 const path = require('path');
 
 const USE_POSTGRES = !!process.env.DATABASE_URL;
 
+/**
+ * Normalize boolean values in a row for consistency across SQLite and PostgreSQL.
+ * Converts 0/1 integers and string representations to proper booleans.
+ */
+function normalizeBooleans(row) {
+  if (!row || typeof row !== 'object') return row;
+
+  const normalized = { ...row };
+  const booleanColumns = ['active', 'fee_bumped', 'is_preorder', 'low_stock_alerted', 'acknowledged'];
+
+  for (const col of booleanColumns) {
+    if (col in normalized) {
+      const val = normalized[col];
+      if (val === null || val === undefined) {
+        normalized[col] = null;
+      } else if (typeof val === 'boolean') {
+        normalized[col] = val;
+      } else if (typeof val === 'number') {
+        normalized[col] = val !== 0;
+      } else if (typeof val === 'string') {
+        normalized[col] = val === 'true' || val === '1';
+      }
+    }
+  }
+
+  return normalized;
+}
+
 if (USE_POSTGRES) {
   const pg = require('./postgres');
   const { runMigrations } = require('./migrationRunner');
 
   const db = {
-    query: (text, params) => pg.query(text, params),
+    query: async (text, params) => {
+      const result = await pg.query(text, params);
+      // Normalize boolean values in rows for consistency
+      if (result.rows && Array.isArray(result.rows)) {
+        result.rows = result.rows.map((row) => normalizeBooleans(row));
+      }
+      return result;
+    },
     async exec(sql) {
       await pg.pool.query(sql);
     },
@@ -61,11 +99,11 @@ if (USE_POSTGRES) {
       });
       if (/^\s*(SELECT|WITH)/i.test(text)) {
         const rows = sqlite.prepare(text).all(...params);
-        return { rows, rowCount: rows.length };
+        return { rows: rows.map(normalizeBooleans), rowCount: rows.length };
       }
       if (/\bRETURNING\b/i.test(text)) {
         const row = sqlite.prepare(text).get(...params);
-        return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
+        return { rows: row ? [normalizeBooleans(row)] : [], rowCount: row ? 1 : 0 };
       }
       const info = sqlite.prepare(text).run(...params);
       return { rows: [], rowCount: info.changes };
@@ -502,41 +540,16 @@ if (USE_POSTGRES) {
     transaction(fn) {
       return sqlite.transaction(fn);
     },
-    // For synchronous access if needed (better-sqlite3 specialized)
     prepare(sql) {
       return sqlite.prepare(sql);
     },
-    exec(sql) {
-      return sqlite.exec(sql);
-    },
-    isPostgres: false,
   };
-}
 
-  // Simple migration runner for SQLite columns
-  const migrations = [
-    `ALTER TABLE products ADD COLUMN pricing_model TEXT DEFAULT 'fixed'`,
-    `ALTER TABLE products ADD COLUMN min_price REAL`,
-    `ALTER TABLE orders ADD COLUMN custom_price REAL`,
-    `ALTER TABLE orders ADD COLUMN fee_bumped INTEGER DEFAULT 0`,
-    `ALTER TABLE products ADD COLUMN grade TEXT DEFAULT 'Ungraded' CHECK(grade IN ('A','B','C','Ungraded'))`,
-  ];
-  for (const sql of migrations) {
-    try { sqlite.exec(sql); } catch (e) {}
-  }
+  const { runMigrations } = require('./migrationRunner');
+  runMigrations(db).catch((err) => {
+    console.error('[DB] Migration failed:', err.message);
+    process.exit(1);
+  });
 
-  // Adapter for common query interface
-  sqlite.query = async (text, params = []) => {
-    let i = 0;
-    const sqliteText = text.replace(/\$\d+/g, () => { i++; return '?'; });
-    if (/^\s*(SELECT|WITH)/i.test(sqliteText)) {
-      const rows = sqlite.prepare(sqliteText).all(...params);
-      return { rows, rowCount: rows.length };
-    }
-    const info = sqlite.prepare(sqliteText).run(...params);
-    return { rows: [], rowCount: info.changes };
-  };
-  sqlite.isPostgres = false;
-
-  module.exports = sqlite;
+  module.exports = db;
 }

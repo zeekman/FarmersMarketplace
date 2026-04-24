@@ -22,13 +22,33 @@ router.get('/users', async (req, res) => {
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '20')));
   const offset = (page - 1) * limit;
 
-  const { rows: countRows } = await db.query('SELECT COUNT(*) as count FROM users');
+  // Build WHERE clause for active filter
+  const conditions = [];
+  const params = [];
+
+  if (req.query.active !== undefined) {
+    const activeValue = req.query.active === '1' || req.query.active === 'true' ? 1 : 0;
+    conditions.push(`active = $${params.length + 1}`);
+    params.push(activeValue);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  // Get total count with filter
+  const countQuery = `SELECT COUNT(*) as count FROM users ${whereClause}`;
+  const { rows: countRows } = await db.query(countQuery, params);
   const total = parseInt(countRows[0].count);
 
-  const { rows: users } = await db.query(
-    'SELECT id, name, email, role, stellar_public_key, created_at, active FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2',
-    [limit, offset]
-  );
+  // Get paginated users with filter
+  const usersQuery = `
+    SELECT id, name, email, role, stellar_public_key, created_at, active 
+    FROM users 
+    ${whereClause}
+    ORDER BY created_at DESC 
+    LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+  `;
+  const { rows: users } = await db.query(usersQuery, [...params, limit, offset]);
+
   res.json({
     success: true,
     data: users,
@@ -548,6 +568,9 @@ router.post('/contracts/deploy', upload.single('wasm'), async (req, res) => {
       return res.status(400).json({ success: false, error: error.message });
     }
     res.status(500).json({ success: false, error: 'Contract deployment failed: ' + error.message });
+  }
+});
+
 // ── Contract Documentation & Analysis ──────────────────────────────────────
 
 const { getContractABI, analyzeContractFees } = require('../utils/stellar');
@@ -742,6 +765,8 @@ router.get('/contracts/:id/compare', async (req, res) => {
   await cache.set(cacheKey, diff, 600); // cache 10 minutes
 
   res.json({ success: true, data: diff });
+});
+
 // ── Contract Alerts ────────────────────────────────────────────────────────
 
 // GET /api/admin/contract-alerts
