@@ -22,13 +22,33 @@ router.get('/users', async (req, res) => {
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '20')));
   const offset = (page - 1) * limit;
 
-  const { rows: countRows } = await db.query('SELECT COUNT(*) as count FROM users');
+  // Build WHERE clause for active filter
+  const conditions = [];
+  const params = [];
+
+  if (req.query.active !== undefined) {
+    const activeValue = req.query.active === '1' || req.query.active === 'true' ? 1 : 0;
+    conditions.push(`active = $${params.length + 1}`);
+    params.push(activeValue);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  // Get total count with filter
+  const countQuery = `SELECT COUNT(*) as count FROM users ${whereClause}`;
+  const { rows: countRows } = await db.query(countQuery, params);
   const total = parseInt(countRows[0].count);
 
-  const { rows: users } = await db.query(
-    'SELECT id, name, email, role, stellar_public_key, created_at, active FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2',
-    [limit, offset]
-  );
+  // Get paginated users with filter
+  const usersQuery = `
+    SELECT id, name, email, role, stellar_public_key, created_at, active 
+    FROM users 
+    ${whereClause}
+    ORDER BY created_at DESC 
+    LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+  `;
+  const { rows: users } = await db.query(usersQuery, [...params, limit, offset]);
+
   res.json({
     success: true,
     data: users,
