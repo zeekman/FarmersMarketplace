@@ -110,7 +110,7 @@ beforeEach(() => {
   stellar.createWalletFromMnemonic.mockReturnValue({ publicKey: 'GPUBKEY', secretKey: 'SSECRET', mnemonic: 'word '.repeat(12).trim() });
   stellar.deriveKeypairFromMnemonic.mockReturnValue({ publicKey: 'GPUBKEY', secretKey: 'SSECRET' });
   stellar.getBalance.mockResolvedValue(1000);
-  stellar.getTransactions.mockResolvedValue([]);
+  stellar.getTransactions.mockResolvedValue({ records: [], next_cursor: null, prev_cursor: null });
   stellar.fundTestnetAccount.mockResolvedValue({});
   stellar.sendPayment.mockResolvedValue('TXHASH123');
   stellar.isTestnet = true;
