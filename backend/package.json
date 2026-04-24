@@ -31,6 +31,9 @@
       "env": {
         "NODE_ENV": "test"
       }
+    },
+    "moduleNameMapper": {
+      "^uuid$": "<rootDir>/node_modules/uuid/dist-node/index.js"
     }
   },
   "dependencies": {

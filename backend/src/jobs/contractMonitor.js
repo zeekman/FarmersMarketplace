@@ -7,15 +7,19 @@
  *   - Any transfer > 1000 XLM                   → alert type: large_transfer
  *
  * Creates a contract_alerts row and emails the admin on each new alert.
+ * Implements exponential backoff retry on RPC failures (max 5 retries, cap 5 minutes).
  */
 
 const db = require('../db/schema');
 const { getContractEvents } = require('../utils/stellar');
 const mailer = require('../utils/mailer');
+const logger = require('../logger');
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const FAILED_INVOCATION_THRESHOLD = 3;
 const LARGE_TRANSFER_XLM = 1000;
+const MAX_RETRIES = 5;
+const MAX_BACKOFF_MS = 5 * 60 * 1000; // 5 minutes
 
 async function getAdminEmail() {
   const { rows } = await db.query(
@@ -51,14 +55,56 @@ async function createAlert(contract_id, alert_type, message) {
   return inserted[0];
 }
 
-async function monitorContract(contractId) {
+async function monitorContract(contractId, retryCount = 0) {
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
   let result;
   try {
     result = await getContractEvents(contractId, { from: oneHourAgo, limit: 200 });
   } catch (err) {
-    console.error(`[ContractMonitor] Failed to fetch events for ${contractId}:`, err.message);
+    // Implement exponential backoff retry
+    if (retryCount < MAX_RETRIES) {
+      const backoffMs = Math.min(
+        Math.pow(2, retryCount) * 1000, // exponential: 1s, 2s, 4s, 8s, 16s
+        MAX_BACKOFF_MS
+      );
+      logger.warn(
+        `[ContractMonitor] Failed to fetch events for ${contractId}, retrying in ${backoffMs}ms (attempt ${retryCount + 1}/${MAX_RETRIES}):`,
+        err.message
+      );
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      return monitorContract(contractId, retryCount + 1);
+    }
+
+    // Exhausted retries
+    logger.error(
+      `[ContractMonitor] Failed to fetch events for ${contractId} after ${MAX_RETRIES} retries:`,
+      err.message
+    );
+
+    // Send admin notification
+    try {
+      const { rows } = await db.query(
+        `SELECT email FROM users WHERE role = 'admin' LIMIT 1`
+      );
+      const adminEmail = rows[0]?.email;
+      if (adminEmail) {
+        await mailer.sendContractAlert({
+          to: adminEmail,
+          alert: {
+            alert_type: 'monitor_failure',
+            contract_id: contractId,
+            message: `Contract monitor failed after ${MAX_RETRIES} retries. RPC may be unavailable. Error: ${err.message}`,
+            created_at: new Date().toISOString(),
+          },
+        }).catch((e) =>
+          logger.error('[ContractMonitor] Failed to send admin notification:', e.message)
+        );
+      }
+    } catch (notifyErr) {
+      logger.error('[ContractMonitor] Error sending admin notification:', notifyErr.message);
+    }
+
     return;
   }
 
@@ -116,12 +162,12 @@ async function runMonitoringJob() {
     );
     await Promise.all(contracts.map((c) => monitorContract(c.contract_id)));
   } catch (err) {
-    console.error('[ContractMonitor] Job error:', err.message);
+    logger.error('[ContractMonitor] Job error:', err.message);
   }
 }
 
 function startContractMonitor() {
-  console.log('[ContractMonitor] Starting — polling every 5 minutes');
+  logger.info('[ContractMonitor] Starting — polling every 5 minutes');
   runMonitoringJob(); // run immediately on startup
   return setInterval(runMonitoringJob, POLL_INTERVAL_MS);
 }

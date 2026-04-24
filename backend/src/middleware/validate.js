@@ -93,7 +93,14 @@ module.exports = {
 
   order: validate(z.object({
     product_id: z.coerce.number().int().positive('product_id must be a positive integer'),
-    quantity: z.coerce.number().int().positive('quantity must be a positive integer'),
+    quantity: z.coerce
+      .number()
+      .int()
+      .positive('quantity must be a positive integer')
+      .max(
+        parseInt(process.env.MAX_ORDER_QUANTITY, 10) || 10000,
+        `quantity cannot exceed ${parseInt(process.env.MAX_ORDER_QUANTITY, 10) || 10000}`
+      ),
     address_id: z.coerce.number().int().positive().optional(),
     use_soroban_escrow: z.coerce.boolean().optional(),
     weight: z.coerce.number().positive('weight must be a positive number').optional(),
@@ -147,7 +154,14 @@ module.exports = {
   order: validate(
     z.object({
       product_id: z.coerce.number().int().positive('product_id must be a positive integer'),
-      quantity: z.coerce.number().int().positive('quantity must be a positive integer'),
+      quantity: z.coerce
+        .number()
+        .int()
+        .positive('quantity must be a positive integer')
+        .max(
+          parseInt(process.env.MAX_ORDER_QUANTITY, 10) || 10000,
+          `quantity cannot exceed ${parseInt(process.env.MAX_ORDER_QUANTITY, 10) || 10000}`
+        ),
       address_id: z.coerce.number().int().positive().optional(),
       use_soroban_escrow: z.coerce.boolean().optional(),
       weight: z.coerce.number().positive('weight must be a positive number').optional(),
@@ -236,6 +250,20 @@ module.exports = {
       email: z.string().email('valid email required'),
       password: z.string().min(1, 'password is required'),
       mnemonic: z.string().min(1, 'mnemonic is required'),
+    })
+  ),
+
+  dispute: validate(
+    z.object({
+      order_id: z.coerce.number().int().positive('order_id must be a positive integer'),
+      reason: z.string().min(1, 'reason is required').max(1000, 'reason must be 1000 characters or fewer').trim(),
+    })
+  ),
+
+  resolveDispute: validate(
+    z.object({
+      status: z.enum(['under_review', 'resolved']),
+      resolution: z.string().max(1000, 'resolution must be 1000 characters or fewer').optional(),
     })
   ),
 };

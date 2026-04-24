@@ -170,11 +170,13 @@ async function sendPayment({ senderSecret, receiverPublicKey, amount, memo }) {
   return result.hash;
 }
 
-async function getTransactions(publicKey) {
+async function getTransactions(publicKey, { cursor, limit = 20 } = {}) {
   try {
-    const payments = await server.payments().forAccount(publicKey).order('desc').limit(20).call();
+    let call = server.payments().forAccount(publicKey).order('desc').limit(Math.min(limit, 200));
+    if (cursor) call = call.cursor(cursor);
+    const payments = await call.call();
 
-    return payments.records
+    const records = payments.records
       .filter((p) => p.type === 'payment' && p.asset_type === 'native')
       .map((p) => ({
         id: p.id,
@@ -185,8 +187,18 @@ async function getTransactions(publicKey) {
         created_at: p.created_at,
         transaction_hash: p.transaction_hash,
       }));
+
+    // Extract cursors from Horizon paging tokens
+    const next_cursor = payments.records.length > 0
+      ? payments.records[payments.records.length - 1].paging_token
+      : null;
+    const prev_cursor = payments.records.length > 0
+      ? payments.records[0].paging_token
+      : null;
+
+    return { records, next_cursor, prev_cursor };
   } catch {
-    return [];
+    return { records: [], next_cursor: null, prev_cursor: null };
   }
 }
 
