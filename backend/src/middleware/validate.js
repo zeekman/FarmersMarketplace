@@ -182,7 +182,7 @@ module.exports = {
 
   review: validate(
     z.object({
-      order_id: z.coerce.number().int().positive('order_id must be a positive integer'),
+      product_id: z.coerce.number().int().positive('product_id must be a positive integer'),
       rating: z.coerce.number().int().min(1).max(5, 'rating must be an integer between 1 and 5'),
       comment: z.string().max(1000, 'comment must be 1000 characters or fewer').optional(),
     })
