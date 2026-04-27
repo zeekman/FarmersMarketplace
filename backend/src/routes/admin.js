@@ -67,6 +67,30 @@ router.delete('/users/:id', async (req, res) => {
   res.json({ success: true, message: 'User deactivated' });
 });
 
+// GET /api/admin/orders
+router.get('/orders', async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page || '1'));
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '20')));
+  const offset = (page - 1) * limit;
+  const { rows: countRows } = await db.query('SELECT COUNT(*) as count FROM orders');
+  const total = parseInt(countRows[0].count);
+  const { rows: orders } = await db.query(
+    `SELECT o.id, o.buyer_id, o.product_id, o.quantity, o.total_price, o.status, o.created_at,
+            u.name as buyer_name, p.name as product_name
+     FROM orders o
+     LEFT JOIN users u ON u.id = o.buyer_id
+     LEFT JOIN products p ON p.id = o.product_id
+     ORDER BY o.created_at DESC
+     LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  );
+  res.json({
+    success: true,
+    data: orders,
+    pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+  });
+});
+
 // GET /api/admin/stats
 router.get('/stats', async (_req, res) => {
   const { rows: u } = await db.query('SELECT COUNT(*) as count FROM users');
