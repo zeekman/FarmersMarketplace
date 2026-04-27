@@ -64,42 +64,13 @@ router.get('/', async (req, res) => {
   const now = db.isPostgres ? 'NOW()' : "datetime('now')";
   conditions.push(`(p.available_from IS NULL OR p.available_from <= ${now})`);
   conditions.push(`(p.available_until IS NULL OR p.available_until >= ${now})`);
-  if (category)   { conditions.push(`p.category = $${params.length + 1}`);        params.push(category); }
-  if (minPrice !== undefined) { const min = parseFloat(minPrice); if (!isNaN(min)) { conditions.push(`p.price >= $${params.length + 1}`); params.push(min); } }
-  if (maxPrice !== undefined) { const max = parseFloat(maxPrice); if (!isNaN(max)) { conditions.push(`p.price <= $${params.length + 1}`); params.push(max); } }
-  if (seller)     { conditions.push(`u.name ILIKE $${params.length + 1}`);         params.push(`%${seller}%`); }
-  if (req.query.grade) {
-  conditions.push(`(p.best_before IS NULL OR p.best_before >= CURRENT_DATE)`);
-  conditions.push(`(p.best_before IS NULL OR p.best_before >= ${db.isPostgres ? 'CURRENT_DATE' : "date('now')"})`);
-
-  if (category) {
-    conditions.push(`p.category = $${params.length + 1}`);
-    params.push(category);
-  }
-  if (minPrice !== undefined) {
-    const min = parseFloat(minPrice);
-    if (!Number.isNaN(min)) {
-      conditions.push(`p.price >= $${params.length + 1}`);
-      params.push(min);
-    }
-  }
-  if (maxPrice !== undefined) {
-    const max = parseFloat(maxPrice);
-    if (!Number.isNaN(max)) {
-      conditions.push(`p.price <= $${params.length + 1}`);
-      params.push(max);
-    }
-  }
-  if (seller) {
-    conditions.push(`u.name ${db.isPostgres ? 'ILIKE' : 'LIKE'} $${params.length + 1}`);
-    params.push(`%${seller}%`);
-  }
+  if (category) { conditions.push(`p.category = $${params.length + 1}`); params.push(category); }
+  if (minPrice !== undefined) { const min = parseFloat(minPrice); if (!Number.isNaN(min)) { conditions.push(`p.price >= $${params.length + 1}`); params.push(min); } }
+  if (maxPrice !== undefined) { const max = parseFloat(maxPrice); if (!Number.isNaN(max)) { conditions.push(`p.price <= $${params.length + 1}`); params.push(max); } }
+  if (seller) { conditions.push(`u.name ${db.isPostgres ? 'ILIKE' : 'LIKE'} $${params.length + 1}`); params.push(`%${seller}%`); }
   if (grade) {
     const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];
-    if (VALID_GRADES.includes(grade)) {
-      conditions.push(`p.grade = $${params.length + 1}`);
-      params.push(grade);
-    }
+    if (VALID_GRADES.includes(grade)) { conditions.push(`p.grade = $${params.length + 1}`); params.push(grade); }
   }
 
   const filterLat = parseFloat(lat);
