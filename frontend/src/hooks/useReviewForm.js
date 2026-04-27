@@ -57,19 +57,3 @@ export function useReviewForm(productId, { onSuccess }) {
     handleReviewSubmit,
   };
 }
-  }, [reviewOrderId, reviewRating, reviewComment, onReviewSuccess]);
-
-  return {
-    reviewRating,
-    setReviewRating,
-    reviewComment,
-    setReviewComment,
-    reviewOrderId,
-    setReviewOrderId,
-    reviewLoading,
-    reviewError,
-    reviewSuccess,
-    loadPaidOrders,
-    handleReviewSubmit,
-  };
-}

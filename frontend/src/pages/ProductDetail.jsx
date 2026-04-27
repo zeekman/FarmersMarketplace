@@ -221,6 +221,42 @@ export default function ProductDetail() {
     }).finally(() => setPathEstimateLoading(false));
   }, [sourceAsset, qty, couponResult, product]);
 
+  const handleGeneratePaymentLink = useCallback(() => {
+    if (!user) return navigate('/login');
+    if (user.role === 'farmer') return setPaymentLinkError(t('productDetail.farmersCannotOrder'));
+    if (addresses.length > 0 && !selectedAddressId) return setPaymentLinkError(t('productDetail.selectAddress'));
+    if (!product) return;
+    generatePaymentLink({
+      productId: product.id,
+      quantity: qty,
+      addressId: selectedAddressId,
+      couponCode: couponResult ? couponCode : undefined
+    });
+  }, [user, navigate, addresses.length, selectedAddressId, generatePaymentLink, product, qty, couponResult, couponCode, t]);
+
+  // Compute total for fee preview (safe to call before product loads)
+  const _previewTotal = product
+    ? (() => {
+        const tiers_ = tiers ?? [];
+        const getTierPrice_ = (q) => {
+          for (let i = tiers_.length - 1; i >= 0; i--) {
+            if (q >= tiers_[i].min_quantity) return tiers_[i].price_per_unit;
+          }
+          return product.price;
+        };
+        const isFlash = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
+        const uPrice = isFlash ? Number(product.flash_sale_price) : getTierPrice_(qty);
+        const effPrice = (product.pricing_model === 'pwyw' || product.pricing_model === 'donation') ? (parseFloat(customPrice) || 0) : uPrice;
+        const sub = product.pricing_type === 'weight' ? (product.price * (parseFloat(weight) || 0)).toFixed(2) : (effPrice * qty).toFixed(2);
+        return couponResult ? couponResult.final_total.toFixed(2) : sub;
+      })()
+    : '0';
+  useEffect(() => {
+    const n = parseFloat(_previewTotal);
+    if (!n) return;
+    api.getFeePreview(n).then(r => setFeeInfo(r)).catch(() => setFeeInfo(null));
+  }, [_previewTotal]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!product) return <Spinner />;
 
   const shareUrl = shareMeta?.url || `${window.location.origin}/product/${id}`;
@@ -240,13 +276,6 @@ export default function ProductDetail() {
     return product.price;
   };
 
-  const isFlashSaleActive = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
-  const baseUnitPrice = getTierPrice(qty);
-  const unitPrice = isFlashSaleActive ? Number(product.flash_sale_price) : baseUnitPrice;
-  const subtotal = product?.pricing_type === 'weight'
-    ? (product.price * (parseFloat(weight) || 0)).toFixed(2)
-    : (unitPrice * qty).toFixed(2);
-  const total = couponResult ? couponResult.final_total.toFixed(2) : subtotal;
     const isFlashSaleActive = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
     const baseUnitPrice = getTierPrice(qty);
     const unitPrice = isFlashSaleActive ? Number(product.flash_sale_price) : baseUnitPrice;
@@ -273,13 +302,6 @@ export default function ProductDetail() {
     } catch { /* ignore */ }
     setAlertLoading(false);
   }
-  // Fetch fee info whenever total changes
-  const totalNum = parseFloat(total);
-  React.useEffect(() => {
-    if (!totalNum) return;
-    api.getFeePreview(totalNum).then(r => setFeeInfo(r)).catch(() => setFeeInfo(null));
-  }, [total]); // eslint-disable-line react-hooks/exhaustive-deps
-
   async function handleApplyCoupon() {
     if (!couponCode.trim()) return;
     setCouponLoading(true);
@@ -372,19 +394,6 @@ export default function ProductDetail() {
       setWalletLoading(false);
     }
   }
-
-   const handleGeneratePaymentLink = useCallback(() => {
-     if (!user) return navigate('/login');
-     if (user.role === 'farmer') return setPaymentLinkError(t('productDetail.farmersCannotOrder'));
-     if (addresses.length > 0 && !selectedAddressId) return setPaymentLinkError(t('productDetail.selectAddress'));
-
-     generatePaymentLink({
-       productId: product.id,
-       quantity: qty,
-       addressId: selectedAddressId,
-       couponCode: couponResult ? couponCode : undefined
-     });
-   }, [user, navigate, addresses.length, selectedAddressId, generatePaymentLink, product.id, qty, couponResult, couponCode, t]);
 
    const handleReviewSubmit = review.handleReviewSubmit;
 
@@ -961,7 +970,11 @@ export default function ProductDetail() {
               </label>
             )}
             <button style={{ ...s.btn, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
-              onClick={handleBuy} disabled={loading || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}>
+              onClick={handleBuy}
+              disabled={loading || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}
+              aria-disabled={loading}
+              aria-busy={loading}
+              data-testid="buy-now-btn">
               {loading && <div className="spinner-sm" style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />}
               {loading ? t('productDetail.processing') : `${useEscrow ? t('productDetail.payToEscrow') : t('productDetail.buyNow')} · ${sourceAsset && pathEstimate ? `~${pathEstimate.sourceAmount.toFixed(4)} ${pathEstimate.sourceCode}` : `${total} XLM`}`}
             </button>
