@@ -46,6 +46,8 @@ const EMPTY_FORM = {
   },
   harvest_date: '',
   best_before: '',
+  available_from: '',
+  available_until: '',
 };
 
 import { useAuth } from '../context/AuthContext';
@@ -455,6 +457,8 @@ export default function Dashboard() {
         min_order_quantity: form.min_order_quantity ? parseInt(form.min_order_quantity) : undefined,
         allergens: form.allergens && form.allergens.length > 0 ? form.allergens : undefined,
         allowed_regions: form.allowed_regions && form.allowed_regions.length > 0 ? form.allowed_regions : undefined,
+        available_from: form.available_from || undefined,
+        available_until: form.available_until || undefined,
       });
       setMsg({ type: 'ok', text: t('dashboard.productListedOk') });
       setForm({ ...EMPTY_FORM });
@@ -1029,6 +1033,22 @@ export default function Dashboard() {
               type="date"
               value={form.best_before}
               onChange={e => setForm({ ...form, best_before: e.target.value })}
+            />
+
+            <label style={s.label}>Available From (optional)</label>
+            <input
+              style={s.input}
+              type="datetime-local"
+              value={form.available_from}
+              onChange={e => setForm({ ...form, available_from: e.target.value })}
+            />
+
+            <label style={s.label}>Available Until (optional)</label>
+            <input
+              style={s.input}
+              type="datetime-local"
+              value={form.available_until}
+              onChange={e => setForm({ ...form, available_until: e.target.value })}
             />
 
             {/* Image upload */}
