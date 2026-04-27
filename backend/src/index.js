@@ -5,6 +5,7 @@ const cron = require('node-cron');
 const { startSubscriptionJob } = require('./jobs/processSubscriptions');
 const { startFreshnessJob } = require('./jobs/processFreshnessAlerts');
 const { startContractMonitor } = require('./jobs/contractMonitor');
+const { startPushSubscriptionCleanup } = require('./jobs/cleanupPushSubscriptions');
 const { createBackup } = require('./scripts/backup');
 const PORT = process.env.PORT || 4000;
 
@@ -13,6 +14,7 @@ app.listen(PORT, () => {
   startSubscriptionJob();
   startFreshnessJob();
   startContractMonitor();
+  startPushSubscriptionCleanup();
   
   // Schedule daily backup at midnight
   cron.schedule('0 0 * * *', async () => {

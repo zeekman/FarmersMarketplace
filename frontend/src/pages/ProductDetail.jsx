@@ -768,6 +768,13 @@ export default function ProductDetail() {
             Best before: {new Date(product.best_before).toLocaleDateString()}
           </div>
         )}
+        {(product.available_from || product.available_until) && (
+          <div style={{ fontSize: 13, color: '#2d6a4f', background: '#f0faf4', border: '1px solid #b7e4c7', borderRadius: 6, padding: '6px 10px', marginBottom: 12, display: 'inline-block' }}>
+            🗓 Availability window:
+            {product.available_from ? ` from ${new Date(product.available_from).toLocaleString()}` : ''}
+            {product.available_until ? ` until ${new Date(product.available_until).toLocaleString()}` : ''}
+          </div>
+        )}
 
         {product.pricing_type === 'weight' ? (
           <div style={{ marginBottom: 20 }}>

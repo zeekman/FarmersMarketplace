@@ -185,6 +185,7 @@ export default function Wallet() {
   const [sendForm, setSendForm]   = useState({ destination: '', amount: '', memo: '' });
   const [sending, setSending]     = useState(false);
   const [sendMsg, setSendMsg]     = useState(null);
+  const [network, setNetwork]     = useState(null);
 
   const [showTrustlineForm, setShowTrustlineForm] = useState(false);
   const [tlForm, setTlForm]       = useState({ asset_code: '', asset_issuer: '' });
@@ -265,6 +266,7 @@ export default function Wallet() {
   useEffect(() => {
     unmounted.current = false;
     load();
+    api.getNetwork().then(res => setNetwork(res.network)).catch(() => {});
     if (user?.role === 'buyer' && typeof api.getBudget === 'function') {
       api.getBudget()
         .then((res) => {
@@ -377,7 +379,7 @@ export default function Wallet() {
       <Toast toasts={toasts} />
       <div style={s.title}>My Wallet</div>
 
-      {disclaimerVisible && (
+      {disclaimerVisible && network !== 'mainnet' && (
         <div style={s.disclaimer} role="alert">
           <span style={s.disclaimerIcon}>Warning</span>
           <div style={s.disclaimerBody}>
@@ -385,6 +387,16 @@ export default function Wallet() {
             This wallet uses <strong>Stellar Testnet XLM</strong>, which has <strong>no monetary value</strong> and cannot be exchanged or withdrawn.
           </div>
           <button style={s.disclaimerDismiss} onClick={dismissDisclaimer} aria-label="Dismiss">x</button>
+        </div>
+      )}
+
+      {network === 'mainnet' && (
+        <div style={{ background: '#c0392b', color: '#fff', borderRadius: 10, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start' }} role="alert">
+          <span style={{ fontSize: 20, flexShrink: 0 }}>⚠️</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 3 }}>Mainnet — Real Funds</div>
+            You are connected to <strong>Stellar Mainnet</strong>. All transactions use <strong>real XLM</strong> with real monetary value. Proceed with caution.
+          </div>
         </div>
       )}
 
@@ -409,13 +421,17 @@ export default function Wallet() {
               <span style={{ background: '#fff3cd', color: '#856404', border: '1px solid #ffc107', borderRadius: 4, padding: '1px 7px', fontWeight: 600, fontSize: 11 }}>TESTNET</span>
               {' '}XLM shown here has no real-world value.
             </div>
-            <button style={s.btn} onClick={handleFund} disabled={funding}>
-              {funding ? 'Funding...' : 'Fund with Testnet XLM'}
-            </button>
-            {fundMsg && (
-              <div style={{ ...s.msg, background: fundMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: fundMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
-                {fundMsg.text}
-              </div>
+            {network !== 'mainnet' && (
+              <>
+                <button style={s.btn} onClick={handleFund} disabled={funding}>
+                  {funding ? 'Funding...' : 'Fund with Testnet XLM'}
+                </button>
+                {fundMsg && (
+                  <div style={{ ...s.msg, background: fundMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: fundMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
+                    {fundMsg.text}
+                  </div>
+                )}
+              </>
             )}
           </div>
 

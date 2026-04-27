@@ -63,6 +63,16 @@ describe('POST /api/products/bulk', () => {
     expect(res.body.message).toContain('quantity');
   });
 
+  it('returns 400 with missing_columns for empty CSV with wrong headers', async () => {
+    const csv = 'description,unit\n';
+    const res = await csvUpload(csv);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('missing_columns');
+    expect(res.body.message).toContain('name');
+    expect(res.body.message).toContain('price');
+    expect(res.body.message).toContain('quantity');
+  });
+
   it('skips invalid rows and reports them, still creates valid ones', async () => {
     const csv = [
       'name,price,quantity',
