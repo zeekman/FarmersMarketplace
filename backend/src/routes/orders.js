@@ -26,6 +26,7 @@ const { err } = require('../middleware/error');
 const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
 const { resolveCoupon, calcDiscount } = require('./coupons');
 const { checkGeoFence } = require('../utils/geocheck');
+const { broadcastStockUpdate } = require('./products');
 
 function parsePreorderUnlockUnix(preorderDeliveryDate) {
   const ms = Date.parse(`${preorderDeliveryDate}T00:00:00Z`);
@@ -404,6 +405,9 @@ router.post('/', auth, validate.order, async (req, res) => {
       sendLowStockAlert({ product: { ...product, quantity: updated.quantity }, farmer })
         .catch((lowStockErr) => logger.error('Low-stock alert failed:', { error: lowStockErr.message }));
     }
+
+    // Broadcast real-time stock update to SSE clients
+    if (updated) broadcastStockUpdate(product_id, updated.quantity);
 
     const rewardAmount = Math.floor(totalPrice);
     if (rewardAmount > 0 && buyer.stellar_public_key) {

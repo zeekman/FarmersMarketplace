@@ -796,4 +796,94 @@ router.patch('/contract-alerts/:id/acknowledge', async (req, res) => {
   res.json({ success: true });
 });
 
+// POST /api/admin/contracts/:id/migrate-storage
+// Body: { script: string, confirm?: boolean }
+// When confirm=false (default): returns a preview of before/after for each entry.
+// When confirm=true: applies the migration and records it in contract_migrations.
+router.post('/contracts/:id/migrate-storage', async (req, res) => {
+  const vm = require('vm');
+  const { getContractState } = require('../utils/stellar');
+
+  const registryId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(registryId)) {
+    return res.status(400).json({ success: false, error: 'Invalid contract registry id' });
+  }
+
+  const { script, confirm = false } = req.body || {};
+  if (typeof script !== 'string' || !script.trim()) {
+    return res.status(400).json({ success: false, error: 'script is required', code: 'validation_error' });
+  }
+
+  const { rows: reg } = await db.query(
+    'SELECT id, contract_id, network FROM contracts_registry WHERE id = $1',
+    [registryId],
+  );
+  if (!reg[0]) return res.status(404).json({ success: false, error: 'Contract not found' });
+
+  const STELLAR_NETWORK = (process.env.STELLAR_NETWORK || 'testnet').toLowerCase();
+  if (reg[0].network !== STELLAR_NETWORK) {
+    return res.status(400).json({
+      success: false,
+      error: `Contract network (${reg[0].network}) does not match server STELLAR_NETWORK (${STELLAR_NETWORK})`,
+    });
+  }
+
+  // Fetch current storage entries from Soroban RPC
+  let entries;
+  try {
+    entries = await getContractState(reg[0].contract_id, null);
+  } catch (e) {
+    if (e.code === 404 || e.message?.includes('not found')) {
+      return res.status(404).json({ success: false, error: 'Contract not found on Soroban RPC' });
+    }
+    return res.status(502).json({ success: false, error: e.message || 'RPC error', code: 'rpc_error' });
+  }
+
+  // Compile and run the migration script in a sandbox
+  // The script receives `entries` (array of { key, val, durability }) and must return the transformed array.
+  let migratedEntries;
+  try {
+    const sandbox = { entries: JSON.parse(JSON.stringify(entries)), result: null };
+    const wrappedScript = `result = (function(entries) { ${script} })(entries);`;
+    vm.runInNewContext(wrappedScript, sandbox, { timeout: 5000 });
+    migratedEntries = sandbox.result;
+    if (!Array.isArray(migratedEntries)) {
+      return res.status(400).json({ success: false, error: 'Migration script must return an array of entries', code: 'invalid_script_result' });
+    }
+  } catch (e) {
+    return res.status(400).json({ success: false, error: `Script error: ${e.message}`, code: 'script_error' });
+  }
+
+  // Build preview: before/after for each entry keyed by index
+  const preview = entries.map((before, i) => ({
+    key: before.key,
+    before: before.val,
+    after: migratedEntries[i] !== undefined ? migratedEntries[i].val : null,
+    durability: migratedEntries[i]?.durability ?? before.durability,
+  }));
+
+  if (!confirm) {
+    return res.json({ success: true, preview, applied: false });
+  }
+
+  // Record migration in contract_migrations table
+  try {
+    const { rows: migRows } = await db.query(
+      `INSERT INTO contract_migrations (contract_id, script, entries_before, entries_after, migrated_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, contract_id, migrated_by, migrated_at`,
+      [
+        reg[0].contract_id,
+        script,
+        JSON.stringify(entries),
+        JSON.stringify(migratedEntries),
+        req.user.id,
+      ],
+    );
+    return res.status(201).json({ success: true, preview, applied: true, migration: migRows[0] });
+  } catch (e) {
+    return res.status(500).json({ success: false, error: 'Failed to record migration: ' + e.message });
+  }
+});
+
 module.exports = router;

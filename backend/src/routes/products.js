@@ -1020,4 +1020,52 @@ router.get('/:id/price-history', async (req, res) => {
   res.json({ success: true, data: rows });
 });
 
+// In-memory map of productId → Set of SSE response objects
+const stockClients = new Map();
+
+/**
+ * Broadcast a stock update to all SSE clients watching a product.
+ * Called from orders.js after a successful purchase.
+ */
+function broadcastStockUpdate(productId, quantity) {
+  const clients = stockClients.get(String(productId));
+  if (!clients || clients.size === 0) return;
+  const payload = `data: ${JSON.stringify({ quantity })}\n\n`;
+  for (const client of clients) {
+    try { client.write(payload); } catch { /* client disconnected */ }
+  }
+}
+
+// GET /api/products/:id/stock-stream — public SSE endpoint
+router.get('/:id/stock-stream', async (req, res) => {
+  const productId = req.params.id;
+  const { rows } = await db.query('SELECT quantity FROM products WHERE id = $1', [productId]);
+  if (!rows[0]) return res.status(404).json({ error: 'Product not found' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  // Send current stock immediately
+  res.write(`data: ${JSON.stringify({ quantity: rows[0].quantity })}\n\n`);
+
+  // Register client
+  if (!stockClients.has(productId)) stockClients.set(productId, new Set());
+  stockClients.get(productId).add(res);
+
+  // Heartbeat every 30 s to prevent proxy timeouts
+  const heartbeat = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* ignore */ } }, 30000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    const clients = stockClients.get(productId);
+    if (clients) {
+      clients.delete(res);
+      if (clients.size === 0) stockClients.delete(productId);
+    }
+  });
+});
+
 module.exports = router;
+module.exports.broadcastStockUpdate = broadcastStockUpdate;
