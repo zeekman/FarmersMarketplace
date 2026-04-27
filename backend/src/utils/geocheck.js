@@ -8,6 +8,8 @@
  */
 
 const https = require('https');
+const { get, set } = require('../cache');
+const config = require('../config');
 
 /**
  * Resolve the country code for a request.
@@ -26,17 +28,29 @@ async function resolveCountry(buyer, ip) {
     return null;
   }
 
+  // Check cache first
+  const cacheKey = `geo:${ip}`;
+  const cached = await get(cacheKey);
+  if (cached !== null) {
+    return cached;
+  }
+
+  // Fetch from API
+  const timeoutMs = config.GEO_API_TIMEOUT_MS || 2000;
   return new Promise((resolve) => {
     const req = https.get(
       `https://ip-api.com/json/${encodeURIComponent(ip)}?fields=countryCode,status`,
-      { timeout: 3000 },
+      { timeout: timeoutMs },
       (res) => {
         let body = '';
         res.on('data', (chunk) => { body += chunk; });
         res.on('end', () => {
           try {
             const data = JSON.parse(body);
-            resolve(data.status === 'success' ? data.countryCode : null);
+            const country = data.status === 'success' ? data.countryCode : null;
+            // Cache for 1 hour
+            set(cacheKey, country, 3600);
+            resolve(country);
           } catch {
             resolve(null);
           }
