@@ -251,6 +251,13 @@ const s = {
   },
 };
 
+const SORT_OPTIONS = [
+  { value: "newest", label: "Newest" },
+  { value: "price_asc", label: "Price: Low to High" },
+  { value: "price_desc", label: "Price: High to Low" },
+  { value: "popular", label: "Most Popular" },
+];
+
 const EMPTY_FILTERS = {
   search: "",
   category: "",
@@ -262,6 +269,7 @@ const EMPTY_FILTERS = {
   lng: "",
   radius: "",
   excludeAllergens: [],
+  sort: "newest",
 };
 
 function getFreshnessBadge(bestBefore) {
@@ -319,6 +327,7 @@ export default function Marketplace() {
         if (f.maxPrice && f.maxPrice < MAX_PRICE) params.maxPrice = f.maxPrice;
         if (f.seller) params.seller = f.seller;
         if (f.available) params.available = f.available;
+        if (f.sort && f.sort !== "newest") params.sort = f.sort;
         if (f.lat && f.lng && f.radius) {
           params.lat = f.lat;
           params.lng = f.lng;
@@ -360,6 +369,7 @@ export default function Marketplace() {
     filters.maxPrice,
     filters.available,
     filters.excludeAllergens,
+    filters.sort,
   ]);
 
   useEffect(() => {
@@ -611,6 +621,17 @@ export default function Marketplace() {
             <option key={c} value={c === "all" ? "" : c}>
               {c.charAt(0).toUpperCase() + c.slice(1)}
             </option>
+          ))}
+        </select>
+
+        <select
+          style={s.select}
+          value={filters.sort}
+          onChange={(e) => set("sort", e.target.value)}
+          aria-label="Sort products"
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
 

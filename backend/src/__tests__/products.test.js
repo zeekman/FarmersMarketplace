@@ -249,6 +249,9 @@ describe('PATCH /api/products/:id', () => {
       .set('Authorization', `Bearer ${buyerToken}`)
       .send({ quantity: 5 });
     expect(res.status).toBe(403);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // #388 — product listing cache role isolation
 // ---------------------------------------------------------------------------
