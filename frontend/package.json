@@ -17,6 +17,8 @@
     "i18next": "^26.0.1",
     "leaflet": "^1.9.4",
     "qrcode.react": "^4.2.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "react-helmet-async": "^2.0.5",
     "react-i18next": "^17.0.1",
     "react-leaflet": "^5.0.0",
