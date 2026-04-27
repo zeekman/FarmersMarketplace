@@ -67,6 +67,9 @@ router.get('/', async (req, res) => {
 
   if (available === 'true') conditions.push('p.quantity > 0');
   conditions.push(`p.best_before IS NULL OR p.best_before >= CURRENT_DATE`);
+  const now = db.isPostgres ? 'NOW()' : "datetime('now')";
+  conditions.push(`(p.available_from IS NULL OR p.available_from <= ${now})`);
+  conditions.push(`(p.available_until IS NULL OR p.available_until >= ${now})`);
   if (category)   { conditions.push(`p.category = $${params.length + 1}`);        params.push(category); }
   if (minPrice !== undefined) { const min = parseFloat(minPrice); if (!isNaN(min)) { conditions.push(`p.price >= $${params.length + 1}`); params.push(min); } }
   if (maxPrice !== undefined) { const max = parseFloat(maxPrice); if (!isNaN(max)) { conditions.push(`p.price <= $${params.length + 1}`); params.push(max); } }
@@ -398,14 +401,15 @@ router.post('/', auth, validate.product, async (req, res) => {
   const { rows } = await db.query(
     `INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url,
       low_stock_threshold, nutrition, pricing_type, min_weight, max_weight, batch_id,
-      is_preorder, preorder_delivery_date, allergens, allowed_regions)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+      is_preorder, preorder_delivery_date, allergens, allowed_regions, available_from, available_until)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
     [
       req.user.id, safeName, safeDescription, safeCategory, price, quantity, safeUnit, safeImageUrl,
       parseInt(req.body.low_stock_threshold, 10) || 5, nutrition ? JSON.stringify(nutrition) : null,
       pricingType, minWeight, maxWeight, batchId,
       preorder.isPreorder ? 1 : 0, preorder.preorderDeliveryDate,
       allergenResult.allergens, parseAllowedRegions(req.body.allowed_regions),
+      req.body.available_from || null, req.body.available_until || null,
     ]
   );
   const productId = rows[0].id;
@@ -552,7 +556,7 @@ router.patch('/:id', auth, async (req, res) => {
     'name', 'description', 'price', 'quantity', 'unit', 'category',
     'low_stock_threshold', 'nutrition', 'pricing_type', 'min_weight', 'max_weight',
     'batch_id', 'is_preorder', 'preorder_delivery_date', 'allergens', 'allowed_regions',
-    'grade', 'carbon_kg_per_unit',
+    'grade', 'carbon_kg_per_unit', 'available_from', 'available_until',
   ];
   const updates = {};
   for (const key of allowed) {

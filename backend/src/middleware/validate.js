@@ -266,4 +266,16 @@ module.exports = {
       resolution: z.string().max(1000, 'resolution must be 1000 characters or fewer').optional(),
     })
   ),
+
+  // monthly_limit: 0 disables the budget guard, >0 enforces it, <0 or non-numeric rejected
+  updateBudget: validate(
+    z.object({
+      monthly_limit: z
+        .number({
+          invalid_type_error: 'monthly_limit must be a number',
+          required_error: 'monthly_limit is required',
+        })
+        .nonnegative('monthly_limit cannot be negative'),
+    })
+  ),
 };

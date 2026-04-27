@@ -824,6 +824,12 @@ export default function Marketplace() {
                     : ""}
                 </div>
               ) : null}
+              {(p.available_from || p.available_until) && (
+                <div style={{ fontSize: 11, color: '#555', background: '#f0faf4', border: '1px solid #b7e4c7', borderRadius: 4, padding: '2px 7px', marginBottom: 6, display: 'inline-block' }}>
+                  🗓{p.available_from ? ` From ${new Date(p.available_from).toLocaleDateString()}` : ''}
+                  {p.available_until ? ` Until ${new Date(p.available_until).toLocaleDateString()}` : ''}
+                </div>
+              )}
               <div style={s.name}>{p.name}</div>
               <div style={s.desc}>{p.description || "Fresh from the farm"}</div>
               {p.flash_sale_price &&

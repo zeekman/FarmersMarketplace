@@ -39,20 +39,25 @@ router.post('/', auth, (req, res) => {
   if (!Array.isArray(items) || items.length === 0)
     return err(res, 400, 'items must be a non-empty array', 'validation_error');
 
+  const invalidProductIds = [];
   for (const item of items) {
-    if (!item.product_id || !Number.isInteger(item.quantity) || item.quantity < 1)
+    if (!item.product_id || !Number.isInteger(item.quantity) || item.quantity < 1) {
       return err(
         res,
         400,
         'Each item needs product_id and a positive integer quantity',
         'validation_error'
       );
+    }
     const product = db
       .prepare('SELECT id, farmer_id FROM products WHERE id = ?')
       .get(item.product_id);
-    if (!product) return err(res, 404, `Product ${item.product_id} not found`, 'not_found');
-    if (product.farmer_id !== req.user.id)
-      return err(res, 403, `Product ${item.product_id} does not belong to you`, 'forbidden');
+    if (!product || product.farmer_id !== req.user.id) {
+      invalidProductIds.push(item.product_id);
+    }
+  }
+  if (invalidProductIds.length > 0) {
+    return err(res, 400, `Invalid product IDs: ${invalidProductIds.join(', ')}`, 'validation_error');
   }
 
   const create = db.transaction(() => {

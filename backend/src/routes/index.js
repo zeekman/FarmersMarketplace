@@ -314,6 +314,7 @@ router.use("/api/products/bulk", require("./bulkUpload"));
 router.use("/api/products/import", require("./productImport"));
 router.use("/api/coupons", require("./coupons"));
 router.use("/api", require("./reviews"));
+router.use('/api', require('./network'));
 router.use('/api/auth',          require('./auth'));
 router.use('/api/products',      require('./products'));
 router.use('/api/products',      require('./productVideos'));

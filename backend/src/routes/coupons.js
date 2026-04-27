@@ -25,7 +25,8 @@ async function getTierPrice(productId, quantity) {
 }
 
 // Resolve a coupon row and validate it against a farmer + total
-function resolveCoupon(code, farmerId) {
+// userId is optional; when provided, per-user limit is enforced
+function resolveCoupon(code, farmerId, userId) {
   const coupon = db.prepare('SELECT * FROM coupons WHERE code = ?').get(code.toUpperCase());
   if (!coupon) return { error: 'Invalid coupon code', code: 'invalid_coupon' };
   if (coupon.farmer_id !== farmerId)
@@ -34,6 +35,13 @@ function resolveCoupon(code, farmerId) {
     return { error: 'Coupon has expired', code: 'coupon_expired' };
   if (coupon.max_uses !== null && coupon.used_count >= coupon.max_uses)
     return { error: 'Coupon usage limit reached', code: 'coupon_exhausted' };
+  if (userId != null && coupon.max_uses_per_user != null) {
+    const uses = db
+      .prepare('SELECT COUNT(*) as cnt FROM coupon_uses WHERE coupon_id = ? AND user_id = ?')
+      .get(coupon.id, userId);
+    if (uses.cnt >= coupon.max_uses_per_user)
+      return { error: 'Coupon already used', code: 'coupon_already_used' };
+  }
   return { coupon };
 }
 
@@ -123,8 +131,8 @@ router.post('/validate', auth, async (req, res) => {
   const unitPrice = await getTierPrice(product_id, quantity);
   const subtotal = unitPrice * quantity;
 
-  const { coupon, error, code: errCode } = resolveCoupon(code, product.farmer_id);
-  if (error) return err(res, 400, error, errCode);
+  const { coupon, error, code: errCode } = resolveCoupon(code, product.farmer_id, req.user.id);
+  if (error) return err(res, errCode === 'coupon_already_used' ? 409 : 400, error, errCode);
 
   const discount = calcDiscount(coupon, subtotal);
   res.json({

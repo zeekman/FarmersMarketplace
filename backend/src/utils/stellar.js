@@ -1384,35 +1384,10 @@ module.exports = {
   isTestnet,
   server,
   createWallet,
-  createWalletFromMnemonic,
-  deriveKeypairFromMnemonic,
   fundTestnetAccount,
   getBalance,
-  getAllBalances,
   sendPayment,
-  wrapWithFeeBump,
-  pathPayment,
-  getPathPaymentEstimate,
-  getPlatformFeeInfo,
   getTransactions,
-  lookupFederationAddress,
-  addTrustline,
-  removeTrustline,
-  mergeAccount,
-  createClaimableBalance,
-  createPreorderClaimableBalance,
-  claimBalance,
-  invokeEscrowContract,
-  getContractState,
-  getContractWasmHash,
-  simulateContractCall,
-  getContractEvents,
-  deployContract,
-  getContractABI,
-  analyzeContractFees,
-  resolveFederationAddress,
-  mintRewardTokens,
-  getContractFunctionSignatures,
   generatePaymentLink,
 };
 
@@ -1477,8 +1452,24 @@ async function simulateContract({ contractId, method, args = [] }) {
   return sim;
 }
 
+/**
+ * Fetch the memo text from a Stellar transaction by hash.
+ * Returns the memo string, or null if none / on error.
+ */
+async function getMemo(txHash) {
+  if (!txHash) return null;
+  try {
+    const tx = await server.transactions().transaction(txHash).call();
+    if (tx.memo_type === 'text' && tx.memo) return tx.memo;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   ...module.exports,
   invokeContract,
   simulateContract,
+  getMemo,
 };
