@@ -315,6 +315,10 @@ export default function Wallet() {
     }
   }
 
+  const availableBalance = wallet ? (wallet.availableBalance ?? Math.max(0, wallet.balance - 1)) : 0;
+  const sendAmount = parseFloat(sendForm.amount);
+  const sendExceedsBalance = sendForm.amount !== '' && !isNaN(sendAmount) && sendAmount > availableBalance;
+
   async function handleSend(e) {
     e.preventDefault();
     setSendMsg(null);
@@ -325,6 +329,8 @@ export default function Wallet() {
       return setSendMsg({ type: 'err', text: 'Invalid destination. Enter a Stellar public key (G...) or federation address (name*domain).' });
     if (!amount || amount <= 0)
       return setSendMsg({ type: 'err', text: 'Amount must be greater than 0.' });
+    if (amount > availableBalance)
+      return setSendMsg({ type: 'err', text: `Insufficient balance. You have ${availableBalance.toFixed(2)} XLM available.` });
     if (sendForm.memo.length > 28)
       return setSendMsg({ type: 'err', text: 'Memo must be 28 characters or fewer.' });
     setSending(true);
@@ -585,17 +591,24 @@ export default function Wallet() {
               />
               <label style={s.label}>Amount (XLM)</label>
               <input
-                style={s.input} type="number" min="0.0000001" step="any" placeholder="0.00"
+                style={{ ...s.input, borderColor: sendExceedsBalance ? '#c0392b' : undefined }}
+                type="number" min="0.0000001" step="any" placeholder="0.00"
                 value={sendForm.amount}
                 onChange={e => setSendForm(f => ({ ...f, amount: e.target.value }))}
+                aria-describedby={sendExceedsBalance ? 'send-balance-warning' : undefined}
               />
+              {sendExceedsBalance && (
+                <div id="send-balance-warning" role="alert" style={{ color: '#c0392b', fontSize: 13, marginTop: 4 }}>
+                  Insufficient balance. You have {availableBalance.toFixed(2)} XLM available.
+                </div>
+              )}
               <label style={s.label}>Memo <span style={{ color: '#aaa', fontWeight: 400 }}>(optional, max 28 chars)</span></label>
               <input
                 style={s.input} type="text" maxLength={28} placeholder="e.g. payment for order #42"
                 value={sendForm.memo}
                 onChange={e => setSendForm(f => ({ ...f, memo: e.target.value }))}
               />
-              <button type="submit" style={s.btn} disabled={sending}>
+              <button type="submit" style={{ ...s.btn, opacity: sendExceedsBalance ? 0.5 : 1 }} disabled={sending || sendExceedsBalance}>
                 {sending ? 'Withdrawing...' : 'Withdraw XLM'}
               </button>
             </form>
