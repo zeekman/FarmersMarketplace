@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Helmet } from 'react-helmet-async';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import Spinner from '../components/Spinner';
 
-const ALL_STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'failed'];
+const ALL_STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'disputed', 'cancelled', 'refunded', 'failed'];
 const FILTER_TABS = ['all', ...ALL_STATUSES];
 
 const STATUS_STYLE = {
@@ -14,10 +15,14 @@ const STATUS_STYLE = {
   shipped:    { bg: '#d1ecf1', color: '#0c5460' },
   delivered:  { bg: '#d4edda', color: '#155724' },
   failed:     { bg: '#fee',    color: '#c0392b' },
+  disputed:   { bg: '#ffe4cc', color: '#a04000' },
+  cancelled:  { bg: '#f0f0f0', color: '#555' },
+  refunded:   { bg: '#e8d5f5', color: '#6a0dad' },
 };
 
 const STATUS_ICON = {
   pending: '⏳', paid: '✅', processing: '⚙️', shipped: '🚚', delivered: '📦', failed: '❌',
+  disputed: '⚠️', cancelled: '🚫', refunded: '↩️',
 };
 
 // Timeline steps shown in order detail
@@ -77,7 +82,9 @@ function StatusTimeline({ status }) {
 
 export default function Orders() {
   const [allOrders, setAllOrders] = useState([]);
-  const [activeTab, setActiveTab]  = useState('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = FILTER_TABS.includes(searchParams.get('status')) ? searchParams.get('status') : 'all';
+  const setActiveTab = (tab) => setSearchParams(tab === 'all' ? {} : { status: tab }, { replace: true });
   const [loading, setLoading]      = useState(true);
   const [error, setError]          = useState(null);
   const [hovered, setHovered]      = useState(null);
