@@ -18,6 +18,18 @@ const s = {
   msg: { padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 14 },
 };
 
+function getEmptyForm() {
+  return {
+    name: '',
+    description: '',
+    price: '',
+    quantity: '',
+    unit: 'kg',
+    category: 'other',
+    is_preorder: false,
+    preorder_delivery_date: '',
+  };
+}
 const EMPTY_FORM = {
   name: '',
   description: '',
@@ -62,6 +74,8 @@ export default function Dashboard() {
   const { user } = useAuth();
   const { t } = useTranslation();
   const [products, setProducts] = useState([]);
+  const [form, setForm] = useState(getEmptyForm);
+  const [restockVals, setRestockVals] = useState({});
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [harvestBatches, setHarvestBatches] = useState([]);
   const [batchForm, setBatchForm] = useState({ batch_code: '', harvest_date: '', notes: '' });
@@ -452,6 +466,7 @@ export default function Dashboard() {
         batch_id: Number.isFinite(batchId) ? batchId : undefined,
       });
       setMsg({ type: 'ok', text: t('dashboard.productListedOk') });
+      setForm(getEmptyForm());
       setForm({ ...EMPTY_FORM });
       removeImage();
       load();
