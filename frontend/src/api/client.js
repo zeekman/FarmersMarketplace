@@ -81,12 +81,16 @@ async function request(path, options = {}, retry = true) {
     });
 
     if (res.status === 401 && retry) {
-      const token = await refreshAccessToken();
+      let token;
+      try {
+        token = await refreshAccessToken();
+      } catch {
+        token = null;
+      }
       if (token) return request(path, options, false);
       clearAccessToken();
       if (logoutCallback) logoutCallback();
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || data.error || 'Session expired');
+      throw new Error('Session expired');
     }
 
     const data = await res.json().catch(() => ({}));
