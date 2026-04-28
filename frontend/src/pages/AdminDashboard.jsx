@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 
 function DeactivateModal({ user, onConfirm, onCancel }) {
@@ -61,9 +63,12 @@ const s = {
 };
 
 export default function AdminDashboard() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
+  const [orders, setOrders] = useState([]);
+  const [orderPagination, setOrderPagination] = useState({ page: 1, pages: 1, total: 0 });
   const [error, setError] = useState('');
   const [deactivateTarget, setDeactivateTarget] = useState(null);
   const [contracts, setContracts] = useState([]);
@@ -162,12 +167,25 @@ export default function AdminDashboard() {
       const res = await api.adminGetUsers(page);
       setUsers(res.data);
       setPagination(res.pagination);
+      setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('usersPage', page); return p; });
+    } catch (e) { setError(e.message); }
+  }
+
+  async function loadOrders(page = 1) {
+    try {
+      const res = await api.adminGetOrders(page);
+      setOrders(res.data);
+      setOrderPagination(res.pagination);
+      setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('ordersPage', page); return p; });
     } catch (e) { setError(e.message); }
   }
 
   useEffect(() => {
+    const usersPage = parseInt(searchParams.get('usersPage') || '1');
+    const ordersPage = parseInt(searchParams.get('ordersPage') || '1');
     loadStats();
-    loadUsers(1);
+    loadUsers(usersPage);
+    loadOrders(ordersPage);
     loadContracts();
     loadContractAlerts('unacknowledged');
     loadAnnouncements();
@@ -474,6 +492,50 @@ export default function AdminDashboard() {
             style={s.pgBtn(pagination.page >= pagination.pages)}
             disabled={pagination.page >= pagination.pages}
             onClick={() => loadUsers(pagination.page + 1)}
+          >Next →</button>
+        </div>
+      </div>
+
+      {/* Orders Table */}
+      <div style={{ ...s.card, marginTop: 32 }}>
+        <h3 style={{ marginBottom: 16, color: '#333' }}>Orders ({orderPagination.total})</h3>
+        <table style={s.table}>
+          <thead>
+            <tr>
+              <th style={s.th}>ID</th>
+              <th style={s.th}>Buyer</th>
+              <th style={s.th}>Product</th>
+              <th style={s.th}>Qty</th>
+              <th style={s.th}>Total (XLM)</th>
+              <th style={s.th}>Status</th>
+              <th style={s.th}>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map(o => (
+              <tr key={o.id}>
+                <td style={s.td}>{o.id}</td>
+                <td style={s.td}>{o.buyer_name || o.buyer_id}</td>
+                <td style={s.td}>{o.product_name || o.product_id}</td>
+                <td style={s.td}>{o.quantity}</td>
+                <td style={s.td}>{Number(o.total_price).toFixed(2)}</td>
+                <td style={s.td}>{o.status}</td>
+                <td style={s.td}>{new Date(o.created_at).toLocaleDateString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div style={s.pagination}>
+          <button
+            style={s.pgBtn(orderPagination.page <= 1)}
+            disabled={orderPagination.page <= 1}
+            onClick={() => loadOrders(orderPagination.page - 1)}
+          >← Prev</button>
+          <span style={{ fontSize: 13, color: '#666' }}>Page {orderPagination.page} of {orderPagination.pages}</span>
+          <button
+            style={s.pgBtn(orderPagination.page >= orderPagination.pages)}
+            disabled={orderPagination.page >= orderPagination.pages}
+            onClick={() => loadOrders(orderPagination.page + 1)}
           >Next →</button>
         </div>
       </div>

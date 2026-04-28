@@ -91,7 +91,15 @@
     "key": "Ufunguo",
     "value": "Thamani",
     "durability": "Uimara",
-    "errorLoading": "Hitilafu wakati wa kupakia dashibodi:"
+    "errorLoading": "Hitilafu wakati wa kupakia dashibodi:",
+    "priceTiers": "💰 Viwango vya Bei",
+    "tiersHint": "Weka viwango vya bei kwa wingi. Wingi zaidi hupata bei nafuu.",
+    "noTiers": "Hakuna viwango vya bei vilivyowekwa. Wingi wote unatumia bei ya msingi.",
+    "addTier": "Ongeza Kiwango",
+    "saveTiers": "Hifadhi Viwango",
+    "minQuantity": "Kiwango cha Chini",
+    "pricePerUnit": "Bei kwa Kila Kipimo (XLM)",
+    "tiers": "💰 Viwango"
   },
   "marketplace": {
     "title": "🛒 Soko",
