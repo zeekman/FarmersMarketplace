@@ -72,7 +72,7 @@ function Toast({ toasts }) {
 export default function Wallet() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const [disclaimerVisible, setDisclaimerVisible] = useState(() => !sessionStorage.getItem(DISCLAIMER_KEY));
+  const [disclaimerVisible, setDisclaimerVisible] = useState(() => localStorage.getItem(DISCLAIMER_KEY) !== 'true');
   const [wallet, setWallet]       = useState(null);
   const [txs, setTxs]             = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -105,7 +105,7 @@ export default function Wallet() {
   const unmounted = useRef(false);
 
   function dismissDisclaimer() {
-    sessionStorage.setItem(DISCLAIMER_KEY, '1');
+    localStorage.setItem(DISCLAIMER_KEY, 'true');
     setDisclaimerVisible(false);
   }
 
