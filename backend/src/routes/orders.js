@@ -749,5 +749,39 @@ router.post('/:id/refund', auth, async (req, res) => {
   res.json({ success: true, data, total, page, limit });
 });
 
+// GET /api/orders/:id/receipt
+router.get('/:id/receipt', auth, async (req, res) => {
+  if (req.user.role !== 'buyer') return err(res, 403, 'Buyers only', 'forbidden');
+
+  const { rows } = await db.query(
+    `SELECT o.id, o.total_price, o.quantity, o.created_at, o.stellar_tx_hash,
+            p.name as product_name, p.unit
+     FROM orders o
+     JOIN products p ON o.product_id = p.id
+     WHERE o.id = $1 AND o.buyer_id = $2 AND o.status = 'paid'`,
+    [req.params.id, req.user.id]
+  );
+  const order = rows[0];
+  if (!order) return err(res, 404, 'Paid order not found', 'not_found');
+
+  const date = new Date(order.created_at).toISOString().slice(0, 10);
+  const lines = [
+    'FARMERS MARKETPLACE — ORDER RECEIPT',
+    '====================================',
+    `Order ID:        ${order.id}`,
+    `Date:            ${date}`,
+    `Product:         ${order.product_name}`,
+    `Quantity:        ${order.quantity} ${order.unit || ''}`.trimEnd(),
+    `Price (XLM):     ${parseFloat(order.total_price).toFixed(7)}`,
+    `Transaction Hash: ${order.stellar_tx_hash || 'N/A'}`,
+    '====================================',
+  ].join('\n');
+
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Content-Disposition', `attachment; filename="receipt-${order.id}.txt"`);
+  res.send(lines);
+});
+
 module.exports = router;
+
 

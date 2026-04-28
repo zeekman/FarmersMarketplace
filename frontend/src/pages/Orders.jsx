@@ -91,6 +91,7 @@ export default function Orders() {
   const { user } = useAuth();
   const [claimingId, setClaimingId] = useState(null);
   const [claimError, setClaimError] = useState({});
+  const [downloadingReceipt, setDownloadingReceipt] = useState(null);
   const [bundleOrders, setBundleOrders] = useState([]);
   const [returnModal, setReturnModal] = useState(null); // orderId
   const [returnReason, setReturnReason] = useState('');
@@ -318,6 +319,19 @@ export default function Orders() {
                     {STATUS_ICON[o.status]} {o.status}
                   </span>
                   <span style={s.price}>{parseFloat(o.total_price).toFixed(2)} XLM</span>
+                  {o.status === 'paid' && (
+                    <button
+                      style={{ fontSize: 12, padding: '5px 12px', borderRadius: 8, border: '1px solid #2d6a4f', cursor: downloadingReceipt === o.id ? 'not-allowed' : 'pointer', background: '#fff', color: '#2d6a4f', fontWeight: 600 }}
+                      disabled={downloadingReceipt === o.id}
+                      onClick={async () => {
+                        setDownloadingReceipt(o.id);
+                        try { await api.downloadReceipt(o.id); } catch {}
+                        finally { setDownloadingReceipt(null); }
+                      }}
+                    >
+                      {downloadingReceipt === o.id ? '⏳' : '🧾'} Download Receipt
+                    </button>
+                  )}
                 </div>
               </div>
             );
