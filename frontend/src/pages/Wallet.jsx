@@ -193,6 +193,8 @@ export default function Wallet() {
   const [tlLoading, setTlLoading] = useState(false);
   const [removingAsset, setRemovingAsset] = useState(null);
 
+  const [reconnecting, setReconnecting] = useState(false);
+
   const esRef = useRef(null);
   const reconnectTimer = useRef(null);
   const reconnectDelay = useRef(RECONNECT_BASE_MS);
@@ -255,12 +257,13 @@ export default function Wallet() {
       es.close();
       esRef.current = null;
       if (unmounted.current) return;
+      reconnectDelay.current = Math.min(reconnectDelay.current * 2, RECONNECT_MAX_MS);
+      setReconnecting(true);
       reconnectTimer.current = setTimeout(() => {
-        reconnectDelay.current = Math.min(reconnectDelay.current * 2, RECONNECT_MAX_MS);
         connectStream();
       }, reconnectDelay.current);
     });
-    es.onopen = () => { reconnectDelay.current = RECONNECT_BASE_MS; };
+    es.onopen = () => { reconnectDelay.current = RECONNECT_BASE_MS; setReconnecting(false); };
   }, [load]);
 
   useEffect(() => {
@@ -378,6 +381,12 @@ export default function Wallet() {
       </Helmet>
       <Toast toasts={toasts} />
       <div style={s.title}>My Wallet</div>
+
+      {reconnecting && (
+        <div role="status" style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 8, padding: '8px 14px', marginBottom: 16, fontSize: 13, color: '#856404' }}>
+          ⟳ Reconnecting to live updates…
+        </div>
+      )}
 
       {disclaimerVisible && network !== 'mainnet' && (
         <div style={s.disclaimer} role="alert">
