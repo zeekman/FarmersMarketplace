@@ -41,15 +41,3 @@ export function usePaymentLink() {
     setPaymentLinkError,
   };
 }
-
-  }, [productId, navigate]);
-
-  return {
-    paymentLinkData,
-    paymentLinkLoading,
-    paymentLinkError,
-    generatePaymentLink,
-    setPaymentLinkData,
-    setPaymentLinkError,
-  };
-}
