@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import React, { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -12,6 +12,8 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
+const DEFAULT_CENTER = [0, 0];
+
 const s = {
   popup: { minWidth: 180 },
   name: { fontWeight: 700, fontSize: 14, color: '#2d6a4f', marginBottom: 4 },
@@ -22,6 +24,11 @@ const s = {
     display: 'inline-block', background: '#2d6a4f', color: '#fff',
     border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer',
     fontSize: 12, fontWeight: 600, textDecoration: 'none',
+  },
+  toast: {
+    position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+    background: '#333', color: '#fff', padding: '8px 16px', borderRadius: 8,
+    fontSize: 13, zIndex: 1000, pointerEvents: 'none',
   },
 };
 
@@ -37,9 +44,34 @@ function groupByFarmer(products) {
   return Array.from(map.values());
 }
 
+function RecenterMap({ center }) {
+  const map = useMap();
+  useEffect(() => { map.setView(center, map.getZoom()); }, [center, map]);
+  return null;
+}
+
 export default function MapView({ products, onBuy }) {
   const navigate = useNavigate();
   const groups = groupByFarmer(products);
+  const [center, setCenter] = useState(null);
+  const [toast, setToast] = useState('');
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setCenter(DEFAULT_CENTER);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setCenter([pos.coords.latitude, pos.coords.longitude]),
+      (err) => {
+        if (err.code === 1) {
+          setToast('Location access denied. Showing default location.');
+          setTimeout(() => setToast(''), 4000);
+        }
+        setCenter(DEFAULT_CENTER);
+      }
+    );
+  }, []);
 
   if (groups.length === 0) {
     return (
@@ -51,37 +83,42 @@ export default function MapView({ products, onBuy }) {
     );
   }
 
-  // Center map on average of all markers
+  // Fall back to average of markers while geolocation is pending
   const avgLat = groups.reduce((s, g) => s + g.lat, 0) / groups.length;
   const avgLng = groups.reduce((s, g) => s + g.lng, 0) / groups.length;
+  const mapCenter = center ?? [avgLat, avgLng];
 
   return (
-    <MapContainer
-      center={[avgLat, avgLng]}
-      zoom={7}
-      style={{ height: 520, width: '100%', borderRadius: 12, zIndex: 0 }}
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      {groups.map((group, i) => (
-        <Marker key={i} position={[group.lat, group.lng]}>
-          <Popup>
-            <div style={s.popup}>
-              {group.products.map(p => (
-                <div key={p.id} style={{ marginBottom: group.products.length > 1 ? 12 : 0, paddingBottom: group.products.length > 1 ? 12 : 0, borderBottom: group.products.length > 1 ? '1px solid #eee' : 'none' }}>
-                  <div style={s.name}>{p.name}</div>
-                  <div style={s.price}>{p.price} XLM / {p.unit}</div>
-                  <div style={s.farmer}>🌾 {p.farmer_name}</div>
-                  {p.farmer_farm_address && <div style={s.address}>📍 {p.farmer_farm_address}</div>}
-                  <button style={s.btn} onClick={() => navigate(`/products/${p.id}`)}>View &amp; Buy</button>
-                </div>
-              ))}
-            </div>
-          </Popup>
-        </Marker>
-      ))}
-    </MapContainer>
+    <div style={{ position: 'relative' }}>
+      {toast && <div style={s.toast} role="status">{toast}</div>}
+      <MapContainer
+        center={mapCenter}
+        zoom={7}
+        style={{ height: 520, width: '100%', borderRadius: 12, zIndex: 0 }}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        {center && <RecenterMap center={center} />}
+        {groups.map((group, i) => (
+          <Marker key={i} position={[group.lat, group.lng]}>
+            <Popup>
+              <div style={s.popup}>
+                {group.products.map(p => (
+                  <div key={p.id} style={{ marginBottom: group.products.length > 1 ? 12 : 0, paddingBottom: group.products.length > 1 ? 12 : 0, borderBottom: group.products.length > 1 ? '1px solid #eee' : 'none' }}>
+                    <div style={s.name}>{p.name}</div>
+                    <div style={s.price}>{p.price} XLM / {p.unit}</div>
+                    <div style={s.farmer}>🌾 {p.farmer_name}</div>
+                    {p.farmer_farm_address && <div style={s.address}>📍 {p.farmer_farm_address}</div>}
+                    <button style={s.btn} onClick={() => navigate(`/products/${p.id}`)}>View &amp; Buy</button>
+                  </div>
+                ))}
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
+    </div>
   );
 }
