@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, lazy, Suspense } from "react";
+import React, { useEffect, useState, useCallback, useRef, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { api } from "../api/client";
@@ -338,17 +338,22 @@ export default function Marketplace() {
   const { products: compareProducts, toggleProduct, isCompared } = useCompare();
   const { usd } = useXlmRate();
 
-  const debouncedSearch = useDebounce(filters.search, 400);
-  const debouncedSeller = useDebounce(filters.seller, 400);
+  const debouncedSearch = useDebounce(filters.search, 300);
+  const debouncedSeller = useDebounce(filters.seller, 300);
+
+  const abortRef = useRef(null);
 
   const load = useCallback(async (f, p = 1) => {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     try {
       let data,
         total = 0,
         totalPages = 1;
       if (f.search && f.search.trim()) {
-        const res = await api.searchProducts(f.search.trim());
+        const res = await api.searchProducts(f.search.trim(), { signal: controller.signal });
         data = res.data ?? res;
         total = data.length;
         totalPages = 1;
@@ -365,7 +370,7 @@ export default function Marketplace() {
           params.lng = f.lng;
           params.radius = f.radius;
         }
-        const res = await api.getProducts(params);
+        const res = await api.getProducts(params, { signal: controller.signal });
         data = res.data ?? [];
         total = res.total ?? 0;
         totalPages = res.totalPages ?? 1;
@@ -383,10 +388,10 @@ export default function Marketplace() {
       setPagination({ total, totalPages });
       const aucs = await api.getAuctions().catch(() => ({ data: [] }));
       setAuctions(aucs.data || []);
-    } catch {
-      setProducts([]);
+    } catch (err) {
+      if (err?.name !== 'AbortError') setProducts([]);
     }
-    setLoading(false);
+    if (!controller.signal.aborted) setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -804,7 +809,12 @@ export default function Marketplace() {
           <MapView products={products} />
         </Suspense>
       ) : products.length === 0 ? (
-        <div style={s.empty}>{t("marketplace.noProducts")}</div>
+        <div style={s.empty} role="status">
+          <div>{t("marketplace.noProducts")}</div>
+          <button style={{ ...s.resetBtn, marginTop: 16 }} onClick={reset}>
+            {t("marketplace.clearFilters", "Clear filters")}
+          </button>
+        </div>
       ) : (
         <div style={s.grid}>
           {products.map((p) => (
