@@ -18,3 +18,8 @@ coverage/
 **/__snapshots__/
 **/*.snap
 backend/src/__tests__/tmp/
+
+#log
+
+# Developer notes
+vrickish.md

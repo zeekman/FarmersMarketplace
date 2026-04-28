@@ -54,32 +54,32 @@ export default function Compare() {
               <tr>
                 <td style={{ ...s.td, ...s.rowLabel }}>Farmer</td>
                 {products.map(product => (
-                  <td key={`${product.id}-farmer`} style={s.td}>{product.farmer_name || 'Unknown'}</td>
+                  <td key={`${product.id}-farmer`} style={s.td}>{product?.farmer_name ?? '—'}</td>
                 ))}
               </tr>
               <tr>
                 <td style={{ ...s.td, ...s.rowLabel }}>Price</td>
                 {products.map(product => (
-                  <td key={`${product.id}-price`} style={s.td}>{product.price} XLM</td>
+                  <td key={`${product.id}-price`} style={s.td}>{product?.price != null ? `${product.price} XLM` : '—'}</td>
                 ))}
               </tr>
               <tr>
                 <td style={{ ...s.td, ...s.rowLabel }}>Quantity</td>
                 {products.map(product => (
-                  <td key={`${product.id}-quantity`} style={s.td}>{product.quantity} {product.unit}</td>
+                  <td key={`${product.id}-quantity`} style={s.td}>{product?.quantity != null ? `${product.quantity} ${product?.unit ?? ''}`.trim() : '—'}</td>
                 ))}
               </tr>
               <tr>
                 <td style={{ ...s.td, ...s.rowLabel }}>Unit</td>
                 {products.map(product => (
-                  <td key={`${product.id}-unit`} style={s.td}>{product.unit || 'each'}</td>
+                  <td key={`${product.id}-unit`} style={s.td}>{product?.unit ?? '—'}</td>
                 ))}
               </tr>
               <tr>
                 <td style={{ ...s.td, ...s.rowLabel }}>Rating</td>
                 {products.map(product => (
                   <td key={`${product.id}-rating`} style={s.td}>
-                    {product.review_count > 0 ? (
+                    {(product?.review_count ?? 0) > 0 ? (
                       <StarRating value={product.avg_rating} count={product.review_count} size={14} />
                     ) : 'No reviews'}
                   </td>
@@ -88,7 +88,7 @@ export default function Compare() {
               <tr>
                 <td style={{ ...s.td, ...s.rowLabel }}>Category</td>
                 {products.map(product => (
-                  <td key={`${product.id}-category`} style={s.td}>{product.category || 'Other'}</td>
+                  <td key={`${product.id}-category`} style={s.td}>{product?.category ?? '—'}</td>
                 ))}
               </tr>
             </tbody>

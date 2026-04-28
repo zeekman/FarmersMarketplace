@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { validatePassword } from '../utils/validation';
 
 const s = {
   page:    { maxWidth: 640, margin: '0 auto', padding: 24 },
@@ -68,6 +69,82 @@ function Toast({ toast }) {
       }}
     >
       {toast.text}
+function PasswordStrengthBar({ password }) {
+  if (!password) return null;
+  const issues = validatePassword(password);
+  const score = 4 - issues.length; // 0–4
+  const colors = ['#c0392b', '#e67e22', '#f1c40f', '#27ae60', '#2d6a4f'];
+  const labels = ['Weak', 'Weak', 'Fair', 'Good', 'Strong'];
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: 'flex', gap: 3 }}>
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i < score ? colors[score] : '#e0e0e0' }} />
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: colors[score], marginTop: 3 }}>{labels[score]}</div>
+      {issues.length > 0 && (
+        <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Needs: {issues.join(', ')}</div>
+      )}
+    </div>
+  );
+}
+
+function PasswordChangeForm() {
+  const [form, setForm] = useState({ current: '', newPw: '', confirm: '' });
+  const [msg, setMsg] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const newPwIssues = validatePassword(form.newPw);
+  const isStrong = form.newPw.length > 0 && newPwIssues.length === 0;
+  const canSubmit = isStrong && form.current.length > 0 && form.newPw === form.confirm;
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setSaving(true);
+    setMsg(null);
+    try {
+      await api.changePassword({ current_password: form.current, new_password: form.newPw });
+      setMsg({ type: 'ok', text: 'Password updated successfully.' });
+      setForm({ current: '', newPw: '', confirm: '' });
+    } catch (err) {
+      setMsg({ type: 'err', text: err.message || 'Failed to update password.' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={s.card}>
+      <div style={s.section}>Change Password</div>
+      <div style={s.desc}>Update your account password. Must be at least 8 characters with 1 uppercase letter and 1 number.</div>
+      <form onSubmit={handleSubmit} noValidate>
+        <label style={s.label} htmlFor="cp-current">Current Password</label>
+        <input id="cp-current" style={s.input} type="password" value={form.current}
+          onChange={e => setForm(f => ({ ...f, current: e.target.value }))} autoComplete="current-password" />
+
+        <label style={{ ...s.label, marginTop: 12 }} htmlFor="cp-new">New Password</label>
+        <input id="cp-new" style={s.input} type="password" value={form.newPw}
+          onChange={e => setForm(f => ({ ...f, newPw: e.target.value }))} autoComplete="new-password" />
+        <PasswordStrengthBar password={form.newPw} />
+
+        <label style={{ ...s.label, marginTop: 12 }} htmlFor="cp-confirm">Confirm New Password</label>
+        <input id="cp-confirm" style={s.input} type="password" value={form.confirm}
+          onChange={e => setForm(f => ({ ...f, confirm: e.target.value }))} autoComplete="new-password" />
+        {form.confirm && form.newPw !== form.confirm && (
+          <div style={{ fontSize: 12, color: '#c0392b', marginTop: 3 }}>Passwords do not match</div>
+        )}
+
+        {msg && (
+          <div style={{ ...s.err, ...(msg.type === 'ok' ? { color: '#2d6a4f', background: '#d8f3dc' } : {}), marginTop: 10 }}>
+            {msg.text}
+          </div>
+        )}
+        <button style={{ ...s.btn, opacity: canSubmit ? 1 : 0.5 }} type="submit" disabled={!canSubmit || saving}>
+          {saving ? 'Saving…' : 'Save Password'}
+        </button>
+      </form>
     </div>
   );
 }
@@ -575,6 +652,7 @@ export default function Settings() {
         <>
           <ProfileSettings showToast={showToast} />
           <SettingsAccountBody />
+          <PasswordChangeForm />
           <SeedPhraseBackup />
         </>
       ) : (
