@@ -395,6 +395,15 @@ export default function Dashboard() {
   async function handleAdd(e) {
     e.preventDefault();
     setMsg(null);
+    const newErrors = {};
+    if (form.is_preorder) {
+      if (!form.preorder_delivery_date) {
+        newErrors.preorder_delivery_date = 'Date must be in YYYY-MM-DD format';
+      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(form.preorder_delivery_date)) {
+        newErrors.preorder_delivery_date = 'Date must be in YYYY-MM-DD format';
+      }
+    }
+    if (Object.keys(newErrors).length > 0) { setFormErrors(newErrors); return; }
     setFormErrors({});
     let finalImageUrl = imageUrl;
 
