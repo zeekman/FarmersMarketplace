@@ -81,6 +81,7 @@ export default function Dashboard() {
   const [batchForm, setBatchForm] = useState({ batch_code: '', harvest_date: '', notes: '' });
   const [batchMsg, setBatchMsg] = useState(null);
   const [msg, setMsg] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [auctionForm, setAuctionForm] = useState({ product_id: '', start_price: '', ends_at: '' });
   const [auctionMsg, setAuctionMsg] = useState(null);
   const [formErrors, setFormErrors] = useState({});
@@ -476,8 +477,19 @@ export default function Dashboard() {
   }
 
   async function handleDelete(id) {
-    if (!confirm('Remove this product?')) return;
-    try { await api.deleteProduct(id); load(); } catch { /* ignore */ }
+    const product = products.find(p => p.id === id);
+    if (!product) return;
+    const openOrders = sales.filter(o => o.product_id === id && ['pending', 'paid', 'processing', 'shipped'].includes(o.status)).length;
+    setDeleteConfirm({ id, name: product.name, openOrders });
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirm) return;
+    try {
+      await api.deleteProduct(deleteConfirm.id);
+      setDeleteConfirm(null);
+      load();
+    } catch { /* ignore */ }
   }
 
   async function handleCreateAuction(e) {
@@ -585,6 +597,33 @@ export default function Dashboard() {
 
   return (
     <div style={s.page}>
+      {deleteConfirm && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-modal-title"
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+        >
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 400, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+            <div id="delete-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 10, color: '#333' }}>
+              Delete {deleteConfirm.name}? This cannot be undone.
+            </div>
+            {deleteConfirm.openOrders > 0 && (
+              <p style={{ fontSize: 14, color: '#c0392b', marginBottom: 20 }}>
+                This product has {deleteConfirm.openOrders} open order{deleteConfirm.openOrders > 1 ? 's' : ''}. Deleting it may affect buyers.
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteConfirm(null)} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                Cancel
+              </button>
+              <button onClick={confirmDelete} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#c0392b', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <Helmet>
         <title>Farmer Dashboard – Farmers Marketplace</title>
         <meta name="description" content="Manage your product listings, track sales, and grow your farm business on Farmers Marketplace." />
