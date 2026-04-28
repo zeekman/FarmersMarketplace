@@ -1,17 +1,31 @@
 const nodemailer = require('nodemailer');
+const logger = require('../logger');
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+// Check if SMTP is configured
+const SMTP_CONFIGURED = !!(
+  process.env.SMTP_HOST &&
+  process.env.SMTP_USER &&
+  process.env.SMTP_PASS
+);
+
+if (!SMTP_CONFIGURED) {
+  logger.warn('[mailer] SMTP not configured — emails will be skipped');
+}
+
+const transporter = SMTP_CONFIGURED
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    })
+  : null;
 
 async function sendOrderEmails({ order, product, buyer, farmer }) {
-  if (!process.env.SMTP_HOST) return; // skip if not configured
+  if (!SMTP_CONFIGURED) return; // skip if not configured
 
   const subject = `Order #${order.id} Confirmed – ${product.name}`;
   const summary = `
@@ -39,7 +53,7 @@ Date:     ${new Date().toUTCString()}
 }
 
 async function sendLowStockAlert({ product, farmer }) {
-  if (!process.env.SMTP_HOST) return;
+  if (!SMTP_CONFIGURED) return;
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to: farmer.email,
@@ -49,7 +63,7 @@ async function sendLowStockAlert({ product, farmer }) {
 }
 
 async function sendStatusUpdateEmail({ order, product, buyer, newStatus }) {
-  if (!process.env.SMTP_HOST) return;
+  if (!SMTP_CONFIGURED) return;
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to: buyer.email,
@@ -58,17 +72,62 @@ async function sendStatusUpdateEmail({ order, product, buyer, newStatus }) {
   });
 }
 
-async function sendBackInStockEmail({ email, name, productName }) {
-  if (!process.env.SMTP_HOST) {
-    console.warn('[mailer] SMTP not configured — skipping back-in-stock notification');
-    return;
-  }
+async function sendFreshnessAlert({ product, farmer, daysLeft }) {
+  if (!SMTP_CONFIGURED) return;
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to: email,
-    subject: `✅ Back in Stock – ${productName}`,
-    text: `Hi ${name},\n\nGreat news! "${productName}" is back in stock on Farmers Marketplace.\n\nHead over to the marketplace to place your order before it sells out!\n\nFarmers Marketplace`,
+    to: farmer.email,
+    subject: `⚠️ Product Expiring Soon – ${product.name}`,
+    text: `Hi ${farmer.name},\n\nYour product "${product.name}" is approaching its best-before date.\n\nBest Before: ${product.best_before}\nDays Left: ${daysLeft}\n\nPlease consider updating the listing or removing it from sale.\n\nFarmers Marketplace`,
   });
 }
 
-module.exports = { sendOrderEmails, sendLowStockAlert, sendStatusUpdateEmail, sendBackInStockEmail };
+async function sendReturnEmail({ type, order, buyer, farmer, reason, txHash, rejectReason }) {
+  if (!SMTP_CONFIGURED) return;
+  if (type === 'filed') {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: farmer.email,
+      subject: `↩️ Return Request – Order #${order.id} (${order.product_name})`,
+      text: `Hi ${farmer.name},\n\nBuyer ${buyer.name} has filed a return request for Order #${order.id}.\n\nReason: ${reason}\n\nPlease log in to approve or reject this request.\n\nFarmers Marketplace`,
+    });
+  } else if (type === 'approved') {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: buyer.email,
+      subject: `✅ Return Approved – Order #${order.id} (${order.product_name})`,
+      text: `Hi ${buyer.name},\n\nYour return request for Order #${order.id} has been approved.\n\nRefund of ${order.total_price} XLM has been sent.\nTX Hash: ${txHash}\n\nFarmers Marketplace`,
+    });
+  } else if (type === 'rejected') {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: buyer.email,
+      subject: `❌ Return Rejected – Order #${order.id} (${order.product_name})`,
+      text: `Hi ${buyer.name},\n\nYour return request for Order #${order.id} has been rejected.${rejectReason ? `\n\nReason: ${rejectReason}` : ''}\n\nFarmers Marketplace`,
+    });
+  }
+}
+
+async function sendContractAlert({ to, alert }) {
+  if (!SMTP_CONFIGURED) return;
+  const typeLabel = alert.alert_type === 'failed_invocations' ? '⚠️ Failed Invocations' : '🚨 Large Transfer';
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `[Contract Alert] ${typeLabel} – ${alert.contract_id}`,
+    text: `Admin Alert\n\nType: ${alert.alert_type}\nContract: ${alert.contract_id}\n\n${alert.message}\n\nTime: ${alert.created_at}\n\nLog in to the admin dashboard to acknowledge this alert.\n\nFarmers Marketplace`,
+  });
+}
+
+module.exports = {
+  transporter,
+  sendOrderEmails,
+  sendLowStockAlert,
+  sendStatusUpdateEmail,
+  sendBackInStockEmail: async () => {
+    if (!SMTP_CONFIGURED) return;
+    // Placeholder for back in stock email
+  },
+  sendReturnEmail,
+  sendContractAlert,
+};

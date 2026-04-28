@@ -12,7 +12,10 @@ const token = jwt.sign({ id: 1, role: 'buyer' }, SECRET);
 
 describe('GET /api/wallet', () => {
   it('returns balance for authenticated user', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: 'GPUB', referral_code: null }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: 'GPUB', referral_code: null }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(500);
     const res = await request(app).get('/api/wallet').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
@@ -29,8 +32,14 @@ describe('GET /api/wallet', () => {
 describe('GET /api/wallet/transactions', () => {
   it('returns transaction list', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: 'GPUB' }], rowCount: 1 });
-    stellar.getTransactions.mockResolvedValueOnce([{ id: 'tx1', amount: '10' }]);
-    const res = await request(app).get('/api/wallet/transactions').set('Authorization', `Bearer ${token}`);
+    stellar.getTransactions.mockResolvedValueOnce({
+      records: [{ id: 'tx1', amount: '10' }],
+      next_cursor: null,
+      prev_cursor: null,
+    });
+    const res = await request(app)
+      .get('/api/wallet/transactions')
+      .set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
   });
@@ -64,14 +73,17 @@ describe('POST /api/wallet/fund', () => {
 });
 
 const EXTERNAL_KEY = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
-const USER_KEY     = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const USER_KEY = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 describe('POST /api/wallet/send', () => {
   const validBody = { destination: EXTERNAL_KEY, amount: 10 };
 
   it('sends XLM successfully', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(500);
     stellar.sendPayment.mockResolvedValueOnce('TXHASH_SEND');
     const res = await request(app)
@@ -88,7 +100,10 @@ describe('POST /api/wallet/send', () => {
 
   it('sends XLM with optional memo', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(500);
     stellar.sendPayment.mockResolvedValueOnce('TXHASH_MEMO');
     const res = await request(app)
@@ -99,12 +114,17 @@ describe('POST /api/wallet/send', () => {
       .send({ ...validBody, memo: 'invoice #42' });
     expect(res.status).toBe(200);
     expect(res.body.memo).toBe('invoice #42');
-    expect(stellar.sendPayment).toHaveBeenCalledWith(expect.objectContaining({ memo: 'invoice #42' }));
+    expect(stellar.sendPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ memo: 'invoice #42' })
+    );
   });
 
   it('returns 402 when balance is insufficient', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(5);
     const res = await request(app)
       .post('/api/wallet/send')
@@ -118,7 +138,10 @@ describe('POST /api/wallet/send', () => {
 
   it('returns 400 when sending to own wallet', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(500);
     const res = await request(app)
       .post('/api/wallet/send')
@@ -176,7 +199,10 @@ describe('POST /api/wallet/send', () => {
 
   it('returns 502 when Stellar transaction fails', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
-    mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ stellar_public_key: USER_KEY, stellar_secret_key: 'SSECRET' }],
+      rowCount: 1,
+    });
     stellar.getBalance.mockResolvedValueOnce(500);
     stellar.sendPayment.mockRejectedValueOnce(new Error('op_no_destination'));
     const res = await request(app)
@@ -197,5 +223,59 @@ describe('POST /api/wallet/send', () => {
       .set('X-CSRF-Token', csrf)
       .send(validBody);
     expect(res.status).toBe(401);
+  });
+});
+
+describe('PATCH /api/wallet/budget', () => {
+  const { token: csrf, cookieStr } = {};
+
+  async function patchBudget(body) {
+    const csrfData = await getCsrf();
+    return request(app)
+      .patch('/api/wallet/budget')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Cookie', csrfData.cookieStr)
+      .set('X-CSRF-Token', csrfData.token)
+      .send(body);
+  }
+
+  it('should_accept_valid_monthly_limit', async () => {
+    // GET monthly_budget + GET spent
+    mockQuery
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE
+      .mockResolvedValueOnce({ rows: [{ monthly_budget: 1000 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ spent: '0' }], rowCount: 1 });
+
+    const res = await patchBudget({ monthly_limit: 1000 });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.budgetGuardEnabled).toBe(true);
+  });
+
+  it('should_reject_negative_monthly_limit', async () => {
+    const res = await patchBudget({ monthly_limit: -100 });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/cannot be negative/i);
+  });
+
+  it('should_disable_budget_guard_on_zero', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE sets null
+      .mockResolvedValueOnce({ rows: [{ monthly_budget: null }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ spent: '0' }], rowCount: 1 });
+
+    const res = await patchBudget({ monthly_limit: 0 });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // 0 disables the guard — stored as null, budgetGuardEnabled should be false
+    expect(res.body.budgetGuardEnabled).toBe(false);
+  });
+
+  it('should_reject_non_numeric_monthly_limit', async () => {
+    const res = await patchBudget({ monthly_limit: 'abc' });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/must be a number/i);
   });
 });

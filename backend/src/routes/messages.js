@@ -8,14 +8,24 @@ router.post('/', auth, async (req, res) => {
   const { receiver_id, product_id, content } = req.body;
   const sender_id = req.user.id;
 
-  if (!receiver_id || !content) return err(res, 400, 'receiver_id and content are required', 'validation_error');
+  if (!receiver_id || !content)
+    return err(res, 400, 'receiver_id and content are required', 'validation_error');
 
-  const sanitizedContent = content.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;').trim();
-  if (!sanitizedContent) return err(res, 400, 'Message content cannot be empty', 'validation_error');
+  const sanitizedContent = content
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .trim();
+  if (!sanitizedContent)
+    return err(res, 400, 'Message content cannot be empty', 'validation_error');
 
-  const { rows: receiverRows } = await db.query('SELECT id FROM users WHERE id = $1', [receiver_id]);
+  const { rows: receiverRows } = await db.query('SELECT id FROM users WHERE id = $1', [
+    receiver_id,
+  ]);
   if (!receiverRows[0]) return err(res, 404, 'Receiver not found', 'not_found');
-  if (sender_id === receiver_id) return err(res, 400, 'Cannot send message to yourself', 'validation_error');
+  if (sender_id === receiver_id)
+    return err(res, 400, 'Cannot send message to yourself', 'validation_error');
 
   try {
     const { rows } = await db.query(
@@ -60,19 +70,32 @@ router.get('/:userId', auth, async (req, res) => {
   const otherUserId = parseInt(req.params.userId, 10);
   if (isNaN(otherUserId)) return err(res, 400, 'Invalid user ID', 'validation_error');
 
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+  const offset = (page - 1) * limit;
+
   try {
     await db.query(
       `UPDATE messages SET read_at = NOW() WHERE sender_id = $1 AND receiver_id = $2 AND read_at IS NULL`,
       [otherUserId, currentUserId]
     );
+
+    const { rows: countRows } = await db.query(
+      `SELECT COUNT(*) as total FROM messages WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1)`,
+      [currentUserId, otherUserId]
+    );
+    const total = parseInt(countRows[0].total);
+    const pages = Math.ceil(total / limit);
+
     const { rows } = await db.query(
       `SELECT m.*, s.name as sender_name, r.name as receiver_name
        FROM messages m JOIN users s ON s.id = m.sender_id JOIN users r ON r.id = m.receiver_id
        WHERE (m.sender_id = $1 AND m.receiver_id = $2) OR (m.sender_id = $2 AND m.receiver_id = $1)
-       ORDER BY m.created_at ASC`,
-      [currentUserId, otherUserId]
+       ORDER BY m.created_at DESC
+       LIMIT $3 OFFSET $4`,
+      [currentUserId, otherUserId, limit, offset]
     );
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows, page, limit, total, pages });
   } catch (e) {
     err(res, 500, 'Failed to fetch messages: ' + e.message, 'server_error');
   }

@@ -130,6 +130,50 @@ echo "ALTER TABLE products DROP COLUMN IF EXISTS featured;" \
 npm run migrate
 ```
 
+## Database Backup and Restore
+
+The application includes automated database backup functionality to protect against data loss.
+
+### Manual Backup
+
+Create a timestamped backup of the database:
+
+```bash
+cd backend
+npm run backup
+```
+
+This creates a backup file in `backend/backups/` with format `market-YYYY-MM-DD.db`.
+
+### Manual Restore
+
+Restore the database from a backup file:
+
+```bash
+cd backend
+npm run restore -- backups/market-2024-01-01.db
+```
+
+**Important**: Before restoring, the current database is automatically backed up to `market.db.backup`.
+
+### Automated Daily Backups
+
+- Backups run automatically every day at midnight UTC
+- Only the last 7 backups are retained (older ones are automatically deleted)
+- Backup status and errors are logged using the structured logging system
+
+### Backup Location
+
+- Backup files are stored in: `backend/backups/`
+- File naming convention: `market-YYYY-MM-DD.db`
+- Maximum retention: 7 days
+
+### Recovery Procedures
+
+1. **Quick Restore**: Use `npm run restore` with the desired backup file
+2. **Emergency Recovery**: Copy `market.db.backup` (created before restore) back to `market.db`
+3. **Complete Reset**: Delete `market.db` and restart the application (fresh schema)
+
 ## PostgreSQL Setup
 
 The backend supports both SQLite (local dev) and PostgreSQL (production), controlled by the `DATABASE_URL` environment variable.
@@ -165,6 +209,42 @@ This starts:
 DATABASE_URL=postgresql://user:pass@host:5432/dbname \
   node backend/scripts/migrate-sqlite-to-pg.js
 ```
+
+## Contract Testing (Soroban)
+
+Test Soroban contracts against a local Stellar node using the built-in test harness.
+
+### Start the local node
+
+```bash
+docker-compose -f docker-compose.test.yml up -d
+```
+
+This starts a `stellar/quickstart` node on port 8000 with Soroban RPC enabled.
+
+### Run contract tests
+
+```bash
+cd backend
+npm run test:contracts
+```
+
+### Test helpers
+
+`backend/src/__tests__/helpers/soroban.js` exposes:
+
+- `fundAccount(publicKey)` — fund via local Friendbot
+- `deployContract(wasmBuffer, keypair)` — upload WASM and create contract instance
+- `invokeContract(contractId, method, args, keypair)` — call a contract function
+
+### Environment variables (optional)
+
+| Variable | Default | Description |
+|---|---|---|
+| `TEST_HORIZON_URL` | `http://localhost:8000` | Local Horizon endpoint |
+| `TEST_SOROBAN_RPC_URL` | `http://localhost:8000/soroban/rpc` | Local Soroban RPC |
+| `TEST_NETWORK_PASSPHRASE` | `Standalone Network ; February 2017` | Local network passphrase |
+| `SKIP_CONTRACT_TESTS` | `false` | Set to `true` to skip in CI without Docker |
 
 ## Notes
 

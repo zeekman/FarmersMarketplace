@@ -7,7 +7,7 @@ beforeEach(() => {
 });
 
 const SECRET = process.env.JWT_SECRET || 'test-secret-for-jest';
-const buyerToken  = jwt.sign({ id: 2, role: 'buyer' }, SECRET);
+const buyerToken = jwt.sign({ id: 2, role: 'buyer' }, SECRET);
 const farmerToken = jwt.sign({ id: 1, role: 'farmer' }, SECRET);
 
 const paidOrder = { id: 10, buyer_id: 2, product_id: 5, status: 'paid' };
@@ -16,8 +16,8 @@ describe('POST /api/reviews', () => {
   it('buyer can submit a review for a paid order', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
     mockQuery
-      .mockResolvedValueOnce({ rows: [paidOrder], rowCount: 1 })  // order lookup
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 })           // no existing review
+      .mockResolvedValueOnce({ rows: [paidOrder], rowCount: 1 }) // order lookup
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // no existing review
       .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1 }); // INSERT review
 
     const res = await request(app)
@@ -127,7 +127,18 @@ describe('POST /api/reviews', () => {
 
 describe('GET /api/products/:id/reviews', () => {
   it('returns reviews for a product', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 1, rating: 5, comment: 'Excellent', reviewer_name: 'Alice', created_at: '2025-01-01' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 1,
+          rating: 5,
+          comment: 'Excellent',
+          reviewer_name: 'Alice',
+          created_at: '2025-01-01',
+        },
+      ],
+      rowCount: 1,
+    });
     const res = await request(app).get('/api/products/5/reviews');
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);

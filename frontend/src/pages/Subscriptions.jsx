@@ -109,6 +109,7 @@ export default function Subscriptions() {
               <div style={s.name}>{sub.product_name}</div>
               <div style={s.meta}>{sub.quantity} {sub.unit} · {FREQ_LABEL[sub.frequency]} · {sub.product_price} XLM/unit</div>
               <div style={s.meta}>Next order: {new Date(sub.next_order_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+              <div style={s.meta}>Next billing: {sub.next_billing_at ? new Date(sub.next_billing_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'Billing date not set'}</div>
             </div>
             <div style={s.actions}>
               <span style={{ ...s.badge, ...STATUS_STYLE[sub.status] }}>{sub.status}</span>

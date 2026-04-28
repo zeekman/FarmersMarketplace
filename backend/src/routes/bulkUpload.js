@@ -23,16 +23,18 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
   if (req.user.role !== 'farmer')
     return err(res, 403, 'Only farmers can upload products', 'forbidden');
 
-  if (!req.file)
-    return err(res, 400, 'No CSV file uploaded', 'validation_error');
+  if (!req.file) return err(res, 400, 'No CSV file uploaded', 'validation_error');
 
   const results = { created: 0, skipped: 0, errors: [] };
 
   try {
+    const REQUIRED_HEADERS = ['name', 'price', 'quantity'];
+    let detectedHeaders = null;
+
     const records = await new Promise((resolve, reject) => {
       const rows = [];
       const parser = parse(req.file.buffer, {
-        columns: true,
+        columns: (hdrs) => { detectedHeaders = hdrs; return hdrs; },
         skip_empty_lines: true,
         trim: true,
       });
@@ -40,6 +42,15 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
       parser.on('end', () => resolve(rows));
       parser.on('error', reject);
     });
+
+    if (!detectedHeaders) {
+      return err(res, 400, 'CSV file is empty or has no header row', 'validation_error');
+    }
+
+    const missingHeaders = REQUIRED_HEADERS.filter((h) => !detectedHeaders.includes(h));
+    if (missingHeaders.length > 0) {
+      return err(res, 400, `Missing required columns: ${missingHeaders.join(', ')}`, 'missing_columns');
+    }
 
     // Limit to 500 rows
     if (records.length > 500) {
@@ -109,7 +120,8 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
 
 // GET /api/products/bulk/template - download CSV template
 router.get('/template', (req, res) => {
-  const csv = 'name,description,price,quantity,unit,category\nOrganic Tomatoes,Fresh organic tomatoes from the farm,2.50,100,kg,vegetables\nFree Range Eggs,Farm fresh free range eggs,5.00,50,dozen,dairy\n';
+  const csv =
+    'name,description,price,quantity,unit,category\nOrganic Tomatoes,Fresh organic tomatoes from the farm,2.50,100,kg,vegetables\nFree Range Eggs,Farm fresh free range eggs,5.00,50,dozen,dairy\n';
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename=product-template.csv');
   res.send(csv);

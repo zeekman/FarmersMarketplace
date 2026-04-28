@@ -1,11 +1,14 @@
 const jwt = require('jsonwebtoken');
 const { request, app, mockQuery, getCsrf } = require('./setup');
 
-beforeEach(() => { jest.clearAllMocks(); mockQuery.mockResolvedValue({ rows: [], rowCount: 0 }); });
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+});
 
 const SECRET = process.env.JWT_SECRET || 'test-secret-for-jest';
 const farmerToken = jwt.sign({ id: 1, role: 'farmer' }, SECRET);
-const buyerToken  = jwt.sign({ id: 2, role: 'buyer' }, SECRET);
+const buyerToken = jwt.sign({ id: 2, role: 'buyer' }, SECRET);
 
 describe('GET /api/products', () => {
   it('returns paginated product list with pagination metadata', async () => {
@@ -49,6 +52,33 @@ describe('GET /api/products', () => {
     expect(res.status).toBe(200);
     expect(res.body.page).toBe(1);
   });
+
+  describe('filters', () => {
+    it('filters by grade=A only', async () => {
+      mockGet.mockReturnValueOnce({ count: 2 }); // total count
+      mockAll.mockReturnValueOnce([
+        { id: 1, name: 'Apple A', grade: 'A', farmer_name: 'Farmer1' },
+        { id: 2, name: 'Berry A', grade: 'A', farmer_name: 'Farmer2' }
+      ]);
+      const res = await request(app).get('/api/products?grade=A');
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBe(2);
+      expect(res.body.data[0].grade).toBe('A');
+      expect(res.body.data[1].grade).toBe('A');
+    });
+
+    it('filters by grade=A and seller=John independently', async () => {
+      mockGet.mockReturnValueOnce({ count: 1 });
+      mockAll.mockReturnValueOnce([
+        { id: 3, name: 'Carrot A', grade: 'A', farmer_name: 'John' }
+      ]);
+      const res = await request(app).get('/api/products?grade=A&seller=John');
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBe(1);
+      expect(res.body.data[0].grade).toBe('A');
+      expect(res.body.data[0].farmer_name).toBe('John');
+    });
+  });
 });
 
 describe('POST /api/products', () => {
@@ -63,6 +93,15 @@ describe('POST /api/products', () => {
       .send({ name: 'Tomatoes', price: 2.5, quantity: 100, unit: 'kg' });
     expect(res.status).toBe(200);
     expect(res.body.id).toBe(5);
+  });
+
+  it('farmer can create product with grade', async () => {
+    mockRun.mockReturnValueOnce({ lastInsertRowid: 6 });
+    const res = await request(app)
+      .post('/api/products')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .send({ name: 'Premium Apples', price: 3.0, quantity: 50, unit: 'kg', grade: 'A' });
+    expect(res.status).toBe(200);
   });
 
   it('buyer cannot create a product', async () => {
@@ -106,7 +145,10 @@ describe('GET /api/products/:id', () => {
   });
 
   it('returns product details', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 1, name: 'Carrots', price: 1.0, farmer_name: 'Alice' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 1, name: 'Carrots', price: 1.0, farmer_name: 'Alice' }],
+      rowCount: 1,
+    });
     const res = await request(app).get('/api/products/1');
     expect(res.status).toBe(200);
     expect(res.body.data.name).toBe('Carrots');
@@ -116,13 +158,17 @@ describe('GET /api/products/:id', () => {
 describe('GET /api/products/mine/list', () => {
   it("returns farmer's own products", async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 1, name: 'Beans' }], rowCount: 1 });
-    const res = await request(app).get('/api/products/mine/list').set('Authorization', `Bearer ${farmerToken}`);
+    const res = await request(app)
+      .get('/api/products/mine/list')
+      .set('Authorization', `Bearer ${farmerToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
   });
 
   it('returns 403 for buyers', async () => {
-    const res = await request(app).get('/api/products/mine/list').set('Authorization', `Bearer ${buyerToken}`);
+    const res = await request(app)
+      .get('/api/products/mine/list')
+      .set('Authorization', `Bearer ${buyerToken}`);
     expect(res.status).toBe(403);
   });
 });

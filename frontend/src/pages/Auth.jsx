@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { validateLogin, validateRegister, validatePassword } from '../utils/validation';
@@ -7,19 +8,19 @@ import { getErrorMessage } from '../utils/errorMessages';
 import { useTranslation } from 'react-i18next';
 
 const s = {
-  wrap: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  card: { background: '#fff', borderRadius: 12, padding: 36, width: 360, boxShadow: '0 2px 16px #0001' },
+  wrap: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 },
+  card: { background: '#fff', borderRadius: 12, padding: 36, width: '100%', maxWidth: 400, boxShadow: '0 2px 16px #0001' },
   title: { fontSize: 24, fontWeight: 700, marginBottom: 24, color: '#2d6a4f' },
   field: { marginBottom: 16 },
-  label: { display: 'block', fontSize: 13, marginBottom: 4, color: '#555' },
-  input: { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' },
-  inputErr: { width: '100%', padding: '10px 12px', border: '1px solid #c0392b', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' },
-  select: { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 },
-  btn: { width: '100%', padding: '12px', background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, fontSize: 16, fontWeight: 600, cursor: 'pointer', marginTop: 8 },
+  label: { display: 'block', fontSize: 13, marginBottom: 4, color: '#595959' },
+  input: { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
+  inputErr: { width: '100%', padding: '10px 12px', border: '1px solid #c0392b', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
+  select: { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, minHeight: 44 },
+  btn: { width: '100%', padding: '12px', background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, fontSize: 16, fontWeight: 600, cursor: 'pointer', marginTop: 8, minHeight: 44 },
   err: { color: '#c0392b', fontSize: 12, marginTop: 4 },
   formErr: { color: '#c0392b', fontSize: 13, marginTop: 8, padding: '8px 12px', background: '#fff0f0', borderRadius: 6 },
   link: { display: 'block', textAlign: 'center', marginTop: 16, color: '#2d6a4f', fontSize: 14 },
-  strengthHint: { fontSize: 11, color: '#888', marginTop: 3 },
+  strengthHint: { fontSize: 11, color: '#595959', marginTop: 3 },
 };
 
 function PasswordStrength({ password }) {
@@ -51,6 +52,7 @@ export function LoginPage() {
   const [formError, setFormError] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
+  const passwordRef = React.useRef(null);
 
   function handleChange(field, value) {
     setForm(f => ({ ...f, [field]: value }));
@@ -68,11 +70,17 @@ export function LoginPage() {
       navigate(user.role === 'farmer' ? '/dashboard' : '/marketplace');
     } catch (err) {
       setFormError(getErrorMessage(err));
+      setForm(f => ({ ...f, password: '' }));
+      passwordRef.current?.focus();
     }
   }
 
   return (
     <div style={s.wrap}>
+      <Helmet>
+        <title>Login – Farmers Marketplace</title>
+        <meta name="description" content="Sign in to your Farmers Marketplace account." />
+      </Helmet>
       <div style={s.card}>
         <div style={s.title}>{t('auth.welcomeBack')}</div>
         <form onSubmit={handleSubmit} noValidate>
@@ -84,7 +92,7 @@ export function LoginPage() {
           </div>
           <div style={s.field}>
             <label style={s.label} htmlFor="login-password">{t('auth.password')}</label>
-            <input id="login-password" style={errors.password ? s.inputErr : s.input} type="password"
+            <input id="login-password" ref={passwordRef} style={errors.password ? s.inputErr : s.input} type="password"
               value={form.password} onChange={e => handleChange('password', e.target.value)} autoComplete="current-password" />
             {errors.password && <div style={s.err} role="alert">{errors.password}</div>}
           </div>
@@ -92,6 +100,7 @@ export function LoginPage() {
           <button style={s.btn} type="submit">{t('auth.loginBtn')}</button>
         </form>
         <Link to="/register" style={s.link}>{t('auth.noAccount')}</Link>
+        <Link to="/recover" style={{ ...s.link, fontSize: 12, color: '#888' }}>Lost wallet access? Recover with seed phrase</Link>
       </div>
     </div>
   );
@@ -128,6 +137,10 @@ export function RegisterPage() {
 
   return (
     <div style={s.wrap}>
+      <Helmet>
+        <title>Register – Farmers Marketplace</title>
+        <meta name="description" content="Create a free account on Farmers Marketplace to buy fresh produce or sell your farm products." />
+      </Helmet>
       <div style={s.card}>
         <div style={s.title}>{t('auth.createAccount')}</div>
         <form onSubmit={handleSubmit} noValidate>

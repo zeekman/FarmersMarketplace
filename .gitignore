@@ -1,4 +1,5 @@
 node_modules/
+package-lock.json
 *.db
 .env
 dist/
@@ -11,8 +12,14 @@ frontend/.playwright/
 # Rust
 contract/target/
 contract/Cargo.lock
+contracts/escrow/target/
 # Test artifacts
 coverage/
 **/__snapshots__/
 **/*.snap
 backend/src/__tests__/tmp/
+
+#log
+
+# Developer notes
+vrickish.md

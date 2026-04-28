@@ -55,6 +55,7 @@
     "remove": "Remove",
     "photos": "📷 Photos",
     "qr": "📱 QR",
+    "tiers": "💰 Tiers",
     "bulkUpload": "📤 Bulk Upload Products",
     "bulkUploadDesc": "Upload multiple products at once using a CSV file. Maximum 500 rows per upload.",
     "uploadCsv": "📁 Upload CSV",
@@ -91,7 +92,14 @@
     "key": "Key",
     "value": "Value",
     "durability": "Durability",
-    "errorLoading": "Error loading dashboard:"
+    "errorLoading": "Error loading dashboard:",
+    "priceTiers": "💰 Price Tiers",
+    "tiersHint": "Set bulk pricing tiers. Higher quantities get lower prices.",
+    "noTiers": "No pricing tiers set. All quantities use the base price.",
+    "addTier": "Add Tier",
+    "saveTiers": "Save Tiers",
+    "minQuantity": "Min Quantity",
+    "pricePerUnit": "Price per Unit (XLM)"
   },
   "marketplace": {
     "title": "🛒 Marketplace",

@@ -6,8 +6,13 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "jest --forceExit",
+    "test:contracts": "SKIP_CONTRACT_TESTS=false jest --forceExit --testPathPattern=escrow.contracts.test",
     "migrate": "node migrate.js",
-    "migrate:rollback": "node migrate.js rollback"
+    "migrate:rollback": "node migrate.js rollback",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write . --ignore-path ../.prettierignore"
   },
   "jest": {
     "testEnvironment": "node",
@@ -22,35 +27,51 @@
     "setupFilesAfterEnv": [
       "<rootDir>/tests/jest.setup.js"
     ],
+    "moduleNameMapper": {
+      "^uuid$": "<rootDir>/tests/__mocks__/uuid.js"
+    },
     "testEnvironmentOptions": {
       "env": {
         "NODE_ENV": "test"
       }
+    },
+    "moduleNameMapper": {
+      "^uuid$": "<rootDir>/node_modules/uuid/dist-node/index.js"
     }
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.1.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^9.4.3",
+    "bip39": "^3.1.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "csv-parse": "^6.2.1",
+    "csv-stringify": "^6.7.0",
     "dotenv": "^16.4.5",
     "express": "^4.18.3",
     "express-rate-limit": "^8.3.1",
     "express-validator": "^7.3.1",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.3",
+    "pdfkit": "^0.18.0",
     "pg": "^8.20.0",
     "qrcode": "^1.5.4",
     "sanitize-html": "^2.17.2",
+    "stellar-hd-wallet": "^0.0.8",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "uuid": "^13.0.0",
+    "web-push": "^3.6.7",
+    "winston": "^3.19.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
     "jest": "^30.3.0",
     "nodemon": "^3.1.0",
     "supertest": "^7.2.2"

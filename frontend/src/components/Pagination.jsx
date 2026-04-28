@@ -12,7 +12,7 @@ const s = {
  * Offset-based pagination controls.
  * Props: page, totalPages, total, limit, onChange(newPage)
  */
-export default function Pagination({ page, totalPages, total, limit, onChange }) {
+export default function Pagination({ page, totalPages, total, onChange }) {
   if (!totalPages || totalPages <= 1) return null;
 
   const pages = buildPageList(page, totalPages);
