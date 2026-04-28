@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -45,6 +45,30 @@ const s = {
 
 const CONFIRM_PHRASE = 'delete my account';
 
+function useToast() {
+  const [toast, setToast] = useState(null);
+  const show = useCallback((type, text) => {
+    setToast({ type, text });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+  return [toast, show];
+}
+
+function Toast({ toast }) {
+  if (!toast) return null;
+  const isOk = toast.type === 'ok';
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+        background: isOk ? '#2d6a4f' : '#c0392b', color: '#fff',
+        borderRadius: 10, padding: '12px 20px', fontSize: 14,
+        boxShadow: '0 4px 16px #0003', minWidth: 240,
+      }}
+    >
+      {toast.text}
 function PasswordStrengthBar({ password }) {
   if (!password) return null;
   const issues = validatePassword(password);
@@ -568,15 +592,65 @@ function AccountRecovery() {
   );
 }
 
+// ── Profile / Notification Settings ─────────────────────────────────────────
+function ProfileSettings({ showToast }) {
+  const { user } = useAuth();
+  const [form, setForm] = useState({ name: user?.name ?? '', email: user?.email ?? '' });
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.updateProfile(form);
+      showToast('ok', 'Settings saved successfully.');
+    } catch (err) {
+      showToast('err', err.message || 'Failed to save settings.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={s.card}>
+      <div style={s.section}>Profile</div>
+      <form onSubmit={handleSave} noValidate>
+        <label style={s.label} htmlFor="profile-name">Name</label>
+        <input
+          id="profile-name"
+          style={s.input}
+          type="text"
+          value={form.name}
+          onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+        />
+        <label style={s.label} htmlFor="profile-email">Email</label>
+        <input
+          id="profile-email"
+          style={s.input}
+          type="email"
+          value={form.email}
+          onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+        />
+        <button style={s.btn} type="submit" disabled={saving}>
+          {saving ? 'Saving…' : 'Save Changes'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 // ── Main Settings Page ────────────────────────────────────────────────────────
 export default function Settings() {
   const { user } = useAuth();
+  const [toast, showToast] = useToast();
 
   return (
     <div style={s.page}>
+      <Toast toast={toast} />
       <div style={s.title}>⚙️ Settings</div>
       {user ? (
         <>
+          <ProfileSettings showToast={showToast} />
           <SettingsAccountBody />
           <PasswordChangeForm />
           <SeedPhraseBackup />
