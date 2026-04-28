@@ -37,9 +37,12 @@ function groupByFarmer(products) {
   return Array.from(map.values());
 }
 
-export default function MapView({ products, onBuy }) {
+export default function MapView({ products = [], lat, lng, farmerName, onBuy }) {
   const navigate = useNavigate();
-  const groups = groupByFarmer(products);
+  const hasSingleLocation = lat != null && lng != null;
+  const groups = hasSingleLocation
+    ? [{ lat, lng, farmerName, products: [] }]
+    : groupByFarmer(products);
 
   if (groups.length === 0) {
     return (
@@ -51,7 +54,6 @@ export default function MapView({ products, onBuy }) {
     );
   }
 
-  // Center map on average of all markers
   const avgLat = groups.reduce((s, g) => s + g.lat, 0) / groups.length;
   const avgLng = groups.reduce((s, g) => s + g.lng, 0) / groups.length;
 
@@ -69,15 +71,22 @@ export default function MapView({ products, onBuy }) {
         <Marker key={i} position={[group.lat, group.lng]}>
           <Popup>
             <div style={s.popup}>
-              {group.products.map(p => (
-                <div key={p.id} style={{ marginBottom: group.products.length > 1 ? 12 : 0, paddingBottom: group.products.length > 1 ? 12 : 0, borderBottom: group.products.length > 1 ? '1px solid #eee' : 'none' }}>
-                  <div style={s.name}>{p.name}</div>
-                  <div style={s.price}>{p.price} XLM / {p.unit}</div>
-                  <div style={s.farmer}>🌾 {p.farmer_name}</div>
-                  {p.farmer_farm_address && <div style={s.address}>📍 {p.farmer_farm_address}</div>}
-                  <button style={s.btn} onClick={() => navigate(`/products/${p.id}`)}>View &amp; Buy</button>
+              {group.products && group.products.length > 0 ? (
+                group.products.map(p => (
+                  <div key={p.id} style={{ marginBottom: group.products.length > 1 ? 12 : 0, paddingBottom: group.products.length > 1 ? 12 : 0, borderBottom: group.products.length > 1 ? '1px solid #eee' : 'none' }}>
+                    <div style={s.name}>{p.name}</div>
+                    <div style={s.price}>{p.price} XLM / {p.unit}</div>
+                    <div style={s.farmer}>🌾 {p.farmer_name}</div>
+                    {p.farmer_farm_address && <div style={s.address}>📍 {p.farmer_farm_address}</div>}
+                    <button style={s.btn} onClick={() => navigate(`/products/${p.id}`)}>View &amp; Buy</button>
+                  </div>
+                ))
+              ) : (
+                <div>
+                  <div style={s.name}>{group.farmerName || 'Farm location'}</div>
+                  <div style={s.farmer}>🌾 {group.farmerName || 'Farmer'}</div>
                 </div>
-              ))}
+              )}
             </div>
           </Popup>
         </Marker>

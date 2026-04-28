@@ -11,6 +11,7 @@ import Spinner from '../components/Spinner';
 import FlashSaleCountdown from '../components/FlashSaleCountdown';
 import ShareButtons from '../components/ShareButtons';
 import PriceHistoryChart from '../components/PriceHistoryChart';
+import MapView from '../components/MapView';
 import { Helmet } from 'react-helmet-async';
 import { useTranslation } from 'react-i18next';
 import QRCode from 'qrcode.react';
@@ -572,6 +573,17 @@ export default function ProductDetail() {
         <div style={s.desc}>
           {product.description || "Fresh from the farm."}
         </div>
+
+        {product.farm_lat != null && product.farm_lng != null ? (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#2d6a4f', marginBottom: 12 }}>Farm Location</div>
+            <MapView lat={product.farm_lat} lng={product.farm_lng} farmerName={product.farmer_name} />
+          </div>
+        ) : (
+          <div style={{ marginBottom: 20, padding: '16px', borderRadius: 10, background: '#f8fdf9', color: '#555' }}>
+            Location not provided
+          </div>
+        )}
 
         <ShareButtons
           title={shareTitle}

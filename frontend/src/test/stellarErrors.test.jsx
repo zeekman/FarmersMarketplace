@@ -87,6 +87,9 @@ vi.mock('../api/client', () => ({
     getWalletAssets: vi.fn().mockResolvedValue({ data: [] }),
     getFeePreview: vi.fn().mockResolvedValue(null),
     getXlmRate: vi.fn().mockResolvedValue({ usd: 0.1 }),
+    getNetwork: vi.fn().mockResolvedValue({ network: 'Test SDF Network ; September 2015' }),
+    getBudget: vi.fn().mockResolvedValue({ balance: 0 }),
+    getAlerts: vi.fn().mockResolvedValue({ data: [], unreadCount: 0 }),
   },
 }));
 
