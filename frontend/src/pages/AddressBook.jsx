@@ -20,6 +20,37 @@ const s = {
 
 const EMPTY_FORM = { label: '', street: '', city: '', country: '', postal_code: '', is_default: false };
 
+function DeleteConfirmDialog({ onConfirm, onCancel }) {
+  const cancelRef = React.useRef(null);
+
+  React.useEffect(() => {
+    cancelRef.current?.focus();
+    function onKey(e) { if (e.key === 'Escape') onCancel(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="del-dialog-title"
+      style={{ position: 'fixed', inset: 0, background: '#0005', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+    >
+      <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 380, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+        <div id="del-dialog-title" style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Delete Address</div>
+        <p style={{ fontSize: 14, color: '#555', marginBottom: 20 }}>
+          Are you sure you want to delete this address? This cannot be undone.
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button ref={cancelRef} style={s.btnSecondary} onClick={onCancel}>Cancel</button>
+          <button style={s.btnDanger} onClick={onConfirm}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AddressBook() {
   const { user } = useAuth();
   const [addresses, setAddresses] = useState([]);
@@ -27,6 +58,7 @@ export default function AddressBook() {
   const [editingId, setEditingId] = useState(null);
   const [msg, setMsg] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   async function load() {
     try {
@@ -76,8 +108,9 @@ export default function AddressBook() {
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm('Delete this address?')) return;
+  async function confirmDelete() {
+    const id = confirmDeleteId;
+    setConfirmDeleteId(null);
     try {
       await api.deleteAddress(id);
       setMsg({ type: 'ok', text: 'Address deleted' });
@@ -204,12 +237,19 @@ export default function AddressBook() {
                 {!addr.is_default && (
                   <button style={s.btnSecondary} onClick={() => handleSetDefault(addr.id)}>Set Default</button>
                 )}
-                <button style={s.btnDanger} onClick={() => handleDelete(addr.id)}>Delete</button>
+                <button style={s.btnDanger} onClick={() => setConfirmDeleteId(addr.id)}>Delete</button>
               </div>
             </div>
           ))
         )}
       </div>
+
+      {confirmDeleteId && (
+        <DeleteConfirmDialog
+          onConfirm={confirmDelete}
+          onCancel={() => setConfirmDeleteId(null)}
+        />
+      )}
     </div>
   );
 }
