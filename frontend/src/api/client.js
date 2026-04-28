@@ -227,6 +227,7 @@ export const api = {
   setDefaultAddress: (id) => request(`/addresses/${id}/default`, { method: 'PATCH' }),
 
   adminGetUsers: (page = 1) => request(`/admin/users?page=${page}`),
+  adminGetOrders: (page = 1) => request(`/admin/orders?page=${page}`),
   adminDeactivateUser: (id) => request(`/admin/users/${id}`, { method: 'DELETE' }),
   adminGetStats: () => request('/admin/stats'),
   adminGetContracts: (qs = '') => request(`/admin/contracts${qs}`),

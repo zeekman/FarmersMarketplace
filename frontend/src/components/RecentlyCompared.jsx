@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCompare } from '../context/CompareContext';
 
+export const MAX_RECENTLY_COMPARED = 10;
+
 const s = {
   container: {
     marginBottom: 36,

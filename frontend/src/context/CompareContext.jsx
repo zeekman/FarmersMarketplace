@@ -1,10 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { MAX_RECENTLY_COMPARED } from '../components/RecentlyCompared';
 
 const CompareContext = createContext(null);
 
 const HISTORY_KEY = 'comparison_history';
-const MAX_HISTORY = 5;
 
 export function CompareProvider({ children }) {
   const [products, setProducts] = useState([]);
@@ -41,8 +41,8 @@ export function CompareProvider({ children }) {
         timestamp: new Date().toISOString(),
       };
 
-      // Keep only last 5 comparisons
-      const updated = [newEntry, ...prev].slice(0, MAX_HISTORY);
+      // Keep only last MAX_RECENTLY_COMPARED comparisons
+      const updated = [newEntry, ...prev].slice(0, MAX_RECENTLY_COMPARED);
       
       // Persist to localStorage
       try {
