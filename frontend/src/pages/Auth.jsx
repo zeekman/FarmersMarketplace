@@ -52,6 +52,7 @@ export function LoginPage() {
   const [formError, setFormError] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
+  const passwordRef = React.useRef(null);
 
   function handleChange(field, value) {
     setForm(f => ({ ...f, [field]: value }));
@@ -69,6 +70,8 @@ export function LoginPage() {
       navigate(user.role === 'farmer' ? '/dashboard' : '/marketplace');
     } catch (err) {
       setFormError(getErrorMessage(err));
+      setForm(f => ({ ...f, password: '' }));
+      passwordRef.current?.focus();
     }
   }
 
@@ -89,7 +92,7 @@ export function LoginPage() {
           </div>
           <div style={s.field}>
             <label style={s.label} htmlFor="login-password">{t('auth.password')}</label>
-            <input id="login-password" style={errors.password ? s.inputErr : s.input} type="password"
+            <input id="login-password" ref={passwordRef} style={errors.password ? s.inputErr : s.input} type="password"
               value={form.password} onChange={e => handleChange('password', e.target.value)} autoComplete="current-password" />
             {errors.password && <div style={s.err} role="alert">{errors.password}</div>}
           </div>
