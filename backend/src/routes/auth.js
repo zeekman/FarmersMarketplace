@@ -343,6 +343,37 @@ router.post('/refresh', async (req, res) => {
 
 /**
  * @swagger
+ * /api/auth/me:
+ *   get:
+ *     summary: Get current authenticated user profile
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current user profile
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/User'
+ *       401:
+ *         description: Invalid or missing token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/me', auth, async (req, res) => {
+  const { rows } = await db.query(
+    'SELECT id, name, email, role, stellar_public_key AS publicKey, referral_code AS referralCode FROM users WHERE id = $1',
+    [req.user.id]
+  );
+  if (!rows[0]) return err(res, 404, 'User not found', 'not_found');
+  res.json(rows[0]);
+});
+
+/**
+ * @swagger
  * /api/auth/logout:
  *   post:
  *     summary: Logout and invalidate refresh token

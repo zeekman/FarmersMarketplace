@@ -315,3 +315,45 @@ describe('POST /api/auth/refresh', () => {
     expect(res.body.error).toMatch(/No refresh token/i);
   });
 });
+
+describe('GET /api/auth/me', () => {
+  it('returns the current user profile when the access token is valid', async () => {
+    const token = jwt.sign({ id: 1, role: 'farmer' }, process.env.JWT_SECRET);
+
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ active: 1 }], rowCount: 1 })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 1,
+            name: VALID_USER.name,
+            email: VALID_USER.email,
+            role: VALID_USER.role,
+            stellar_public_key: 'GPUBKEY',
+            referral_code: 'REF123',
+          },
+        ],
+        rowCount: 1,
+      });
+
+    const res = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      id: 1,
+      name: VALID_USER.name,
+      email: VALID_USER.email,
+      role: VALID_USER.role,
+      publicKey: 'GPUBKEY',
+      referralCode: 'REF123',
+    });
+  });
+
+  it('returns 401 when no access token is provided', async () => {
+    const res = await request(app).get('/api/auth/me');
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/No token provided/i);
+  });
+});
