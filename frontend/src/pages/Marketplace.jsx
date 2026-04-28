@@ -249,6 +249,38 @@ const s = {
     fontWeight: 600,
     fontSize: 14,
   },
+  outOfStockBadge: {
+    display: "inline-block",
+    fontSize: 11,
+    background: "#fee2e2",
+    color: "#b42318",
+    borderRadius: 4,
+    padding: "2px 7px",
+    marginBottom: 8,
+    fontWeight: 700,
+  },
+  viewBtn: {
+    marginTop: 10,
+    padding: "9px 18px",
+    borderRadius: 8,
+    border: "1px solid #2d6a4f",
+    background: "#fff",
+    color: "#2d6a4f",
+    fontWeight: 600,
+    fontSize: 14,
+    cursor: "pointer",
+  },
+  viewBtnDisabled: {
+    marginTop: 10,
+    padding: "9px 18px",
+    borderRadius: 8,
+    border: "1px solid #ccc",
+    background: "#f5f5f5",
+    color: "#aaa",
+    fontWeight: 600,
+    fontSize: 14,
+    cursor: "not-allowed",
+  },
 };
 
 const SORT_OPTIONS = [
@@ -601,6 +633,7 @@ export default function Marketplace() {
       )}
 
       <RecentlyCompared />
+      <div style={s.filters}>
         <input
           style={s.input}
           placeholder={t("marketplace.searchPlaceholder")}
@@ -923,6 +956,23 @@ export default function Marketplace() {
                 aria-pressed={isCompared(p.id)}
               >
                 {isCompared(p.id) ? "Selected for compare" : "Compare"}
+              </button>
+
+              {p.quantity === 0 && (
+                <div style={s.outOfStockBadge} aria-label="Out of stock">
+                  Out of Stock
+                </div>
+              )}
+              <button
+                style={p.quantity === 0 ? s.viewBtnDisabled : s.viewBtn}
+                disabled={p.quantity === 0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (p.quantity > 0) navigate(`/product/${p.id}`);
+                }}
+                aria-disabled={p.quantity === 0}
+              >
+                {p.quantity === 0 ? "Out of Stock" : "View"}
               </button>
 
               {/* Seller Information Section */}
