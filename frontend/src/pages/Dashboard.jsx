@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import Toast, { useToast } from '../components/Toast';
 
 const s = {
   page: { maxWidth: 900, margin: '0 auto', padding: 16 },
@@ -74,6 +75,7 @@ export default function Dashboard() {
   // profile state
   const [profile, setProfile]       = useState({ bio: '', location: '', avatar_url: '', federation_name: '', latitude: '', longitude: '', farm_address: '' });
   const [profileMsg, setProfileMsg] = useState(null);
+  const { showSuccess, showError, toasts } = useToast();
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -398,6 +400,7 @@ export default function Dashboard() {
       } catch (err) {
         setAvatarUploading(false);
         setProfileMsg({ type: 'err', text: `Avatar upload failed: ${getErrorMessage(err)}` });
+        showError(`Avatar upload failed: ${getErrorMessage(err)}`);
         return;
       }
       setAvatarUploading(false);
@@ -416,8 +419,10 @@ export default function Dashboard() {
       const d = res.data;
       setProfile({ bio: d.bio || '', location: d.location || '', avatar_url: d.avatar_url || '', federation_name: d.federation_name || '', latitude: d.latitude ?? '', longitude: d.longitude ?? '', farm_address: d.farm_address || '' });
       setProfileMsg({ type: 'ok', text: t('dashboard.profileUpdated') });
+      showSuccess('Settings saved successfully.');
     } catch (err) {
       setProfileMsg({ type: 'err', text: getErrorMessage(err) });
+      showError(getErrorMessage(err));
     }
   }
 
@@ -506,6 +511,7 @@ export default function Dashboard() {
 
   return (
     <div style={s.page}>
+      <Toast toasts={toasts} />
       <div style={s.title}>🌾 Farmer Dashboard</div>
       <div style={{ ...s.card, marginBottom: 24 }}>
         <h3 style={{ marginBottom: 12, color: '#333' }}>Flash Sales</h3>

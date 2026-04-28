@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import Toast, { useToast } from '../components/Toast';
 
 const s = {
   page:    { maxWidth: 640, margin: '0 auto', padding: 24 },
@@ -28,6 +29,7 @@ const CONFIRM_PHRASE = 'delete my account';
 export default function Settings() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { showSuccess, showError, toasts } = useToast();
 
   const [showModal, setShowModal]       = useState(false);
   const [step, setStep]                 = useState('confirm'); // 'confirm' | 'balance_warning'
@@ -72,6 +74,7 @@ export default function Settings() {
 
   return (
     <div style={s.page}>
+      <Toast toasts={toasts} />
       <div style={s.title}>Settings</div>
       <div style={s.sub}>Manage your account preferences.</div>
 
@@ -217,6 +220,7 @@ function SeedPhraseBackup() {
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
   const [confirmed, setConfirmed] = useState(false);
+  const { showSuccess, showError } = useToast();
 
   async function handleReveal(e) {
     e.preventDefault();
@@ -237,7 +241,10 @@ function SeedPhraseBackup() {
   function handleCopy() {
     navigator.clipboard.writeText(mnemonic).then(() => {
       setCopied(true);
+      showSuccess('Seed phrase copied to clipboard');
       setTimeout(() => setCopied(false), 2500);
+    }).catch(() => {
+      showError('Failed to copy seed phrase to clipboard');
     });
   }
 
@@ -324,6 +331,7 @@ function AccountRecovery() {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [success, setSuccess] = useState('');
+  const { showSuccess, showError } = useToast();
 
   function handleChange(field, value) {
     setForm(f => ({ ...f, [field]: value }));
@@ -346,9 +354,11 @@ function AccountRecovery() {
       const data = await api.recoverAccount({ email, password, mnemonic: mnemonic.trim() });
       login(data.token, data.user);
       setSuccess('Wallet recovered successfully. Redirecting…');
+      showSuccess('Settings saved successfully.');
       setTimeout(() => navigate(data.user.role === 'farmer' ? '/dashboard' : '/marketplace'), 1500);
     } catch (err) {
       setError(err.message || 'Recovery failed. Check your credentials and seed phrase.');
+      showError(err.message || 'Recovery failed. Check your credentials and seed phrase.');
     } finally {
       setLoading(false);
     }
@@ -408,9 +418,11 @@ function AccountRecovery() {
 // ── Main Settings Page ────────────────────────────────────────────────────────
 export default function Settings() {
   const { user } = useAuth();
+  const { showSuccess, showError, toasts } = useToast();
 
   return (
     <div style={s.page}>
+      <Toast toasts={toasts} />
       <div style={s.title}>⚙️ Settings</div>
       <SeedPhraseBackup />
       {!user && <AccountRecovery />}
