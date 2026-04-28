@@ -54,6 +54,10 @@ import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import { getErrorMessage } from '../utils/errorMessages';
 
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_SIZE_MB = 5;
+const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+
 export default function Dashboard() {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -228,7 +232,6 @@ export default function Dashboard() {
     setError(null);
     try {
       const [productsRes, salesRes, profileRes, bundlesRes, couponsRes, coopsRes, batchesRes, forecastRes] = await Promise.all([
-      const [productsRes, salesRes, profileRes, bundlesRes, couponsRes, coopsRes, forecastRes] = await Promise.all([
         api.getMyProducts().catch(() => ({ data: [] })),
         api.getSales().catch(() => ({ data: [] })),
         user?.id ? api.getFarmer(user.id).catch(() => ({})) : Promise.resolve({}),
@@ -392,30 +395,6 @@ export default function Dashboard() {
   async function handleAdd(e) {
     e.preventDefault();
     setMsg(null);
-    const nutritionData = {};
-    if (form.nutrition.calories) nutritionData.calories = parseFloat(form.nutrition.calories);
-    if (form.nutrition.protein) nutritionData.protein = parseFloat(form.nutrition.protein);
-    if (form.nutrition.carbs) nutritionData.carbs = parseFloat(form.nutrition.carbs);
-    if (form.nutrition.fat) nutritionData.fat = parseFloat(form.nutrition.fat);
-    if (form.nutrition.fiber) nutritionData.fiber = parseFloat(form.nutrition.fiber);
-
-    const batchId = form.batch_id ? parseInt(form.batch_id, 10) : undefined;
-    const payload = {
-      ...form,
-      price: parseFloat(form.price),
-      quantity: parseInt(form.quantity, 10),
-      is_preorder: form.is_preorder ? 1 : 0,
-      preorder_delivery_date: form.is_preorder ? form.preorder_delivery_date : null,
-      image_url: imageUrl || undefined,
-      nutrition: Object.keys(nutritionData).length > 0 ? nutritionData : undefined,
-      pricing_type: form.pricing_type || 'unit',
-      min_weight: form.pricing_type === 'weight' ? parseFloat(form.min_weight) : undefined,
-      max_weight: form.pricing_type === 'weight' ? parseFloat(form.max_weight) : undefined,
-      batch_id: Number.isFinite(batchId) ? batchId : undefined,
-    };
-
-    try {
-      await api.createProduct(payload);
     setFormErrors({});
     let finalImageUrl = imageUrl;
 
@@ -441,6 +420,8 @@ export default function Dashboard() {
       if (form.nutrition.fat) nutritionData.fat = parseFloat(form.nutrition.fat);
       if (form.nutrition.fiber) nutritionData.fiber = parseFloat(form.nutrition.fiber);
 
+      const batchId = form.batch_id ? parseInt(form.batch_id, 10) : undefined;
+
       await api.createProduct({
         ...form,
         price: parseFloat(form.price),
@@ -459,6 +440,7 @@ export default function Dashboard() {
         allowed_regions: form.allowed_regions && form.allowed_regions.length > 0 ? form.allowed_regions : undefined,
         available_from: form.available_from || undefined,
         available_until: form.available_until || undefined,
+        batch_id: Number.isFinite(batchId) ? batchId : undefined,
       });
       setMsg({ type: 'ok', text: t('dashboard.productListedOk') });
       setForm({ ...EMPTY_FORM });

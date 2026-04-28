@@ -1,6 +1,41 @@
+import React, { useEffect, useRef, useState } from 'react';
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
+
+function DeactivateModal({ user, onConfirm, onCancel }) {
+  const confirmRef = useRef(null);
+  useEffect(() => { confirmRef.current?.focus(); }, []);
+  function handleKeyDown(e) {
+    if (e.key === 'Escape') onCancel();
+  }
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="deactivate-modal-title"
+      onKeyDown={handleKeyDown}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+    >
+      <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 400, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+        <div id="deactivate-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 10, color: '#333' }}>
+          Deactivate {user.name}?
+        </div>
+        <p style={{ fontSize: 14, color: '#555', marginBottom: 20 }}>
+          They will lose access immediately.
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+            Cancel
+          </button>
+          <button ref={confirmRef} onClick={onConfirm} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#c0392b', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+            Confirm Deactivate
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const s = {
   page: { maxWidth: 1000, margin: '0 auto', padding: 24 },
@@ -35,6 +70,7 @@ export default function AdminDashboard() {
   const [orders, setOrders] = useState([]);
   const [orderPagination, setOrderPagination] = useState({ page: 1, pages: 1, total: 0 });
   const [error, setError] = useState('');
+  const [deactivateTarget, setDeactivateTarget] = useState(null);
   const [contracts, setContracts] = useState([]);
   const [contractForm, setContractForm] = useState({ contract_id: '', name: '', type: 'escrow', network: 'testnet' });
   const [contractMsg, setContractMsg] = useState('');
@@ -234,7 +270,12 @@ export default function AdminDashboard() {
   }
 
   async function handleDeactivate(id, name) {
-    if (!confirm(`Deactivate user "${name}"?`)) return;
+    setDeactivateTarget({ id, name });
+  }
+
+  async function confirmDeactivate() {
+    const { id } = deactivateTarget;
+    setDeactivateTarget(null);
     try {
       await api.adminDeactivateUser(id);
       loadUsers(pagination.page);
@@ -323,6 +364,9 @@ export default function AdminDashboard() {
       setSimFormError(err.message);
     } finally {
       setSimBusy(false);
+    }
+  }
+
   async function loadContractEvents(e, page = 1) {
     if (e) e.preventDefault();
     if (!evtContractId.trim()) return;
@@ -361,6 +405,13 @@ export default function AdminDashboard() {
 
   return (
     <div style={s.page}>
+      {deactivateTarget && (
+        <DeactivateModal
+          user={deactivateTarget}
+          onConfirm={confirmDeactivate}
+          onCancel={() => setDeactivateTarget(null)}
+        />
+      )}
       <div style={s.title}>🛡️ Admin Dashboard</div>
       {error && <div style={s.err}>{error}</div>}
 
@@ -1158,6 +1209,7 @@ export default function AdminDashboard() {
             {cmpResult.cached && <div style={{ fontSize: 11, color: '#aaa', marginTop: 8 }}>Cached result</div>}
           </div>
         )}
+      </div>
       {/* Contract Alerts */}
       <div style={{ background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>🚨 Contract Monitoring Alerts</h3>
@@ -1214,6 +1266,7 @@ export default function AdminDashboard() {
             </tbody>
           </table>
         )}
+      </div>
       {/* Contract Invocation History */}
       <div style={{ ...s.card, marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>📑 Contract Invocation History</h3>
@@ -1301,6 +1354,7 @@ export default function AdminDashboard() {
               </div>
             </>
         )}
+      </div>
       {/* Announcements Management */}
       <div style={{ ...s.card, marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>📢 Announcements</h3>
