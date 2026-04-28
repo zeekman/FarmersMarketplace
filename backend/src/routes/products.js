@@ -48,14 +48,8 @@ function normalizePreorderInput(body) {
 router.get('/', async (req, res) => {
   const role = req.user?.role || 'public';
   const cacheKey = `products:${role}:${JSON.stringify(req.query)}`;
-router.get('/', async (req, res) => {
-  const cacheKey = `products:${JSON.stringify(req.query)}`;
   const cached = await cache.get(cacheKey);
   if (cached) return res.json(cached);
-  const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-  const offset = (page - 1) * limit;
-  const { category, minPrice, maxPrice, seller, available = 'true', lat, lng, radius } = req.query;
 
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
@@ -67,54 +61,21 @@ router.get('/', async (req, res) => {
 
   if (available === 'true') conditions.push('p.quantity > 0');
   conditions.push(`p.best_before IS NULL OR p.best_before >= CURRENT_DATE`);
-  if (category)   { conditions.push(`p.category = $${params.length + 1}`);        params.push(category); }
-  if (minPrice !== undefined) { const min = parseFloat(minPrice); if (!isNaN(min)) { conditions.push(`p.price >= $${params.length + 1}`); params.push(min); } }
-  if (maxPrice !== undefined) { const max = parseFloat(maxPrice); if (!isNaN(max)) { conditions.push(`p.price <= $${params.length + 1}`); params.push(max); } }
-  if (seller)     { conditions.push(`u.name ILIKE $${params.length + 1}`);         params.push(`%${seller}%`); }
-  if (req.query.grade) {
-  conditions.push(`(p.best_before IS NULL OR p.best_before >= CURRENT_DATE)`);
-  conditions.push(`(p.best_before IS NULL OR p.best_before >= ${db.isPostgres ? 'CURRENT_DATE' : "date('now')"})`);
-
-  if (category) {
-    conditions.push(`p.category = $${params.length + 1}`);
-    params.push(category);
-  }
-  if (minPrice !== undefined) {
-    const min = parseFloat(minPrice);
-    if (!Number.isNaN(min)) {
-      conditions.push(`p.price >= $${params.length + 1}`);
-      params.push(min);
-    }
-  }
-  if (maxPrice !== undefined) {
-    const max = parseFloat(maxPrice);
-    if (!Number.isNaN(max)) {
-      conditions.push(`p.price <= $${params.length + 1}`);
-      params.push(max);
-    }
-    if (!Number.isNaN(min)) { conditions.push(`p.price >= $${params.length + 1}`); params.push(min); }
-  }
-  if (maxPrice !== undefined) {
-    const max = parseFloat(maxPrice);
-    if (!Number.isNaN(max)) { conditions.push(`p.price <= $${params.length + 1}`); params.push(max); }
-  }
-  if (seller) {
-    conditions.push(`u.name ${db.isPostgres ? 'ILIKE' : 'LIKE'} $${params.length + 1}`);
-    params.push(`%${seller}%`);
-  }
+  const now = db.isPostgres ? 'NOW()' : "datetime('now')";
+  conditions.push(`(p.available_from IS NULL OR p.available_from <= ${now})`);
+  conditions.push(`(p.available_until IS NULL OR p.available_until >= ${now})`);
+  if (category) { conditions.push(`p.category = $${params.length + 1}`); params.push(category); }
+  if (minPrice !== undefined) { const min = parseFloat(minPrice); if (!Number.isNaN(min)) { conditions.push(`p.price >= $${params.length + 1}`); params.push(min); } }
+  if (maxPrice !== undefined) { const max = parseFloat(maxPrice); if (!Number.isNaN(max)) { conditions.push(`p.price <= $${params.length + 1}`); params.push(max); } }
+  if (seller) { conditions.push(`u.name ${db.isPostgres ? 'ILIKE' : 'LIKE'} $${params.length + 1}`); params.push(`%${seller}%`); }
   if (grade) {
     const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];
-    if (VALID_GRADES.includes(req.query.grade)) {
-      conditions.push(`p.grade = $${params.length + 1}`);
-      params.push(req.query.grade);
-    }
+    if (VALID_GRADES.includes(grade)) { conditions.push(`p.grade = $${params.length + 1}`); params.push(grade); }
   }
 
   const filterLat = parseFloat(lat);
   const filterLng = parseFloat(lng);
   const filterRadius = parseFloat(radius);
-  if (!isNaN(filterLat) && !isNaN(filterLng) && !isNaN(filterRadius) && filterRadius > 0) {
-    conditions.push(`u.latitude IS NOT NULL AND u.longitude IS NOT NULL`);
   if (!Number.isNaN(filterLat) && !Number.isNaN(filterLng) && !Number.isNaN(filterRadius) && filterRadius > 0) {
     conditions.push('u.latitude IS NOT NULL AND u.longitude IS NOT NULL');
     conditions.push(
@@ -131,16 +92,25 @@ router.get('/', async (req, res) => {
   );
   const total = parseInt(countRows[0].count);
 
+  const VALID_SORTS = { price_asc: 'p.price ASC', price_desc: 'p.price DESC', newest: 'p.created_at DESC', popular: 'order_count DESC' };
+  const sortKey = VALID_SORTS[req.query.sort] ? req.query.sort : 'newest';
+  const orderBy = VALID_SORTS[sortKey];
+  const popularJoin = sortKey === 'popular'
+    ? `LEFT JOIN (SELECT product_id, COUNT(*) as order_count FROM orders WHERE status='paid' GROUP BY product_id) oc ON oc.product_id = p.id`
+    : '';
+  const popularSelect = sortKey === 'popular' ? ', COALESCE(oc.order_count, 0) as order_count' : '';
+
   const { rows: products } = await db.query(
     `SELECT p.*, u.name as farmer_name, u.latitude as farmer_lat, u.longitude as farmer_lng, u.farm_address as farmer_farm_address,
             ROUND(AVG(r.rating)${db.isPostgres ? '::numeric' : ''}, 1) as avg_rating,
-            COUNT(r.id) as review_count
+            COUNT(r.id) as review_count${popularSelect}
      FROM products p
      JOIN users u ON p.farmer_id = u.id
      LEFT JOIN reviews r ON r.product_id = p.id
+     ${popularJoin}
      ${where}
-     GROUP BY p.id, u.name, u.latitude, u.longitude, u.farm_address
-     ORDER BY p.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+     GROUP BY p.id, u.name, u.latitude, u.longitude, u.farm_address${sortKey === 'popular' ? ', oc.order_count' : ''}
+     ORDER BY ${orderBy} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset]
   );
 
@@ -150,46 +120,6 @@ router.get('/', async (req, res) => {
   }
   await cache.set(cacheKey, payload, 60);
   res.json(payload);
-});
-
-// GET /api/products/search?q=tomato - FTS5 full-text search
-router.get('/search', (req, res) => {
-  const q = (req.query.q || '').trim();
-  if (!q) {
-    const products = db.prepare(
-      `SELECT p.*, u.name as farmer_name FROM products p JOIN users u ON p.farmer_id = u.id ORDER BY p.created_at DESC LIMIT 100`
-    ).all();
-    return res.json({ success: true, data: products });
-  }
-
-  try {
-    const products = db.prepare(`
-      SELECT p.*, u.id as farmer_id, u.name as farmer_name, u.bio as farmer_bio, u.location as farmer_location, u.avatar_url as farmer_avatar, fts.rank
-      FROM products_fts fts
-      JOIN products p ON p.id = fts.rowid
-      JOIN users u ON p.farmer_id = u.id
-      WHERE products_fts MATCH ?
-      ORDER BY fts.rank
-      LIMIT 100
-    `).all(q);
-    const products = db.prepare(
-      `SELECT p.*, u.name as farmer_name, fts.rank
-       FROM products_fts fts
-       JOIN products p ON p.id = fts.rowid
-       JOIN users u ON p.farmer_id = u.id
-       WHERE products_fts MATCH ?
-       ORDER BY fts.rank
-       LIMIT 100`
-    ).all(q);
-    return res.json({ success: true, data: products });
-  } catch {
-    const like = `%${q}%`;
-    const products = db.prepare(
-      `SELECT p.*, u.name as farmer_name FROM products p JOIN users u ON p.farmer_id = u.id
-       WHERE p.name LIKE ? OR p.description LIKE ? ORDER BY p.created_at DESC LIMIT 100`
-    ).all(like, like);
-    return res.json({ success: true, data: products });
-  }
 });
 
 // GET /api/products/search
@@ -269,71 +199,6 @@ router.post('/upload-image', auth, (req, res) => {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Error' }
  */
-// POST /api/products
-router.post('/', auth, validate.product, async (req, res) => {
-  if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
-  const { name, description, unit, category, image_url, nutrition } = req.body;
-  const price = parseFloat(req.body.price);
-  const quantity = parseInt(req.body.quantity, 10);
-
-  if (!name?.trim() || isNaN(price) || price <= 0 || isNaN(quantity) || quantity < 1) {
-    return err(res, 400, 'Invalid product data', 'validation_error');
-  }
-
-  const preorder = normalizePreorderInput(req.body);
-  if (preorder.error) return err(res, 400, preorder.error, 'validation_error');
-
-  const { rows } = await db.query(
-    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold, nutrition, is_preorder, preorder_delivery_date) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id',
-    [req.user.id, sanitizeText(name), sanitizeText(description||''), sanitizeText(category||''), price, quantity, sanitizeText(unit||'unit'), image_url, parseInt(req.body.low_stock_threshold) || 5, nutrition ? JSON.stringify(nutrition) : null, preorder.isPreorder ? 1 : 0, preorder.preorderDeliveryDate]
-  );
-  res.json({ success: true, id: rows[0].id, message: 'Product listed' });
-});
-
-// GET /api/products/:id
-router.get('/:id', async (req, res) => {
-  const { rows } = await db.query(
-    `SELECT p.*, u.name as farmer_name, u.bio as farmer_bio, u.location as farmer_location, u.avatar_url as farmer_avatar, u.stellar_public_key as farmer_wallet,
-            ROUND(AVG(r.rating)${db.isPostgres ? '::numeric' : ''}, 1) as avg_rating,
-            COUNT(r.id) as review_count
-     FROM products p
-     JOIN users u ON p.farmer_id = u.id
-     LEFT JOIN reviews r ON r.product_id = p.id
-     WHERE p.id = $1
-     GROUP BY p.id, u.name, u.bio, u.location, u.avatar_url, u.stellar_public_key`,
-    [req.params.id]
-  );
-  if (!rows[0]) return err(res, 404, 'Product not found', 'not_found');
-  res.json({ success: true, data: rows[0] });
-});
-
-// POST /api/products/:id/alert
-router.post('/:id/alert', auth, async (req, res) => {
-  if (req.user.role !== 'buyer') return err(res, 403, 'Only buyers can set alerts', 'forbidden');
-  const { rows } = await db.query('SELECT id, quantity FROM products WHERE id = $1', [req.params.id]);
-  if (!rows[0]) return err(res, 404, 'Product not found', 'not_found');
-  if (rows[0].quantity > 0) return err(res, 400, 'Product is already in stock', 'in_stock');
-  try {
-    await db.query('INSERT INTO stock_alerts (user_id, product_id) VALUES ($1, $2)', [req.user.id, req.params.id]);
-    res.json({ success: true, message: 'Alert set' });
-  } catch (e) {
-    if (e.message.includes('UNIQUE') || e.code === '23505') return err(res, 409, 'Alert already set', 'conflict');
-    throw e;
-  }
-});
-
-// DELETE /api/products/:id/alert
-router.delete('/:id/alert', auth, async (req, res) => {
-  await db.query('DELETE FROM stock_alerts WHERE user_id = $1 AND product_id = $2', [req.user.id, req.params.id]);
-  res.json({ success: true, message: 'Alert removed' });
-});
-
-// GET /api/products/:id/alert/status
-router.get('/:id/alert/status', auth, async (req, res) => {
-  const { rows } = await db.query('SELECT id FROM stock_alerts WHERE user_id = $1 AND product_id = $2', [req.user.id, req.params.id]);
-  res.json({ success: true, subscribed: !!rows[0] });
-});
-
 /**
  * @swagger
  * /api/products:
@@ -345,20 +210,11 @@ router.get('/:id/alert/status', auth, async (req, res) => {
 router.post('/', auth, validate.product, async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can list products', 'forbidden');
 
-  const { name, description, unit, category, image_url, nutrition, pricing_model, pricing_type } = req.body;
-router.post('/', auth, validate.product, async (req, res) => {
-  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can list products', 'forbidden');
-
   const { name, description, unit, category, image_url, nutrition } = req.body;
   const price = parseFloat(req.body.price);
   const quantity = parseInt(req.body.quantity, 10);
 
   if (!name || !name.trim()) return err(res, 400, 'Product name is required', 'validation_error');
-  if (isNaN(price) || price <= 0) return err(res, 400, 'Price must be a positive number', 'validation_error');
-  if (isNaN(quantity) || quantity < 1) return err(res, 400, 'Quantity must be a positive integer', 'validation_error');
-
-  const preorder = normalizePreorderInput(req.body);
-  if (preorder.error) return err(res, 400, preorder.error, 'validation_error');
   if (Number.isNaN(price) || price <= 0) return err(res, 400, 'Price must be a positive number', 'validation_error');
   if (Number.isNaN(quantity) || quantity < 1) return err(res, 400, 'Quantity must be a positive integer', 'validation_error');
 
@@ -378,12 +234,6 @@ router.post('/', auth, validate.product, async (req, res) => {
   const minWeight   = pricingType === 'weight' ? parseFloat(req.body.min_weight) : null;
   const maxWeight   = pricingType === 'weight' ? parseFloat(req.body.max_weight) : null;
 
-  const { rows } = await db.query(
-    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold, nutrition, pricing_type, min_weight, max_weight, allergens) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id',
-    [req.user.id, safeName, safeDescription, safeCategory, price, quantity, safeUnit, safeImageUrl, parseInt(req.body.low_stock_threshold) || 5, nutrition ? JSON.stringify(nutrition) : null, pricingType, minWeight, maxWeight, allergenResult.allergens]
-    'INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url, low_stock_threshold, nutrition, pricing_type, min_weight, max_weight, allergens, allowed_regions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id',
-    [req.user.id, safeName, safeDescription, safeCategory, price, quantity, safeUnit, safeImageUrl, parseInt(req.body.low_stock_threshold) || 5, nutrition ? JSON.stringify(nutrition) : null, pricingType, minWeight, maxWeight, allergenResult.allergens, parseAllowedRegions(req.body.allowed_regions)]
-
   let batchId = null;
   if (req.body.batch_id !== undefined && req.body.batch_id !== null && req.body.batch_id !== '') {
     batchId = parseInt(req.body.batch_id, 10);
@@ -398,14 +248,15 @@ router.post('/', auth, validate.product, async (req, res) => {
   const { rows } = await db.query(
     `INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, image_url,
       low_stock_threshold, nutrition, pricing_type, min_weight, max_weight, batch_id,
-      is_preorder, preorder_delivery_date, allergens, allowed_regions)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+      is_preorder, preorder_delivery_date, allergens, allowed_regions, available_from, available_until)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
     [
       req.user.id, safeName, safeDescription, safeCategory, price, quantity, safeUnit, safeImageUrl,
       parseInt(req.body.low_stock_threshold, 10) || 5, nutrition ? JSON.stringify(nutrition) : null,
       pricingType, minWeight, maxWeight, batchId,
       preorder.isPreorder ? 1 : 0, preorder.preorderDeliveryDate,
       allergenResult.allergens, parseAllowedRegions(req.body.allowed_regions),
+      req.body.available_from || null, req.body.available_until || null,
     ]
   );
   const productId = rows[0].id;
@@ -547,12 +398,11 @@ router.patch('/:id', auth, async (req, res) => {
   if (!existing[0]) return err(res, 404, 'Not found or not yours', 'not_found');
   const product = existing[0];
 
-  const allowed = ['name', 'description', 'price', 'quantity', 'unit', 'category', 'low_stock_threshold', 'nutrition', 'pricing_type', 'min_weight', 'max_weight', 'allergens', 'allowed_regions'];
   const allowed = [
     'name', 'description', 'price', 'quantity', 'unit', 'category',
     'low_stock_threshold', 'nutrition', 'pricing_type', 'min_weight', 'max_weight',
     'batch_id', 'is_preorder', 'preorder_delivery_date', 'allergens', 'allowed_regions',
-    'grade', 'carbon_kg_per_unit',
+    'grade', 'carbon_kg_per_unit', 'available_from', 'available_until',
   ];
   const updates = {};
   for (const key of allowed) {
@@ -572,35 +422,6 @@ router.patch('/:id', auth, async (req, res) => {
     updates.quantity = parseInt(updates.quantity, 10);
     if (Number.isNaN(updates.quantity) || updates.quantity < 0) return err(res, 400, 'Quantity must be non-negative', 'validation_error');
   }
-
-  if (updates.name) updates.name = sanitizeText(updates.name);
-  if (updates.description) updates.description = sanitizeText(updates.description);
-  if (updates.unit !== undefined) updates.unit = sanitizeText(updates.unit);
-  if (updates.category !== undefined) updates.category = sanitizeText(updates.category);
-  if (updates.price !== undefined) {
-    updates.price = parseFloat(updates.price);
-    if (isNaN(updates.price) || updates.price <= 0) return err(res, 400, 'Price must be positive', 'validation_error');
-  }
-
-  if (updates.batch_id !== undefined) {
-    if (updates.batch_id === null || updates.batch_id === '') {
-      updates.batch_id = null;
-    } else {
-      const bid = parseInt(updates.batch_id, 10);
-      if (Number.isNaN(bid) || bid < 1) return err(res, 400, 'batch_id must be a positive integer or null', 'validation_error');
-      const { rows: bRows } = await db.query(
-        'SELECT id FROM harvest_batches WHERE id = $1 AND farmer_id = $2',
-        [bid, req.user.id],
-      );
-      if (!bRows[0]) return err(res, 400, 'Invalid batch_id or not your batch', 'invalid_batch');
-      updates.batch_id = bid;
-    }
-  }
-  if (updates.pricing_model === 'pwyw' && updates.min_price === undefined && existing[0].min_price === null) {
-    return err(res, 400, 'Minimum price is required for PWYW', 'validation_error');
-  }
-
-  }
   if (updates.low_stock_threshold !== undefined) {
     updates.low_stock_threshold = parseInt(updates.low_stock_threshold, 10);
     if (Number.isNaN(updates.low_stock_threshold) || updates.low_stock_threshold < 0) {
@@ -615,15 +436,6 @@ router.patch('/:id', auth, async (req, res) => {
     if (allergenResult.error) return err(res, 400, allergenResult.error, 'validation_error');
     updates.allergens = allergenResult.allergens;
   }
-
-  if (updates.allowed_regions !== undefined) {
-    updates.allowed_regions = parseAllowedRegions(updates.allowed_regions);
-  }
-
-  const keys   = Object.keys(updates);
-  const values = Object.values(updates);
-  const setClauses = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
-  await db.query(`UPDATE products SET ${setClauses} WHERE id = $${keys.length + 1}`, [...values, req.params.id]);
   if (updates.allowed_regions !== undefined) {
     updates.allowed_regions = parseAllowedRegions(updates.allowed_regions);
   }
@@ -660,7 +472,6 @@ router.patch('/:id', auth, async (req, res) => {
     updates.preorder_delivery_date = null;
   }
 
-  const keys   = Object.keys(updates);
   const newQty = updates.quantity ?? product.quantity;
   const newThreshold = updates.low_stock_threshold ?? product.low_stock_threshold ?? 5;
   if (newQty > newThreshold) updates.low_stock_alerted = 0;
@@ -677,29 +488,6 @@ router.patch('/:id', auth, async (req, res) => {
   }
 
   res.json({ success: true, message: 'Product updated' });
-});
-
-router.get('/:id/images', async (req, res) => {
-  const { rows } = await db.query('SELECT * FROM product_images WHERE product_id = $1 ORDER BY sort_order ASC, id ASC', [req.params.id]);
-  res.json({ success: true, data: rows });
-});
-
-router.patch('/:id/restock', auth, async (req, res) => {
-  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can restock', 'forbidden');
-  const quantity = parseInt(req.body.quantity, 10);
-  if (isNaN(quantity) || quantity <= 0) return err(res, 400, 'Quantity must be positive', 'validation_error');
-
-  const { rows } = await db.query('SELECT * FROM products WHERE id = $1 AND farmer_id = $2', [req.params.id, req.user.id]);
-  if (!rows[0]) return err(res, 404, 'Product not found', 'not_found');
-
-  await db.query('UPDATE products SET quantity = quantity + $1, low_stock_alerted = 0 WHERE id = $2', [quantity, req.params.id]);
-  
-  if (rows[0].quantity === 0) {
-    const processor = new AutomaticOrderProcessor();
-    await processor.processWaitlistOnRestock(parseInt(req.params.id), quantity);
-  }
-
-  res.json({ success: true, message: 'Restocked' });
 });
 
 /**
@@ -743,26 +531,6 @@ router.patch('/:id/restock', auth, async (req, res) => {
  *                 openOrders: { type: array }
  */
 // DELETE /api/products/:id
-router.delete('/:id', auth, async (req, res) => {
-  const { rows: productRows } = await db.query('SELECT * FROM products WHERE id = $1 AND farmer_id = $2', [req.params.id, req.user.id]);
-  if (!productRows[0]) return err(res, 404, 'Not found or not yours', 'not_found');
-
-  // Check for open or paid orders
-  const { rows: orderRows } = await db.query(
-    `SELECT id, status FROM orders WHERE product_id = $1 AND status IN ('pending', 'paid', 'disputed')`,
-    [req.params.id]
-  );
-
-  if (orderRows.length > 0) {
-    return err(res, 409, 'Cannot delete product with open or paid orders', 'conflict', {
-      openOrders: orderRows.map(o => ({ id: o.id, status: o.status })),
-    });
-  }
-
-  await db.query('DELETE FROM products WHERE id = $1', [req.params.id]);
-  await cache.del('products:{}');
-  res.json({ success: true, message: 'Deleted' });
- */
 router.delete('/:id', auth, async (req, res) => {
   const { rowCount } = await db.query(
     'DELETE FROM products WHERE id = $1 AND farmer_id = $2',
@@ -1020,4 +788,52 @@ router.get('/:id/price-history', async (req, res) => {
   res.json({ success: true, data: rows });
 });
 
+// In-memory map of productId → Set of SSE response objects
+const stockClients = new Map();
+
+/**
+ * Broadcast a stock update to all SSE clients watching a product.
+ * Called from orders.js after a successful purchase.
+ */
+function broadcastStockUpdate(productId, quantity) {
+  const clients = stockClients.get(String(productId));
+  if (!clients || clients.size === 0) return;
+  const payload = `data: ${JSON.stringify({ quantity })}\n\n`;
+  for (const client of clients) {
+    try { client.write(payload); } catch { /* client disconnected */ }
+  }
+}
+
+// GET /api/products/:id/stock-stream — public SSE endpoint
+router.get('/:id/stock-stream', async (req, res) => {
+  const productId = req.params.id;
+  const { rows } = await db.query('SELECT quantity FROM products WHERE id = $1', [productId]);
+  if (!rows[0]) return res.status(404).json({ error: 'Product not found' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  // Send current stock immediately
+  res.write(`data: ${JSON.stringify({ quantity: rows[0].quantity })}\n\n`);
+
+  // Register client
+  if (!stockClients.has(productId)) stockClients.set(productId, new Set());
+  stockClients.get(productId).add(res);
+
+  // Heartbeat every 30 s to prevent proxy timeouts
+  const heartbeat = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* ignore */ } }, 30000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    const clients = stockClients.get(productId);
+    if (clients) {
+      clients.delete(res);
+      if (clients.size === 0) stockClients.delete(productId);
+    }
+  });
+});
+
 module.exports = router;
+module.exports.broadcastStockUpdate = broadcastStockUpdate;

@@ -108,6 +108,7 @@ function toQs(params = {}) {
 }
 
 export const api = {
+  getNetwork: () => request('/network'),
   register: (body) => request('/auth/register', { method: 'POST', body }),
   login: (body) => request('/auth/login', { method: 'POST', body }),
   logout: () => request('/auth/logout', { method: 'POST' }),

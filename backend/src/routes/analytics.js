@@ -3,8 +3,11 @@ const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 
+// All analytics routes require authentication
+router.use(auth);
+
 // GET /api/analytics/farmer
-router.get('/farmer', auth, async (req, res) => {
+router.get('/farmer', async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
   const farmerId = req.user.id;
 
@@ -45,7 +48,7 @@ router.get('/farmer', auth, async (req, res) => {
 });
 
 // GET /api/analytics/farmer/waitlist — waitlist analytics per product (farmer only)
-router.get('/farmer/waitlist', auth, async (req, res) => {
+router.get('/farmer/waitlist', async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
   const farmerId = req.user.id;
 
@@ -117,7 +120,7 @@ router.get('/farmer/waitlist', auth, async (req, res) => {
 });
 
 // GET /api/analytics/farmer/forecast
-router.get('/farmer/forecast', auth, async (req, res) => {
+router.get('/farmer/forecast', async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
 
   const farmerId = req.user.id;
@@ -200,7 +203,7 @@ router.get('/farmer/forecast', auth, async (req, res) => {
 });
 
 // GET /api/analytics/farmer/demand-heatmap - Geographic demand heatmap
-router.get('/farmer/demand-heatmap', auth, async (req, res) => {
+router.get('/farmer/demand-heatmap', async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
 
   const farmerId = req.user.id;

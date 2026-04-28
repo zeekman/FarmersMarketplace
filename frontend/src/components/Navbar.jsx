@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
+import { api } from '../api/client';
 
 const s = {
   nav: { background: '#2d6a4f', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
@@ -19,6 +20,11 @@ export default function Navbar() {
   const { i18n } = useTranslation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [network, setNetwork] = useState(null);
+
+  useEffect(() => {
+    api.getNetwork().then(res => setNetwork(res.network)).catch(() => {});
+  }, []);
 
   function handleLogout() {
     logout();
@@ -29,6 +35,20 @@ export default function Navbar() {
   return (
     <nav style={s.nav}>
       <Link to="/" style={s.brand}>🌿 FarmersMarket</Link>
+      {network && (
+        <span style={{
+          background: network === 'mainnet' ? '#c0392b' : '#2d6a4f',
+          color: '#fff',
+          borderRadius: 4,
+          padding: '2px 8px',
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: 0.5,
+          textTransform: 'uppercase',
+        }}>
+          {network}
+        </span>
+      )}
       <button className="hamburger" onClick={() => setOpen(o => !o)} aria-label="Toggle menu" aria-expanded={open}>
         {open ? '✕' : '☰'}
       </button>

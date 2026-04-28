@@ -231,6 +231,11 @@ export default function Orders() {
                       </a>
                     </div>
                   )}
+                  {o.stellar_memo && (
+                    <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
+                      📝 Memo: <span style={{ fontFamily: 'monospace' }}>{o.stellar_memo}</span>
+                    </div>
+                  )}
                   <StatusTimeline status={o.status} />
                   {o.harvest_batch_code && (
                     <div style={{ fontSize: 12, color: '#555', marginTop: 8 }}>

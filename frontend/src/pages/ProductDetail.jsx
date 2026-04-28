@@ -91,6 +91,7 @@ export default function ProductDetail() {
    const [activeImg, setActiveImg] = useState(0);
    const [paidOrders, setPaidOrders] = useState([]);
    const [customPrice, setCustomPrice] = useState('');
+  const [liveStock, setLiveStock] = useState(null); // Real-time stock from SSE
 
    // Price tiers state
   const [tiers, setTiers] = useState([]);
@@ -256,8 +257,24 @@ export default function ProductDetail() {
     if (!n) return;
     api.getFeePreview(n).then(r => setFeeInfo(r)).catch(() => setFeeInfo(null));
   }, [_previewTotal]); // eslint-disable-line react-hooks/exhaustive-deps
+  // SSE: connect to stock-stream for real-time stock updates
+  useEffect(() => {
+    if (!id) return;
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+    const es = new EventSource(`${apiBase}/api/products/${id}/stock-stream`);
+    es.onmessage = (e) => {
+      try {
+        const { quantity } = JSON.parse(e.data);
+        setLiveStock(quantity);
+      } catch { /* ignore malformed events */ }
+    };
+    return () => es.close();
+  }, [id]);
 
   if (!product) return <Spinner />;
+
+  // Use live SSE stock if available, fall back to product.quantity
+  const currentStock = liveStock !== null ? liveStock : product.quantity;
 
   const shareUrl = shareMeta?.url || `${window.location.origin}/product/${id}`;
   const shareTitle = shareMeta?.title || `${product.name} on Farmers Marketplace`;
@@ -760,7 +777,12 @@ export default function ProductDetail() {
         )}
 
         <div style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
-          {t('productDetail.inStock', { qty: product.quantity, unit: product.unit })}
+          {t('productDetail.inStock', { qty: currentStock, unit: product.unit })}
+          {currentStock > 0 && currentStock <= 5 && (
+            <span style={{ marginLeft: 8, color: '#c0392b', fontWeight: 700 }}>
+              ⚠️ Only {currentStock} left!
+            </span>
+          )}
           {product.min_order_quantity > 1 && (
             <span style={{ marginLeft: 10, color: '#e67e22', fontWeight: 600 }}>
               Min. order: {product.min_order_quantity} {product.unit}
@@ -775,6 +797,13 @@ export default function ProductDetail() {
         {product.best_before && (
           <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
             Best before: {new Date(product.best_before).toLocaleDateString()}
+          </div>
+        )}
+        {(product.available_from || product.available_until) && (
+          <div style={{ fontSize: 13, color: '#2d6a4f', background: '#f0faf4', border: '1px solid #b7e4c7', borderRadius: 6, padding: '6px 10px', marginBottom: 12, display: 'inline-block' }}>
+            🗓 Availability window:
+            {product.available_from ? ` from ${new Date(product.available_from).toLocaleString()}` : ''}
+            {product.available_until ? ` until ${new Date(product.available_until).toLocaleString()}` : ''}
           </div>
         )}
 
@@ -801,9 +830,9 @@ export default function ProductDetail() {
         ) : (
           <div style={s.row}>
             <label style={{ fontSize: 14 }}>{t('productDetail.quantity')}</label>
-            <input style={s.input} type="number" min={product.min_order_quantity || 1} max={product.quantity} value={qty}
+            <input style={s.input} type="number" min={product.min_order_quantity || 1} max={currentStock} value={qty}
               onChange={e => {
-                setQty(Math.max(product.min_order_quantity || 1, Math.min(product.quantity, parseInt(e.target.value) || (product.min_order_quantity || 1))));
+                setQty(Math.max(product.min_order_quantity || 1, Math.min(currentStock, parseInt(e.target.value) || (product.min_order_quantity || 1))));
                 setCouponResult(null);
                 setCouponError('');
               }} />
@@ -829,7 +858,7 @@ export default function ProductDetail() {
           </div>
         )}
 
-        {user?.role === 'buyer' && product.quantity > 0 && (
+        {user?.role === 'buyer' && currentStock > 0 && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
@@ -874,7 +903,7 @@ export default function ProductDetail() {
         </div>
 
         {/* Path payment asset selector */}
-        {user?.role === 'buyer' && product.quantity > 0 && (
+        {user?.role === 'buyer' && currentStock > 0 && (
           <div style={{ marginBottom: 16 }}>
             <label style={s.label}>Pay with</label>
             <select
@@ -952,7 +981,7 @@ export default function ProductDetail() {
           </div>
         )}
 
-        {product.quantity === 0 ? (
+        {currentStock === 0 ? (
           <div>
             <div style={{ color: '#c0392b', fontWeight: 600, marginBottom: 12 }}>{t('productDetail.outOfStock')}</div>
             {user?.role === 'buyer' && (
@@ -979,7 +1008,7 @@ export default function ProductDetail() {
               {loading ? t('productDetail.processing') : `${useEscrow ? t('productDetail.payToEscrow') : t('productDetail.buyNow')} · ${sourceAsset && pathEstimate ? `~${pathEstimate.sourceAmount.toFixed(4)} ${pathEstimate.sourceCode}` : `${total} XLM`}`}
             </button>
             {user?.role === 'buyer' && (
-              <button style={{ ...s.btn, background: '#1e40af', marginBottom: 12 }} onClick={handleWalletPay} disabled={walletLoading || product.quantity === 0}>
+              <button style={{ ...s.btn, background: '#1e40af', marginBottom: 12 }} onClick={handleWalletPay} disabled={walletLoading || currentStock === 0}>
                 {walletLoading ? '...' : `💳 Pay with Stellar Wallet · ${total} XLM`}
               </button>
             )}
