@@ -55,14 +55,70 @@ describe('getStellarErrorMessage', () => {
       .toBe('Stellar authorization failed. Please log in again.');
   });
 
+  it('maps op_underfunded error code', () => {
+    const err = new Error('operation failed');
+    err.code = 'op_underfunded';
+    expect(getStellarErrorMessage(err))
+      .toBe('The account does not have enough funds to perform this operation.');
+  });
+
+  it('maps op_src_not_authorized error code', () => {
+    const err = new Error('operation failed');
+    err.code = 'op_src_not_authorized';
+    expect(getStellarErrorMessage(err))
+      .toBe('The source account is not authorized to perform this operation.');
+  });
+
+  it('maps op_no_destination error code', () => {
+    const err = new Error('operation failed');
+    err.code = 'op_no_destination';
+    expect(getStellarErrorMessage(err))
+      .toBe('The destination account does not exist.');
+  });
+
+  it('maps op_no_trust error code', () => {
+    const err = new Error('operation failed');
+    err.code = 'op_no_trust';
+    expect(getStellarErrorMessage(err))
+      .toBe('The account does not have a trustline for this asset.');
+  });
+
+  it('maps op_line_full error code', () => {
+    const err = new Error('operation failed');
+    err.code = 'op_line_full';
+    expect(getStellarErrorMessage(err))
+      .toBe('The trustline limit has been reached.');
+  });
+
+  it('maps tx_bad_seq error code', () => {
+    const err = new Error('transaction failed');
+    err.code = 'tx_bad_seq';
+    expect(getStellarErrorMessage(err))
+      .toBe('Invalid transaction sequence number.');
+  });
+
+  it('maps tx_insufficient_fee error code', () => {
+    const err = new Error('transaction failed');
+    err.code = 'tx_insufficient_fee';
+    expect(getStellarErrorMessage(err))
+      .toBe('The transaction fee is insufficient.');
+  });
+
   it('returns original message for unknown errors', () => {
     expect(getStellarErrorMessage(new Error('some unknown error')))
       .toBe('some unknown error');
   });
 
+  it('returns fallback with code for unknown errors without message', () => {
+    const err = new Error();
+    err.code = 'unknown_code';
+    expect(getStellarErrorMessage(err))
+      .toBe('An unexpected error occurred (unknown_code). Please try again.');
+  });
+
   it('returns fallback for null/undefined', () => {
     expect(getStellarErrorMessage(null))
-      .toBe('An unexpected error occurred. Please try again.');
+      .toBe('An unexpected error occurred (unknown). Please try again.');
   });
 });
 
