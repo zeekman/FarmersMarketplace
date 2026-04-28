@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import Spinner from '../components/Spinner';
 
 const s = {
   page:       { maxWidth: 900, margin: '0 auto', padding: 24 },
@@ -23,17 +22,70 @@ const s = {
   back:       { fontSize: 13, color: '#2d6a4f', cursor: 'pointer', marginBottom: 16, display: 'inline-block' },
 };
 
+const shimmer = `
+  @keyframes shimmer {
+    0%   { background-position: -600px 0; }
+    100% { background-position: 600px 0; }
+  }
+`;
+
+const skeletonBase = {
+  background: 'linear-gradient(90deg, #e8e8e8 25%, #f5f5f5 50%, #e8e8e8 75%)',
+  backgroundSize: '600px 100%',
+  animation: 'shimmer 1.4s infinite linear',
+  borderRadius: 6,
+};
+
+function SkeletonBlock({ width = '100%', height = 16, style = {} }) {
+  return <div style={{ ...skeletonBase, width, height, ...style }} />;
+}
+
+function ProfileSkeleton() {
+  return (
+    <div style={s.page} aria-busy="true" aria-label="Loading farmer profile">
+      <style>{shimmer}</style>
+      <SkeletonBlock width={60} height={13} style={{ marginBottom: 16 }} />
+      <div style={s.header}>
+        <SkeletonBlock width={96} height={96} style={{ borderRadius: '50%', flexShrink: 0 }} />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <SkeletonBlock width={200} height={24} />
+          <SkeletonBlock width={120} height={14} />
+          <SkeletonBlock width="80%" height={14} />
+          <SkeletonBlock width="60%" height={14} />
+          <SkeletonBlock width={100} height={12} />
+        </div>
+      </div>
+      <SkeletonBlock width={180} height={20} style={{ marginBottom: 16 }} />
+      <div style={s.grid}>
+        {[1, 2, 3].map(i => (
+          <div key={i} style={{ ...s.card, cursor: 'default' }}>
+            <SkeletonBlock width="100%" height={120} style={{ borderRadius: 8, marginBottom: 10 }} />
+            <SkeletonBlock width="70%" height={15} style={{ marginBottom: 8 }} />
+            <SkeletonBlock width="90%" height={13} style={{ marginBottom: 10 }} />
+            <SkeletonBlock width={80} height={16} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function FarmerProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [farmer, setFarmer] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
+    setLoading(true);
     api.getFarmer(id)
       .then(res => setFarmer(res.data))
-      .catch(() => setNotFound(true));
+      .catch(() => setNotFound(true))
+      .finally(() => setLoading(false));
   }, [id]);
+
+  if (loading) return <ProfileSkeleton />;
 
   if (notFound) {
     return (
@@ -46,8 +98,6 @@ export default function FarmerProfile() {
       </div>
     );
   }
-
-  if (!farmer) return <Spinner />;
 
   return (
     <div style={s.page}>

@@ -17,132 +17,36 @@ const COMMON_ASSETS = [
 ];
 
 const s = {
-  page:    { maxWidth: 800, margin: '0 auto', padding: 24 },
-  title:   { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 24 },
-  card:    { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 },
-  page: { maxWidth: 800, margin: "0 auto", padding: 16 },
-  disclaimer: {
-    background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 10,
-    padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start',
-    background: "#fff8e1",
-    border: "1px solid #f9a825",
-    borderRadius: 10,
-    padding: "14px 16px",
-    marginBottom: 20,
-    display: "flex",
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  disclaimerIcon: { fontSize: 20, flexShrink: 0, marginTop: 1 },
-  disclaimerBody: { flex: 1, fontSize: 13, color: "#5d4037", lineHeight: 1.5 },
-  disclaimerTitle: {
-    fontWeight: 700,
-    fontSize: 14,
-    marginBottom: 3,
-    color: "#e65100",
-  },
-  disclaimerDismiss: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    color: "#999",
-    fontSize: 18,
-    lineHeight: 1,
-    padding: 0,
-    flexShrink: 0,
-  },
-  title: { fontSize: 24, fontWeight: 700, color: "#2d6a4f", marginBottom: 24 },
-  card: {
-    background: "#fff",
-    borderRadius: 12,
-    padding: 24,
-    boxShadow: "0 1px 8px #0001",
-    marginBottom: 24,
-  },
-  balance: { fontSize: 40, fontWeight: 700, color: "#2d6a4f" },
-  key: {
-    fontSize: 12,
-    color: "#888",
-    wordBreak: "break-all",
-    marginTop: 8,
-    fontFamily: "monospace",
-  },
-  btn: {
-    background: "#2d6a4f",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    padding: "10px 20px",
-    cursor: "pointer",
-    fontWeight: 600,
-    marginTop: 16,
-    minHeight: 44,
-  },
-  btnDanger: {
-    background: "#c0392b",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    padding: "10px 20px",
-    cursor: "pointer",
-    fontWeight: 600,
-  },
-  tx: {
-    borderBottom: "1px solid #eee",
-    padding: "12px 0",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  title: { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 24 },
-  card: { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 },
-  balance: { fontSize: 40, fontWeight: 700, color: '#2d6a4f' },
-  key:     { fontSize: 12, color: '#888', wordBreak: 'break-all', marginTop: 8, fontFamily: 'monospace' },
-  btn:     { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, marginTop: 16 },
-  btnSm:   { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
-  btnDanger: { background: '#c0392b', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
-  btnOutline: { background: '#fff', color: '#2d6a4f', border: '1px solid #2d6a4f', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
-  tx:      { borderBottom: '1px solid #eee', padding: '12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  sent:    { color: '#c0392b', fontWeight: 600 },
-  recv:    { color: '#2d6a4f', fontWeight: 600 },
-  hash:    { fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 2 },
-  msg:     { padding: '10px 14px', borderRadius: 8, marginTop: 12, fontSize: 14 },
-  label:   { display: 'block', fontSize: 13, color: '#555', marginBottom: 4, marginTop: 14 },
-  input:   { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' },
-  disclaimer: { background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 10, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start' },
-  disclaimerIcon: { fontSize: 20, flexShrink: 0, marginTop: 1 },
-  disclaimerBody: { flex: 1, fontSize: 13, color: '#5d4037', lineHeight: 1.5 },
-  disclaimerTitle: { fontWeight: 700, fontSize: 14, marginBottom: 3, color: '#e65100' },
-  disclaimerDismiss: { background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 },
-  toastContainer: { position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 10, pointerEvents: 'none' },
-  toast: { background: '#2d6a4f', color: '#fff', borderRadius: 10, padding: '12px 18px', boxShadow: '0 4px 16px #0003', fontSize: 14, minWidth: 260, maxWidth: 360, pointerEvents: 'auto' },
-  toastTitle: { fontWeight: 700, marginBottom: 3 },
-  toastSub: { fontSize: 12, opacity: 0.85 },
-  assetRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0' },
-  assetCode: { fontWeight: 700, fontSize: 15, color: '#2d6a4f' },
-  assetBal: { fontSize: 14, color: '#333', fontWeight: 600 },
-  assetIssuer: { fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 2 },
-  sent: { color: "#c0392b", fontWeight: 600 },
-  recv: { color: "#2d6a4f", fontWeight: 600 },
-  hash: { fontSize: 11, color: "#aaa", fontFamily: "monospace", marginTop: 2 },
-  msg: { padding: "10px 14px", borderRadius: 8, marginTop: 12, fontSize: 14 },
-  label: {
-    display: "block",
-    fontSize: 13,
-    color: "#555",
-    marginBottom: 4,
-    marginTop: 14,
-  },
-  input: {
-    width: "100%",
-    padding: "9px 12px",
-    border: "1px solid #ddd",
-    borderRadius: 8,
-    fontSize: 16,
-    boxSizing: "border-box",
-    minHeight: 44,
-  },
-  row: { display: "flex", gap: 12, alignItems: "flex-end", marginTop: 16 },
+  page:             { maxWidth: 800, margin: '0 auto', padding: 16 },
+  title:            { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 24 },
+  card:             { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 },
+  disclaimer:       { background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 10, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start' },
+  disclaimerIcon:   { fontSize: 20, flexShrink: 0, marginTop: 1 },
+  disclaimerBody:   { flex: 1, fontSize: 13, color: '#5d4037', lineHeight: 1.5 },
+  disclaimerTitle:  { fontWeight: 700, fontSize: 14, marginBottom: 3, color: '#e65100' },
+  disclaimerDismiss:{ background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 },
+  balance:          { fontSize: 40, fontWeight: 700, color: '#2d6a4f' },
+  key:              { fontSize: 12, color: '#888', wordBreak: 'break-all', marginTop: 8, fontFamily: 'monospace' },
+  btn:              { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, marginTop: 16, minHeight: 44 },
+  btnSm:            { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
+  btnDanger:        { background: '#c0392b', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
+  btnOutline:       { background: '#fff', color: '#2d6a4f', border: '1px solid #2d6a4f', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
+  tx:               { borderBottom: '1px solid #eee', padding: '12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  sent:             { color: '#c0392b', fontWeight: 600 },
+  recv:             { color: '#2d6a4f', fontWeight: 600 },
+  hash:             { fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 2 },
+  msg:              { padding: '10px 14px', borderRadius: 8, marginTop: 12, fontSize: 14 },
+  label:            { display: 'block', fontSize: 13, color: '#555', marginBottom: 4, marginTop: 14 },
+  input:            { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
+  row:              { display: 'flex', gap: 12, alignItems: 'flex-end', marginTop: 16 },
+  toastContainer:   { position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 10, pointerEvents: 'none' },
+  toast:            { background: '#2d6a4f', color: '#fff', borderRadius: 10, padding: '12px 18px', boxShadow: '0 4px 16px #0003', fontSize: 14, minWidth: 260, maxWidth: 360, pointerEvents: 'auto' },
+  toastTitle:       { fontWeight: 700, marginBottom: 3 },
+  toastSub:         { fontSize: 12, opacity: 0.85 },
+  assetRow:         { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0' },
+  assetCode:        { fontWeight: 700, fontSize: 15, color: '#2d6a4f' },
+  assetBal:         { fontSize: 14, color: '#333', fontWeight: 600 },
+  assetIssuer:      { fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 2 },
 };
 
 if (typeof document !== 'undefined' && !document.getElementById('wallet-toast-style')) {
@@ -168,7 +72,7 @@ function Toast({ toasts }) {
 export default function Wallet() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const [disclaimerVisible, setDisclaimerVisible] = useState(() => !sessionStorage.getItem(DISCLAIMER_KEY));
+  const [disclaimerVisible, setDisclaimerVisible] = useState(() => localStorage.getItem(DISCLAIMER_KEY) !== 'true');
   const [wallet, setWallet]       = useState(null);
   const [txs, setTxs]             = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -201,7 +105,7 @@ export default function Wallet() {
   const unmounted = useRef(false);
 
   function dismissDisclaimer() {
-    sessionStorage.setItem(DISCLAIMER_KEY, '1');
+    localStorage.setItem(DISCLAIMER_KEY, 'true');
     setDisclaimerVisible(false);
   }
 
@@ -315,6 +219,10 @@ export default function Wallet() {
     }
   }
 
+  const availableBalance = wallet ? (wallet.availableBalance ?? Math.max(0, wallet.balance - 1)) : 0;
+  const sendAmount = parseFloat(sendForm.amount);
+  const sendExceedsBalance = sendForm.amount !== '' && !isNaN(sendAmount) && sendAmount > availableBalance;
+
   async function handleSend(e) {
     e.preventDefault();
     setSendMsg(null);
@@ -325,6 +233,8 @@ export default function Wallet() {
       return setSendMsg({ type: 'err', text: 'Invalid destination. Enter a Stellar public key (G...) or federation address (name*domain).' });
     if (!amount || amount <= 0)
       return setSendMsg({ type: 'err', text: 'Amount must be greater than 0.' });
+    if (amount > availableBalance)
+      return setSendMsg({ type: 'err', text: `Insufficient balance. You have ${availableBalance.toFixed(2)} XLM available.` });
     if (sendForm.memo.length > 28)
       return setSendMsg({ type: 'err', text: 'Memo must be 28 characters or fewer.' });
     setSending(true);
@@ -585,17 +495,24 @@ export default function Wallet() {
               />
               <label style={s.label}>Amount (XLM)</label>
               <input
-                style={s.input} type="number" min="0.0000001" step="any" placeholder="0.00"
+                style={{ ...s.input, borderColor: sendExceedsBalance ? '#c0392b' : undefined }}
+                type="number" min="0.0000001" step="any" placeholder="0.00"
                 value={sendForm.amount}
                 onChange={e => setSendForm(f => ({ ...f, amount: e.target.value }))}
+                aria-describedby={sendExceedsBalance ? 'send-balance-warning' : undefined}
               />
+              {sendExceedsBalance && (
+                <div id="send-balance-warning" role="alert" style={{ color: '#c0392b', fontSize: 13, marginTop: 4 }}>
+                  Insufficient balance. You have {availableBalance.toFixed(2)} XLM available.
+                </div>
+              )}
               <label style={s.label}>Memo <span style={{ color: '#aaa', fontWeight: 400 }}>(optional, max 28 chars)</span></label>
               <input
                 style={s.input} type="text" maxLength={28} placeholder="e.g. payment for order #42"
                 value={sendForm.memo}
                 onChange={e => setSendForm(f => ({ ...f, memo: e.target.value }))}
               />
-              <button type="submit" style={s.btn} disabled={sending}>
+              <button type="submit" style={{ ...s.btn, opacity: sendExceedsBalance ? 0.5 : 1 }} disabled={sending || sendExceedsBalance}>
                 {sending ? 'Withdrawing...' : 'Withdraw XLM'}
               </button>
             </form>
