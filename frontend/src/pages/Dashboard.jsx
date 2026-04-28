@@ -55,16 +55,18 @@ const s = {
   arrowBtn: { background: 'none', border: '1px solid #ddd', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: 12 },
 };
 
-const EMPTY_FORM = {
-  name: '',
-  description: '',
-  price: '',
-  quantity: '',
-  unit: 'kg',
-  category: 'other',
-  is_preorder: false,
-  preorder_delivery_date: '',
-};
+function getEmptyForm() {
+  return {
+    name: '',
+    description: '',
+    price: '',
+    quantity: '',
+    unit: 'kg',
+    category: 'other',
+    is_preorder: false,
+    preorder_delivery_date: '',
+  };
+}
 
 import { useAuth } from '../context/AuthContext';
 
@@ -72,7 +74,7 @@ export default function Dashboard() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const [products, setProducts] = useState([]);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(getEmptyForm);
   const [restockVals, setRestockVals] = useState({});
   const [msg, setMsg] = useState(null);
   const [formErrors, setFormErrors] = useState({});
@@ -409,7 +411,7 @@ export default function Dashboard() {
         image_url: finalImageUrl || undefined,
       });
       setMsg({ type: 'ok', text: t('dashboard.productListedOk') });
-      setForm(EMPTY_FORM);
+      setForm(getEmptyForm());
       removeImage();
       load();
     } catch (err) {
