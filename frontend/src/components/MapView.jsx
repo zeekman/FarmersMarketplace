@@ -44,6 +44,12 @@ function groupByFarmer(products) {
   return Array.from(map.values());
 }
 
+export default function MapView({ products = [], lat, lng, farmerName, onBuy }) {
+  const navigate = useNavigate();
+  const hasSingleLocation = lat != null && lng != null;
+  const groups = hasSingleLocation
+    ? [{ lat, lng, farmerName, products: [] }]
+    : groupByFarmer(products);
 function RecenterMap({ center }) {
   const map = useMap();
   useEffect(() => { map.setView(center, map.getZoom()); }, [center, map]);
@@ -89,6 +95,21 @@ export default function MapView({ products, onBuy }) {
   const mapCenter = center ?? [avgLat, avgLng];
 
   return (
+    <MapContainer
+      center={[avgLat, avgLng]}
+      zoom={7}
+      style={{ height: 520, width: '100%', borderRadius: 12, zIndex: 0 }}
+    >
+      <TileLayer
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      {groups.map((group, i) => (
+        <Marker key={i} position={[group.lat, group.lng]}>
+          <Popup>
+            <div style={s.popup}>
+              {group.products && group.products.length > 0 ? (
+                group.products.map(p => (
     <div style={{ position: 'relative' }}>
       {toast && <div style={s.toast} role="status">{toast}</div>}
       <MapContainer
@@ -113,6 +134,18 @@ export default function MapView({ products, onBuy }) {
                     {p.farmer_farm_address && <div style={s.address}>📍 {p.farmer_farm_address}</div>}
                     <button style={s.btn} onClick={() => navigate(`/products/${p.id}`)}>View &amp; Buy</button>
                   </div>
+                ))
+              ) : (
+                <div>
+                  <div style={s.name}>{group.farmerName || 'Farm location'}</div>
+                  <div style={s.farmer}>🌾 {group.farmerName || 'Farmer'}</div>
+                </div>
+              )}
+            </div>
+          </Popup>
+        </Marker>
+      ))}
+    </MapContainer>
                 ))}
               </div>
             </Popup>
