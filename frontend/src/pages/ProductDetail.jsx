@@ -151,7 +151,7 @@ export default function ProductDetail() {
     api.getProductImages(id).then(res => {
       const imgs = res.data ?? [];
       setImages(imgs);
-      if (imgs.length > 0) setActiveImg(0);
+      setActiveImg(imgs.length > 0 ? 0 : 0);
     }).catch(() => {});
     api.getProductTiers(id).then(res => setTiers(res.data ?? [])).catch(() => setTiers([]));
     api.getPriceHistory(id).then(res => setPriceHistory(res.data ?? [])).catch(() => setPriceHistory([]));
@@ -273,6 +273,9 @@ export default function ProductDetail() {
   }, [id]);
 
   if (!product) return <Spinner />;
+
+  // Clamp activeImg to valid range
+  const safeActiveImg = images.length > 0 ? Math.min(activeImg, images.length - 1) : 0;
 
   // Use live SSE stock if available, fall back to product.quantity
   const currentStock = liveStock !== null ? liveStock : product.quantity;
@@ -517,7 +520,7 @@ export default function ProductDetail() {
         {images.length > 0 ? (
           <div style={{ marginBottom: 16 }}>
             <div style={{ position: 'relative' }}>
-              <img src={images[activeImg].url} alt={`${product.name} photo ${activeImg + 1}`} style={s.galleryMain} />
+              <img src={images[safeActiveImg].url} alt={`${product.name} photo ${safeActiveImg + 1}`} style={s.galleryMain} />
               {images.length > 1 && (
                 <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: '100%', display: 'flex', justifyContent: 'space-between', padding: '0 8px', boxSizing: 'border-box', pointerEvents: 'none' }}>
                   <button style={{ ...s.navBtn, pointerEvents: 'all' }} onClick={() => setActiveImg(i => (i - 1 + images.length) % images.length)} aria-label={t('productDetail.previousImage')}>‹</button>
@@ -529,7 +532,7 @@ export default function ProductDetail() {
               <div style={s.thumbRow}>
                 {images.map((img, i) => (
                   <img key={img.id} src={img.url} alt={t('productDetail.thumbnail', { n: i + 1 })}
-                    style={{ ...s.thumb, ...(i === activeImg ? s.thumbActive : {}) }} onClick={() => setActiveImg(i)} />
+                    style={{ ...s.thumb, ...(i === safeActiveImg ? s.thumbActive : {}) }} onClick={() => setActiveImg(i)} />
                 ))}
               </div>
             )}
