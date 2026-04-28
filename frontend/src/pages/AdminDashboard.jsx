@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 
@@ -104,6 +103,12 @@ export default function AdminDashboard() {
   const [upgradeForm, setUpgradeForm] = useState({ old_wasm_hash: '', new_wasm_hash: '' });
   const [upgradeSubmitBusy, setUpgradeSubmitBusy] = useState(false);
   const [upgradeSubmitMsg, setUpgradeSubmitMsg] = useState('');
+  const [upgradeHashErrors, setUpgradeHashErrors] = useState({ old_wasm_hash: '', new_wasm_hash: '' });
+
+  const WASM_HASH_RE = /^[0-9a-f]{64}$/i;
+  function validateWasmHash(value) {
+    return WASM_HASH_RE.test(value) ? '' : 'WASM hash must be a 64-character hex string.';
+  }
 
   const inputStyle = { padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 };
   const monoInputStyle = { ...inputStyle, fontFamily: 'monospace' };
@@ -735,20 +740,38 @@ export default function AdminDashboard() {
             )}
             <div style={{ fontWeight: 600, marginBottom: 8, color: '#444' }}>Record upgrade</div>
             <form onSubmit={handleRecordUpgrade} style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 560 }}>
-              <input
-                style={monoInputStyle}
-                placeholder="Previous WASM hash (64 hex chars)"
-                value={upgradeForm.old_wasm_hash}
-                onChange={(e) => setUpgradeForm((f) => ({ ...f, old_wasm_hash: e.target.value }))}
-                required
-              />
-              <input
-                style={monoInputStyle}
-                placeholder="New WASM hash — must match Soroban RPC (64 hex)"
-                value={upgradeForm.new_wasm_hash}
-                onChange={(e) => setUpgradeForm((f) => ({ ...f, new_wasm_hash: e.target.value }))}
-                required
-              />
+              <div>
+                <input
+                  style={{ ...monoInputStyle, borderColor: upgradeHashErrors.old_wasm_hash ? '#c0392b' : '#ddd' }}
+                  placeholder="Previous WASM hash (64 hex chars)"
+                  value={upgradeForm.old_wasm_hash}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setUpgradeForm((f) => ({ ...f, old_wasm_hash: v }));
+                    setUpgradeHashErrors((err) => ({ ...err, old_wasm_hash: v ? validateWasmHash(v) : '' }));
+                  }}
+                  required
+                />
+                {upgradeHashErrors.old_wasm_hash && (
+                  <div style={{ color: '#c0392b', fontSize: 12, marginTop: 2 }}>{upgradeHashErrors.old_wasm_hash}</div>
+                )}
+              </div>
+              <div>
+                <input
+                  style={{ ...monoInputStyle, borderColor: upgradeHashErrors.new_wasm_hash ? '#c0392b' : '#ddd' }}
+                  placeholder="New WASM hash — must match Soroban RPC (64 hex)"
+                  value={upgradeForm.new_wasm_hash}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setUpgradeForm((f) => ({ ...f, new_wasm_hash: v }));
+                    setUpgradeHashErrors((err) => ({ ...err, new_wasm_hash: v ? validateWasmHash(v) : '' }));
+                  }}
+                  required
+                />
+                {upgradeHashErrors.new_wasm_hash && (
+                  <div style={{ color: '#c0392b', fontSize: 12, marginTop: 2 }}>{upgradeHashErrors.new_wasm_hash}</div>
+                )}
+              </div>
               {upgradeSubmitMsg && (
                 <div style={{
                   fontSize: 13,
@@ -758,16 +781,16 @@ export default function AdminDashboard() {
               )}
               <button
                 type="submit"
-                disabled={upgradeSubmitBusy}
+                disabled={upgradeSubmitBusy || !!upgradeHashErrors.old_wasm_hash || !!upgradeHashErrors.new_wasm_hash}
                 style={{
                   alignSelf: 'flex-start',
                   padding: '8px 18px',
                   borderRadius: 8,
                   border: 'none',
-                  background: '#2d6a4f',
+                  background: (upgradeSubmitBusy || upgradeHashErrors.old_wasm_hash || upgradeHashErrors.new_wasm_hash) ? '#ccc' : '#2d6a4f',
                   color: '#fff',
                   fontWeight: 600,
-                  cursor: upgradeSubmitBusy ? 'not-allowed' : 'pointer',
+                  cursor: (upgradeSubmitBusy || upgradeHashErrors.old_wasm_hash || upgradeHashErrors.new_wasm_hash) ? 'not-allowed' : 'pointer',
                 }}
               >{upgradeSubmitBusy ? 'Saving…' : 'Save upgrade record'}</button>
             </form>
