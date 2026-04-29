@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -109,6 +109,9 @@ export default function ProductDetail() {
   const [paymentLink, setPaymentLink] = useState('');
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletStatus, setWalletStatus] = useState('pending');
+  const walletPollingIntervalRef = useRef(null);
+  const walletPollingTimeoutRef = useRef(null);
+  const mountedRef = useRef(true);
 
   // Nutrition state
   const [nutritionExpanded, setNutritionExpanded] = useState(false);
@@ -260,6 +263,21 @@ export default function ProductDetail() {
   }, [_previewTotal]); // eslint-disable-line react-hooks/exhaustive-deps
   // SSE: connect to stock-stream for real-time stock updates
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (walletPollingIntervalRef.current) {
+        clearInterval(walletPollingIntervalRef.current);
+        walletPollingIntervalRef.current = null;
+      }
+      if (walletPollingTimeoutRef.current) {
+        clearTimeout(walletPollingTimeoutRef.current);
+        walletPollingTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!id) return;
     const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
     const es = new EventSource(`${apiBase}/api/products/${id}/stock-stream`);
@@ -381,6 +399,15 @@ export default function ProductDetail() {
 
   async function handleWalletPay() {
     if (!user) return navigate('/login');
+    if (walletPollingIntervalRef.current) {
+      clearInterval(walletPollingIntervalRef.current);
+      walletPollingIntervalRef.current = null;
+    }
+    if (walletPollingTimeoutRef.current) {
+      clearTimeout(walletPollingTimeoutRef.current);
+      walletPollingTimeoutRef.current = null;
+    }
+
     setWalletLoading(true);
     try {
       const orderRes = await api.placeOrder({
@@ -394,21 +421,42 @@ export default function ProductDetail() {
       setPaymentLink(linkRes.paymentLink);
       setWalletStatus('pending');
       setWalletPaymentOpen(true);
-      // Poll status
+
       const interval = setInterval(async () => {
         try {
           const ordersRes = await api.getOrders({ product_id: product.id });
           const order = ordersRes.data.find(o => o.id === orderRes.orderId);
           if (order && order.status === 'paid') {
-            setWalletStatus('paid');
-            clearInterval(interval);
+            if (mountedRef.current) setWalletStatus('paid');
+            if (walletPollingIntervalRef.current) {
+              clearInterval(walletPollingIntervalRef.current);
+              walletPollingIntervalRef.current = null;
+            }
+            if (walletPollingTimeoutRef.current) {
+              clearTimeout(walletPollingTimeoutRef.current);
+              walletPollingTimeoutRef.current = null;
+            }
           } else if (order && order.status === 'failed') {
-            setWalletStatus('failed');
-            clearInterval(interval);
+            if (mountedRef.current) setWalletStatus('failed');
+            if (walletPollingIntervalRef.current) {
+              clearInterval(walletPollingIntervalRef.current);
+              walletPollingIntervalRef.current = null;
+            }
+            if (walletPollingTimeoutRef.current) {
+              clearTimeout(walletPollingTimeoutRef.current);
+              walletPollingTimeoutRef.current = null;
+            }
           }
         } catch {}
       }, 5000);
-      setTimeout(() => clearInterval(interval), 5 * 60 * 1000); // 5 min
+      walletPollingIntervalRef.current = interval;
+      walletPollingTimeoutRef.current = setTimeout(() => {
+        if (walletPollingIntervalRef.current) {
+          clearInterval(walletPollingIntervalRef.current);
+          walletPollingIntervalRef.current = null;
+        }
+        walletPollingTimeoutRef.current = null;
+      }, 5 * 60 * 1000); // 5 min
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
