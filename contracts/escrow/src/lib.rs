@@ -474,3 +474,5 @@ mod test {
         assert_eq!(amount - fee, 975_0000);
     }
 }
+
+// .
