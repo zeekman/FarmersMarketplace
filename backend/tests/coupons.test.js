@@ -348,3 +348,40 @@ describe('POST /api/coupons/validate', () => {
     expect(res.body.final_total).toBe(0); // capped at 0
   });
 });
+
+// ── Per-user coupon usage (max_uses_per_user) ─────────────────────────────────
+describe('resolveCoupon — per-user limit', () => {
+  const { resolveCoupon } = require('../src/routes/coupons');
+
+  const validCoupon = {
+    id: 10,
+    farmer_id: 1,
+    discount_type: 'percent',
+    discount_value: 10,
+    expires_at: null,
+    max_uses: null,
+    used_count: 0,
+    max_uses_per_user: 1,
+  };
+
+  it('first use succeeds when user has not used the coupon yet', () => {
+    mockDb.prepare
+      .mockReturnValueOnce({ get: jest.fn().mockReturnValue(validCoupon) })   // coupon lookup
+      .mockReturnValueOnce({ get: jest.fn().mockReturnValue({ cnt: 0 }) });   // coupon_uses count = 0
+
+    const result = resolveCoupon('ONCE', 1, 2);
+    expect(result.coupon).toBeDefined();
+    expect(result.error).toBeUndefined();
+  });
+
+  it('second use by same buyer returns coupon_already_used', () => {
+    mockDb.prepare
+      .mockReturnValueOnce({ get: jest.fn().mockReturnValue(validCoupon) })   // coupon lookup
+      .mockReturnValueOnce({ get: jest.fn().mockReturnValue({ cnt: 1 }) });   // coupon_uses count = 1
+
+    const result = resolveCoupon('ONCE', 1, 2);
+    expect(result.error).toBe('Coupon already used');
+    expect(result.code).toBe('coupon_already_used');
+  });
+});
+

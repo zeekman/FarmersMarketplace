@@ -81,12 +81,16 @@ async function request(path, options = {}, retry = true) {
     });
 
     if (res.status === 401 && retry) {
-      const token = await refreshAccessToken();
+      let token;
+      try {
+        token = await refreshAccessToken();
+      } catch {
+        token = null;
+      }
       if (token) return request(path, options, false);
       clearAccessToken();
       if (logoutCallback) logoutCallback();
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || data.error || 'Session expired');
+      throw new Error('Session expired');
     }
 
     const data = await res.json().catch(() => ({}));
@@ -108,10 +112,12 @@ function toQs(params = {}) {
 }
 
 export const api = {
+  getNetwork: () => request('/network'),
   register: (body) => request('/auth/register', { method: 'POST', body }),
   login: (body) => request('/auth/login', { method: 'POST', body }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   refresh: () => refreshAccessToken(),
+  getCurrentUser: () => request('/auth/me'),
 
   getProducts: (filters = {}) => request(`/products${toQs(filters)}`),
   getCategories: () => request('/products/categories'),
@@ -154,6 +160,7 @@ export const api = {
     return request(`/products/${productId}/video`, { method: 'POST', body: form });
   },
   getProductImages: (productId) => request(`/products/${productId}/images`),
+  getRecommendations: () => request('/recommendations'),
   uploadProductImages: (productId, files) => {
     const form = new FormData();
     files.forEach((f) => form.append('images', f));
@@ -182,6 +189,19 @@ export const api = {
   claimEscrow: (orderId) => request(`/orders/${orderId}/claim`, { method: 'POST' }),
   claimPreorder: (orderId) => request(`/orders/${orderId}/claim-preorder`, { method: 'POST' }),
   fileReturn: (orderId, reason) => request(`/orders/${orderId}/return`, { method: 'POST', body: { reason } }),
+  downloadReceipt: async (orderId) => {
+    const headers = {};
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+    const res = await fetch(`${BASE}/orders/${orderId}/receipt`, { credentials: 'include', headers });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.message || 'Download failed'); }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `receipt-${orderId}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
   approveReturn: (orderId) => request(`/orders/${orderId}/return/approve`, { method: 'PATCH' }),
   rejectReturn: (orderId, reject_reason) => request(`/orders/${orderId}/return/reject`, { method: 'PATCH', body: { reject_reason } }),
 
@@ -211,8 +231,12 @@ export const api = {
   getMyAlert: (productId) => request(`/products/${productId}/alert/status`),
 
   getXlmRate: () => request('/rates/xlm-usd'),
+  bulkUpdatePrices: (updates, adjustment_percent) =>
+    request('/products/bulk-price', { method: 'PATCH', body: { updates, adjustment_percent } }),
+
   getAnalytics: () => request('/analytics/farmer'),
   getForecast: () => request('/analytics/farmer/forecast'),
+  getWaitlistAnalytics: () => request('/analytics/farmer/waitlist'),
 
 
   createAddress: (body) => request('/addresses', { method: 'POST', body }),
@@ -221,10 +245,12 @@ export const api = {
   setDefaultAddress: (id) => request(`/addresses/${id}/default`, { method: 'PATCH' }),
 
   adminGetUsers: (page = 1) => request(`/admin/users?page=${page}`),
+  adminGetOrders: (page = 1) => request(`/admin/orders?page=${page}`),
   adminDeactivateUser: (id) => request(`/admin/users/${id}`, { method: 'DELETE' }),
   adminGetStats: () => request('/admin/stats'),
   adminGetContracts: (qs = '') => request(`/admin/contracts${qs}`),
   adminRegisterContract: (body) => request('/admin/contracts', { method: 'POST', body }),
+  adminDeployContract: (formData) => request('/admin/contracts/deploy', { method: 'POST', body: formData }),
   adminDeregisterContract: (id) => request(`/admin/contracts/${id}`, { method: 'DELETE' }),
   adminGetContractUpgrades: (registryId) => request(`/admin/contracts/${registryId}/upgrades`),
   adminRecordContractUpgrade: (registryId, body) =>
@@ -232,11 +258,39 @@ export const api = {
   adminGetContractAcl: (registryId) => request(`/admin/contracts/${registryId}/acl`),
   adminGrantContractAcl: (registryId, body) => request(`/admin/contracts/${registryId}/acl`, { method: 'POST', body }),
   adminRevokeContractAcl: (registryId, address) => request(`/admin/contracts/${registryId}/acl/${encodeURIComponent(address)}`, { method: 'DELETE' }),
+  adminCompareContractVersions: (registryId, v1, v2) =>
+    request(`/admin/contracts/${registryId}/compare?v1=${encodeURIComponent(v1)}&v2=${encodeURIComponent(v2)}`),
+  adminGetContractAlerts: (acknowledged) => request(`/admin/contract-alerts${acknowledged !== undefined ? `?acknowledged=${acknowledged}` : ''}`),
+  adminAcknowledgeContractAlert: (id) => request(`/admin/contract-alerts/${id}/acknowledge`, { method: 'PATCH' }),
+  adminGetContractInvocations: (registryId, params = {}) => request(`/admin/contracts/${registryId}/invocations${toQs(params)}`),
+
+  getBundleDiscounts: () => request('/farmers/me/bundle-discounts'),
+  createBundleDiscount: (body) => request('/farmers/me/bundle-discounts', { method: 'POST', body }),
+  updateBundleDiscount: (id, body) => request(`/farmers/me/bundle-discounts/${id}`, { method: 'PUT', body }),
+  deleteBundleDiscount: (id) => request(`/farmers/me/bundle-discounts/${id}`, { method: 'DELETE' }),
+  adminExportContractState: async (registryId, format = 'json', sinceLedger) => {
+    const qs = new URLSearchParams({ format });
+    if (sinceLedger != null && sinceLedger !== '') qs.set('since_ledger', sinceLedger);
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const res = await fetch(`${BASE}/admin/contracts/${registryId}/state/export?${qs}`, { headers });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Export failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `contract-state-${registryId}-${new Date().toISOString().slice(0, 10)}.${format}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 
   getAddresses: () => request('/addresses'),
 
   placeOrderWithBudgetOverride: (body) => request('/orders', { method: 'POST', body: { ...body, budget_override_confirmed: true } }),
   // params may include: status, page, limit
+  getOrderPaymentLink: (id) => request(`/orders/${id}/payment-link`),
   getOrders:    (params = {})  => request(`/orders${toQs(params)}`),
   getSales:     (params = {})  => request(`/orders/sales${toQs(params)}`),
 
@@ -258,6 +312,11 @@ export const api = {
 
   placeOrder: (body) => request('/orders', { method: 'POST', body }),
   getOrderStatus: (id) => request(`/orders/${id}/status`),
+  getOrderPaymentLink: (orderId) => request(`/orders/${orderId}/payment-link`),
+  getOrderPaymentLinkQr: (orderId) => `/api/orders/${orderId}/payment-link/qr`,
+  getOrders: (params = {}) => request(`/orders${toQs(params)}`),
+  getSales: (params = {}) => request(`/orders/sales${toQs(params)}`),
+  updateOrderStatus: (id, status) => request(`/orders/${id}/status`, { method: 'PATCH', body: { status } }),
 
   getAuctions: () => request('/auctions'),
   getAuction: (id) => request(`/auctions/${id}`),
@@ -324,4 +383,11 @@ export const api = {
   // Account alerts
   getAlerts: () => request('/wallet/alerts'),
   markAlertRead: (id) => request(`/wallet/alerts/${id}/read`, { method: 'PATCH' }),
+
+  // Announcements
+  getAnnouncements: () => request('/announcements'),
+  adminGetAnnouncements: () => request('/announcements/admin'),
+  adminCreateAnnouncement: (body) => request('/announcements/admin', { method: 'POST', body }),
+  adminUpdateAnnouncement: (id, body) => request(`/announcements/admin/${id}`, { method: 'PATCH', body }),
+  adminDeleteAnnouncement: (id) => request(`/announcements/admin/${id}`, { method: 'DELETE' }),
 };

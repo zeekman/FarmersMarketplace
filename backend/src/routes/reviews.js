@@ -10,32 +10,21 @@ router.post('/', auth, validate.review, async (req, res) => {
   if (req.user.role !== 'buyer')
     return err(res, 403, 'Only buyers can submit reviews', 'forbidden');
 
-  const order_id = parseInt(req.body.order_id, 10);
+  const product_id = parseInt(req.body.product_id, 10);
   const rating = parseInt(req.body.rating, 10);
   const comment = req.body.comment ? sanitizeText(req.body.comment) : null;
 
+  // Check if buyer has a paid order for this product
   const { rows: orderRows } = await db.query(
-    `SELECT * FROM orders WHERE id = $1 AND buyer_id = $2 AND status = 'paid'`,
-    [order_id, req.user.id]
+    `SELECT id FROM orders WHERE buyer_id = $1 AND product_id = $2 AND status = 'paid' LIMIT 1`,
+    [req.user.id, product_id]
   );
   if (!orderRows[0])
-    return err(res, 403, 'You can only review products from your paid orders', 'forbidden');
-
-  const { rows: existing } = await db.query('SELECT id FROM reviews WHERE order_id = $1', [
-    order_id,
-  ]);
-  if (existing[0])
-    return res
-      .status(409)
-      .json({
-        success: false,
-        message: 'You have already reviewed this order',
-        code: 'duplicate_review',
-      });
+    return err(res, 403, 'Purchase required to review this product', 'purchase_required');
 
   const { rows } = await db.query(
     'INSERT INTO reviews (order_id, buyer_id, product_id, rating, comment) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-    [order_id, req.user.id, orderRows[0].product_id, rating, comment]
+    [orderRows[0].id, req.user.id, product_id, rating, comment]
   );
   res.status(201).json({ success: true, id: rows[0].id, message: 'Review submitted' });
 });

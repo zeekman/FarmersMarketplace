@@ -1,11 +1,27 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { MAX_RECENTLY_COMPARED } from '../components/RecentlyCompared';
 
 const CompareContext = createContext(null);
 
+const HISTORY_KEY = 'comparison_history';
+
 export function CompareProvider({ children }) {
   const [products, setProducts] = useState([]);
+  const [history, setHistory] = useState([]);
   const location = useLocation();
+
+  // Load history from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(HISTORY_KEY);
+      if (stored) {
+        setHistory(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error('Failed to load comparison history:', e);
+    }
+  }, []);
 
   useEffect(() => {
     const allowed = location.pathname.startsWith('/marketplace') || location.pathname.startsWith('/compare');
@@ -13,6 +29,31 @@ export function CompareProvider({ children }) {
       setProducts([]);
     }
   }, [location.pathname, products.length]);
+
+  const saveToHistory = useCallback((productIds) => {
+    if (!productIds || productIds.length === 0) return;
+
+    setHistory(prev => {
+      // Create new history entry with product IDs
+      const newEntry = {
+        id: Date.now(),
+        productIds,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Keep only last MAX_RECENTLY_COMPARED comparisons
+      const updated = [newEntry, ...prev].slice(0, MAX_RECENTLY_COMPARED);
+      
+      // Persist to localStorage
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save comparison history:', e);
+      }
+
+      return updated;
+    });
+  }, []);
 
   const addProduct = useCallback((product) => {
     setProducts(prev => {
@@ -35,14 +76,41 @@ export function CompareProvider({ children }) {
     });
   }, []);
 
-  const clearProducts = useCallback(() => setProducts([]), []);
+  const clearProducts = useCallback(() => {
+    setProducts([]);
+  }, []);
+
+  const restoreComparison = useCallback((historyEntry) => {
+    // Restore comparison from history (product IDs will be fetched by parent)
+    return historyEntry.productIds;
+  }, []);
+
+  const clearHistory = useCallback(() => {
+    setHistory([]);
+    try {
+      localStorage.removeItem(HISTORY_KEY);
+    } catch (e) {
+      console.error('Failed to clear comparison history:', e);
+    }
+  }, []);
 
   const isCompared = useCallback((productId) => {
     return products.some(p => p.id === productId);
   }, [products]);
 
   return (
-    <CompareContext.Provider value={{ products, addProduct, removeProduct, toggleProduct, clearProducts, isCompared }}>
+    <CompareContext.Provider value={{
+      products,
+      history,
+      addProduct,
+      removeProduct,
+      toggleProduct,
+      clearProducts,
+      saveToHistory,
+      restoreComparison,
+      clearHistory,
+      isCompared,
+    }}>
       {children}
     </CompareContext.Provider>
   );

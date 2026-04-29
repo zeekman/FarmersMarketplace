@@ -15,6 +15,7 @@ const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 const { createWallet, server, networkPassphrase } = require('../utils/stellar');
+const { encrypt, decrypt } = require('../utils/crypto');
 
 const MULTISIG_THRESHOLD_XLM = 50; // payments above this require multi-sig
 const TX_EXPIRY_HOURS = 24;
@@ -25,10 +26,11 @@ router.post('/', auth, async (req, res) => {
   if (!name) return err(res, 400, 'name is required', 'validation_error');
 
   const wallet = createWallet();
+  const encryptedSecret = await encrypt(wallet.secretKey);
   const { rows } = await db.query(
     `INSERT INTO cooperatives (name, stellar_public_key, stellar_secret_key)
      VALUES ($1, $2, $3) RETURNING id`,
-    [name, wallet.publicKey, wallet.secretKey]
+    [name, wallet.publicKey, encryptedSecret]
   );
   const coopId = rows[0].id;
 
@@ -104,7 +106,7 @@ router.post('/:id/multisig-setup', auth, async (req, res) => {
 
   // Configure Stellar multi-sig on the cooperative account
   try {
-    const coopKeypair = StellarSdk.Keypair.fromSecret(coop.stellar_secret_key);
+    const coopKeypair = StellarSdk.Keypair.fromSecret(await decrypt(coop.stellar_secret_key));
     const coopAccount = await server.loadAccount(coopKeypair.publicKey());
 
     const txBuilder = new StellarSdk.TransactionBuilder(coopAccount, {
@@ -179,7 +181,7 @@ router.post('/:id/transactions', auth, async (req, res) => {
     const { sendPayment } = require('../utils/stellar');
     try {
       const txHash = await sendPayment({
-        senderSecret: coop.stellar_secret_key,
+        senderSecret: await decrypt(coop.stellar_secret_key),
         receiverPublicKey: destination,
         amount,
         memo,
