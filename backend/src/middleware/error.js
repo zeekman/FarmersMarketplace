@@ -15,6 +15,37 @@ function err(res, status, message, code) {
 }
 
 /**
+ * Structured error logging middleware — logs route errors with request context
+ * @param {Error} error
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+function errorHandler(error, req, res, next) { // eslint-disable-line no-unused-vars
+  const errorLog = {
+    timestamp: new Date().toISOString(),
+    error: {
+      message: error.message,
+      code: error.code,
+      statusCode: error.statusCode || 500,
+      stack: error.stack,
+    },
+    request: {
+      id: req.requestId,
+      method: req.method,
+      url: req.url,
+      path: req.path,
+      query: req.query,
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+    },
+  };
+
+  logger.error('Unhandled error', errorLog);
+  
+  const status = error.statusCode || 500;
+  const message = error.message || 'Internal server error';
+  return err(res, status, message, error.code);
  * Wrap async route handlers to forward errors to the global error handler.
  * Usage: router.get('/path', asyncHandler(async (req, res) => { ... }))
  */
