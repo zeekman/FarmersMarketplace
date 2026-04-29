@@ -6,6 +6,18 @@
  *
  * Run with:
  *   npm run test:contracts
+ *
+ * SKIP_CONTRACT_TESTS
+ * -------------------
+ * Set the environment variable SKIP_CONTRACT_TESTS=true to skip this entire
+ * suite without failing the test run. This is used in CI environments where
+ * Docker (and therefore the local Stellar node) is not available.
+ *
+ * When SKIP_CONTRACT_TESTS is not set (or set to any value other than "true"),
+ * the tests run normally and require a live local node.
+ *
+ * A separate nightly CI job runs these tests with Docker available — see
+ * .github/workflows/ci.yml (job: contract-tests-nightly).
  */
 
 const path = require('path');
@@ -15,6 +27,14 @@ const { fundAccount, deployContract, invokeContract } = require('./helpers/sorob
 
 // Skip if no local node is configured (CI without Docker)
 const SKIP = process.env.SKIP_CONTRACT_TESTS === 'true';
+
+if (SKIP && process.env.CI) {
+  console.warn(
+    '[WARNING] Contract tests are SKIPPED because SKIP_CONTRACT_TESTS=true. ' +
+    'These tests require a local Stellar node (Docker). ' +
+    'They run on the nightly CI schedule — see .github/workflows/ci.yml.'
+  );
+}
 
 const describeOrSkip = SKIP ? describe.skip : describe;
 
