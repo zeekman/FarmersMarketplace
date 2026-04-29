@@ -173,3 +173,5 @@ function startContractMonitor() {
 }
 
 module.exports = { startContractMonitor, runMonitoringJob };
+
+// .
