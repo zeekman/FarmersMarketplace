@@ -2,6 +2,10 @@
 
 use soroban_sdk::{contract, contractimpl, contracttype, contracterror, token, Address, Env};
 
+// TTL thresholds for persistent escrow entries (~57–115 days at 5 s/ledger).
+const TTL_MIN: u32 = 100_000;
+const TTL_MAX: u32 = 200_000;
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -18,8 +22,11 @@ pub enum EscrowError {
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
+    /// Per-escrow data — stored in persistent storage with individual TTL.
     Escrow(u64),
+    /// Contract metadata — stored in instance storage (shared TTL is fine).
     Admin,
+    /// Contract metadata — stored in instance storage (shared TTL is fine).
     Platform,
 }
 
@@ -41,8 +48,9 @@ pub struct EscrowContract;
 #[contractimpl]
 impl EscrowContract {
     /// Must be called once to register the platform fee recipient.
+    /// Uses instance storage — metadata has a single shared TTL, which is appropriate.
     pub fn init(env: Env, platform_address: Address) {
-        env.storage().persistent().set(&DataKey::Platform, &platform_address);
+        env.storage().instance().set(&DataKey::Platform, &platform_address);
     }
 
     pub fn deposit(
@@ -75,6 +83,8 @@ impl EscrowContract {
             disputed: false,
         };
         env.storage().persistent().set(&DataKey::Escrow(order_id), &escrow);
+        // Extend per-key TTL on every write so funds cannot be locked by expiry.
+        env.storage().persistent().extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
         Ok(())
     }
 
@@ -113,7 +123,7 @@ impl EscrowContract {
         if fee_amount > 0 {
             let platform: Address = env
                 .storage()
-                .persistent()
+                .instance()
                 .get(&DataKey::Platform)
                 .ok_or(EscrowError::NotFound)?;
             token_client.transfer(&env.current_contract_address(), &platform, &fee_amount);
@@ -123,15 +133,17 @@ impl EscrowContract {
 
         escrow.released = true;
         env.storage().persistent().set(&DataKey::Escrow(order_id), &escrow);
+        // Extend TTL on every interaction.
+        env.storage().persistent().extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
         Ok(())
     }
 
     pub fn set_admin(env: Env, admin: Address) {
         admin.require_auth();
-        if env.storage().persistent().has(&DataKey::Admin) {
+        if env.storage().instance().has(&DataKey::Admin) {
             panic!("admin already set");
         }
-        env.storage().persistent().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::Admin, &admin);
     }
 
     pub fn refund(env: Env, xlm_token: Address, order_id: u64) {
@@ -157,6 +169,8 @@ impl EscrowContract {
 
         escrow.refunded = true;
         env.storage().persistent().set(&DataKey::Escrow(order_id), &escrow);
+        // Extend TTL on every interaction.
+        env.storage().persistent().extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
         Ok(())
     }
 
@@ -180,13 +194,15 @@ impl EscrowContract {
 
         escrow.disputed = true;
         env.storage().persistent().set(&DataKey::Escrow(order_id), &escrow);
+        // Extend TTL on every interaction.
+        env.storage().persistent().extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
         Ok(())
     }
 
     pub fn resolve_dispute(env: Env, xlm_token: Address, order_id: u64, release_to_farmer: bool) {
         let admin: Address = env
             .storage()
-            .persistent()
+            .instance()
             .get(&DataKey::Admin)
             .expect("admin not set");
         admin.require_auth();
@@ -214,6 +230,8 @@ impl EscrowContract {
         }
         escrow.disputed = false;
         env.storage().persistent().set(&DataKey::Escrow(order_id), &escrow);
+        // Extend TTL on every interaction.
+        env.storage().persistent().extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
     }
 
     pub fn get(env: Env, order_id: u64) -> Escrow {
@@ -696,5 +714,30 @@ mod test {
         assert!(!escrow.released);
         assert!(!escrow.refunded);
         assert!(!escrow.disputed);
+    // ── #472 — independent per-key TTL ───────────────────────────────────────
+    // Two escrows written to persistent storage have independent keys; writing
+    // one does not affect the other's data (TTL isolation is structural in
+    // Soroban — each persistent key has its own TTL counter).
+    #[test]
+    fn two_escrows_have_independent_keys() {
+        let env = Env::default();
+        let buyer_a = Address::generate(&env);
+        let farmer_a = Address::generate(&env);
+        let buyer_b = Address::generate(&env);
+        let farmer_b = Address::generate(&env);
+
+        store_escrow(&env, 100, buyer_a.clone(), farmer_a.clone());
+        store_escrow(&env, 101, buyer_b.clone(), farmer_b.clone());
+
+        // Mutate escrow 100 (simulates a release/refund interaction)
+        let mut e100: Escrow = env.storage().persistent().get(&DataKey::Escrow(100)).unwrap();
+        e100.released = true;
+        env.storage().persistent().set(&DataKey::Escrow(100), &e100);
+        env.storage().persistent().extend_ttl(&DataKey::Escrow(100), TTL_MIN, TTL_MAX);
+
+        // Escrow 101 must be unaffected
+        let e101: Escrow = env.storage().persistent().get(&DataKey::Escrow(101)).unwrap();
+        assert!(!e101.released, "escrow 101 must not be affected by escrow 100 mutation");
+        assert_eq!(e101.buyer, buyer_b);
     }
 }

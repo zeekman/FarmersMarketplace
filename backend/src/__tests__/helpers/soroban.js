@@ -44,10 +44,15 @@ async function deployContract(wasmBuffer, keypair) {
     .setTimeout(30)
     .build();
 
-  const preparedUpload = await sorobanServer.prepareTransaction(uploadTx);
-  preparedUpload.sign(keypair);
-  const uploadResult = await sorobanServer.sendTransaction(preparedUpload);
-  await waitForTransaction(uploadResult.hash);
+  let uploadResult;
+  try {
+    const preparedUpload = await sorobanServer.prepareTransaction(uploadTx);
+    preparedUpload.sign(keypair);
+    uploadResult = await sorobanServer.sendTransaction(preparedUpload);
+    await waitForTransaction(uploadResult.hash);
+  } catch (err) {
+    throw new Error(`WASM upload failed: ${err.message ?? err}`);
+  }
 
   const wasmHash = StellarSdk.hash(wasmBuffer);
 
@@ -67,10 +72,15 @@ async function deployContract(wasmBuffer, keypair) {
     .setTimeout(30)
     .build();
 
-  const preparedCreate = await sorobanServer.prepareTransaction(createTx);
-  preparedCreate.sign(keypair);
-  const createResult = await sorobanServer.sendTransaction(preparedCreate);
-  const receipt = await waitForTransaction(createResult.hash);
+  let receipt;
+  try {
+    const preparedCreate = await sorobanServer.prepareTransaction(createTx);
+    preparedCreate.sign(keypair);
+    const createResult = await sorobanServer.sendTransaction(preparedCreate);
+    receipt = await waitForTransaction(createResult.hash);
+  } catch (err) {
+    throw new Error(`Contract instantiation failed: ${err.message ?? err}`);
+  }
 
   // Extract contract address from result meta
   const contractId = StellarSdk.scValToNative(receipt.returnValue);
