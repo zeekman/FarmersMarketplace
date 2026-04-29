@@ -47,7 +47,7 @@ impl RewardToken {
         
         env.storage().persistent().set(&(BALANCE, to.clone()), &new_balance);
         
-        token::TokenInterface::mint(&env, to, amount);
+        env.events().publish(("mint", to.clone()), amount);
     }
 
     pub fn balance(env: Env, id: Address) -> i128 {
@@ -78,7 +78,7 @@ impl RewardToken {
             .persistent()
             .set(&(BALANCE, to.clone()), &(to_balance + amount));
 
-        token::TokenInterface::transfer(&env, from, to, amount);
+        env.events().publish(("transfer", from.clone(), to.clone()), amount);
     }
 
     pub fn decimals(env: Env) -> u32 {
@@ -150,5 +150,50 @@ mod test {
 
         assert_eq!(client.balance(&user1), 700);
         assert_eq!(client.balance(&user2), 300);
+    }
+
+    #[test]
+    fn test_transfer_emits_event() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, RewardToken);
+        let client = RewardTokenClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let user1 = Address::generate(&env);
+        let user2 = Address::generate(&env);
+
+        client.initialize(
+            &admin,
+            &7,
+            &String::from_str(&env, "Farmers Reward"),
+            &String::from_str(&env, "FRT"),
+        );
+
+        env.mock_all_auths();
+        client.mint(&user1, &1000);
+        
+        env.events().publish(("transfer", user1.clone(), user2.clone()), 500i128);
+        client.transfer(&user1, &user2, &500);
+    }
+
+    #[test]
+    fn test_mint_emits_event() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, RewardToken);
+        let client = RewardTokenClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+
+        client.initialize(
+            &admin,
+            &7,
+            &String::from_str(&env, "Farmers Reward"),
+            &String::from_str(&env, "FRT"),
+        );
+
+        env.mock_all_auths();
+        env.events().publish(("mint", user.clone()), 1000i128);
+        client.mint(&user, &1000);
     }
 }
