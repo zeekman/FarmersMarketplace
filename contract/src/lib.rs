@@ -8,22 +8,27 @@ use errors::EscrowError;
 use types::{EscrowData, EscrowStatus};
 
 use soroban_sdk::{
-    contract, contractimpl, symbol_short,
+    contract, contractimpl, contracttype, symbol_short,
     token::Client as TokenClient,
     Address, Env,
 };
 
-const ESCROW_KEY: &str = "escrow";
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    Escrow(u64),
+}
 
 #[contract]
 pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
-    /// Create a new escrow. Transfers `amount` of `token` from `payer` to this contract.
+    /// Create a new escrow for a specific order ID. Transfers `amount` of `token` from `payer` to this contract.
     /// `deadline` is an optional ledger timestamp after which the payer may reclaim funds.
     pub fn create(
         env: Env,
+        order_id: u64,
         payer: Address,
         freelancer: Address,
         token: Address,
@@ -33,7 +38,7 @@ impl EscrowContract {
         if amount <= 0 {
             return Err(EscrowError::InvalidAmount);
         }
-        if env.storage().instance().has(&symbol_short!("escrow")) {
+        if env.storage().instance().has(&DataKey::Escrow(order_id)) {
             return Err(EscrowError::AlreadyExists);
         }
 
@@ -55,7 +60,7 @@ impl EscrowContract {
             deadline,
         };
 
-        env.storage().instance().set(&symbol_short!("escrow"), &data);
+        env.storage().instance().set(&DataKey::Escrow(order_id), &data);
 
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("created")),
@@ -66,8 +71,8 @@ impl EscrowContract {
     }
 
     /// Freelancer signals that work is complete.
-    pub fn submit_work(env: Env) -> Result<(), EscrowError> {
-        let mut data: EscrowData = Self::load(&env)?;
+    pub fn submit_work(env: Env, order_id: u64) -> Result<(), EscrowError> {
+        let mut data: EscrowData = Self::load(&env, order_id)?;
 
         data.freelancer.require_auth();
 
@@ -76,7 +81,7 @@ impl EscrowContract {
         }
 
         data.status = EscrowStatus::WorkSubmitted;
-        env.storage().instance().set(&symbol_short!("escrow"), &data);
+        env.storage().instance().set(&DataKey::Escrow(order_id), &data);
 
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("submitted")),
@@ -88,8 +93,8 @@ impl EscrowContract {
 
     /// Payer approves the work and releases funds to the freelancer.
     /// Token address is read from storage — no longer passed by caller.
-    pub fn approve(env: Env) -> Result<(), EscrowError> {
-        let mut data: EscrowData = Self::load(&env)?;
+    pub fn approve(env: Env, order_id: u64) -> Result<(), EscrowError> {
+        let mut data: EscrowData = Self::load(&env, order_id)?;
 
         data.payer.require_auth();
 
@@ -104,7 +109,7 @@ impl EscrowContract {
         );
 
         data.status = EscrowStatus::Approved;
-        env.storage().instance().set(&symbol_short!("escrow"), &data);
+        env.storage().instance().set(&DataKey::Escrow(order_id), &data);
 
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("approved")),
@@ -116,8 +121,8 @@ impl EscrowContract {
 
     /// Payer cancels the escrow and reclaims funds (only while Active).
     /// Token address is read from storage — no longer passed by caller.
-    pub fn cancel(env: Env) -> Result<(), EscrowError> {
-        let mut data: EscrowData = Self::load(&env)?;
+    pub fn cancel(env: Env, order_id: u64) -> Result<(), EscrowError> {
+        let mut data: EscrowData = Self::load(&env, order_id)?;
 
         data.payer.require_auth();
 
@@ -132,7 +137,7 @@ impl EscrowContract {
         );
 
         data.status = EscrowStatus::Cancelled;
-        env.storage().instance().set(&symbol_short!("escrow"), &data);
+        env.storage().instance().set(&DataKey::Escrow(order_id), &data);
 
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("cancelled")),
@@ -144,8 +149,8 @@ impl EscrowContract {
 
     /// Payer reclaims funds after the deadline has passed.
     /// Fails if no deadline was set or deadline has not been reached yet.
-    pub fn expire(env: Env) -> Result<(), EscrowError> {
-        let mut data: EscrowData = Self::load(&env)?;
+    pub fn expire(env: Env, order_id: u64) -> Result<(), EscrowError> {
+        let mut data: EscrowData = Self::load(&env, order_id)?;
 
         data.payer.require_auth();
 
@@ -166,7 +171,7 @@ impl EscrowContract {
         );
 
         data.status = EscrowStatus::Expired;
-        env.storage().instance().set(&symbol_short!("escrow"), &data);
+        env.storage().instance().set(&DataKey::Escrow(order_id), &data);
 
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("expired")),
@@ -176,22 +181,22 @@ impl EscrowContract {
         Ok(())
     }
 
-    /// Returns the full escrow record.
-    pub fn get_escrow(env: Env) -> Result<EscrowData, EscrowError> {
-        Self::load(&env)
+    /// Returns the full escrow record for a specific order ID.
+    pub fn get_escrow(env: Env, order_id: u64) -> Result<EscrowData, EscrowError> {
+        Self::load(&env, order_id)
     }
 
     /// Returns only the current status — lightweight for UIs.
-    pub fn get_status(env: Env) -> Result<EscrowStatus, EscrowError> {
-        Ok(Self::load(&env)?.status)
+    pub fn get_status(env: Env, order_id: u64) -> Result<EscrowStatus, EscrowError> {
+        Ok(Self::load(&env, order_id)?.status)
     }
 
     // ── Internal helpers ────────────────────────────────────────────────────
 
-    fn load(env: &Env) -> Result<EscrowData, EscrowError> {
+    fn load(env: &Env, order_id: u64) -> Result<EscrowData, EscrowError> {
         env.storage()
             .instance()
-            .get(&symbol_short!("escrow"))
+            .get(&DataKey::Escrow(order_id))
             .ok_or(EscrowError::NotActive)
     }
 }
@@ -232,15 +237,15 @@ mod tests {
     fn test_create_success() {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &500, &None);
-        assert_eq!(client.get_status(), EscrowStatus::Active);
+        client.create(&1, &payer, &freelancer, &token, &500, &None);
+        assert_eq!(client.get_status(&1), EscrowStatus::Active);
     }
 
     #[test]
     fn test_create_invalid_amount() {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
-        let err = client.try_create(&payer, &freelancer, &token, &0, &None).unwrap_err().unwrap();
+        let err = client.try_create(&1, &payer, &freelancer, &token, &0, &None).unwrap_err().unwrap();
         assert_eq!(err, EscrowError::InvalidAmount);
     }
 
@@ -248,8 +253,8 @@ mod tests {
     fn test_create_already_exists() {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &100, &None);
-        let err = client.try_create(&payer, &freelancer, &token, &100, &None).unwrap_err().unwrap();
+        client.create(&1, &payer, &freelancer, &token, &100, &None);
+        let err = client.try_create(&1, &payer, &freelancer, &token, &100, &None).unwrap_err().unwrap();
         assert_eq!(err, EscrowError::AlreadyExists);
     }
 
@@ -257,9 +262,29 @@ mod tests {
     fn test_create_with_deadline() {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &200, &Some(9999));
-        let data = client.get_escrow();
+        client.create(&1, &payer, &freelancer, &token, &200, &Some(9999));
+        let data = client.get_escrow(&1);
         assert_eq!(data.deadline, Some(9999));
+    }
+
+    #[test]
+    fn test_multiple_order_ids_coexist() {
+        let (env, payer, freelancer, token, contract) = setup();
+        let client = EscrowContractClient::new(&env, &contract);
+        
+        // Create escrow for order 1
+        client.create(&1, &payer, &freelancer, &token, &100, &None);
+        assert_eq!(client.get_status(&1), EscrowStatus::Active);
+        
+        // Create escrow for order 2 with same parties but different amount
+        client.create(&2, &payer, &freelancer, &token, &200, &None);
+        assert_eq!(client.get_status(&2), EscrowStatus::Active);
+        
+        // Both escrows should exist independently
+        let data1 = client.get_escrow(&1);
+        let data2 = client.get_escrow(&2);
+        assert_eq!(data1.amount, 100);
+        assert_eq!(data2.amount, 200);
     }
 
     // ── submit_work ──────────────────────────────────────────────────────────
@@ -268,19 +293,19 @@ mod tests {
     fn test_submit_work() {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &500, &None);
-        client.submit_work();
-        assert_eq!(client.get_status(), EscrowStatus::WorkSubmitted);
+        client.create(&1, &payer, &freelancer, &token, &500, &None);
+        client.submit_work(&1);
+        assert_eq!(client.get_status(&1), EscrowStatus::WorkSubmitted);
     }
 
     #[test]
     fn test_submit_work_not_active() {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &500, &None);
-        client.submit_work();
+        client.create(&1, &payer, &freelancer, &token, &500, &None);
+        client.submit_work(&1);
         // Submitting again should fail — no longer Active
-        let err = client.try_submit_work().unwrap_err().unwrap();
+        let err = client.try_submit_work(&1).unwrap_err().unwrap();
         assert_eq!(err, EscrowError::NotActive);
     }
 
@@ -290,10 +315,10 @@ mod tests {
     fn test_approve_releases_funds() {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &500, &None);
-        client.submit_work();
-        client.approve();
-        assert_eq!(client.get_status(), EscrowStatus::Approved);
+        client.create(&1, &payer, &freelancer, &token, &500, &None);
+        client.submit_work(&1);
+        client.approve(&1);
+        assert_eq!(client.get_status(&1), EscrowStatus::Approved);
         assert_eq!(TokenClient::new(&env, &token).balance(&freelancer), 500);
     }
 
@@ -301,8 +326,8 @@ mod tests {
     fn test_approve_without_submission_fails() {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &500, &None);
-        let err = client.try_approve().unwrap_err().unwrap();
+        client.create(&1, &payer, &freelancer, &token, &500, &None);
+        let err = client.try_approve(&1).unwrap_err().unwrap();
         assert_eq!(err, EscrowError::WorkNotSubmitted);
     }
 
@@ -312,9 +337,9 @@ mod tests {
     fn test_cancel_refunds_payer() {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &500, &None);
-        client.cancel();
-        assert_eq!(client.get_status(), EscrowStatus::Cancelled);
+        client.create(&1, &payer, &freelancer, &token, &500, &None);
+        client.cancel(&1);
+        assert_eq!(client.get_status(&1), EscrowStatus::Cancelled);
         assert_eq!(TokenClient::new(&env, &token).balance(&payer), 1_000);
     }
 
@@ -322,9 +347,9 @@ mod tests {
     fn test_cancel_after_submission_fails() {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &500, &None);
-        client.submit_work();
-        let err = client.try_cancel().unwrap_err().unwrap();
+        client.create(&1, &payer, &freelancer, &token, &500, &None);
+        client.submit_work(&1);
+        let err = client.try_cancel(&1).unwrap_err().unwrap();
         assert_eq!(err, EscrowError::NotActive);
     }
 
@@ -335,9 +360,9 @@ mod tests {
         let (env, payer, freelancer, token, contract) = setup();
         env.ledger().set_timestamp(1000);
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &500, &Some(2000));
+        client.create(&1, &payer, &freelancer, &token, &500, &Some(2000));
         // Timestamp 1000 <= deadline 2000 — should fail
-        let err = client.try_expire().unwrap_err().unwrap();
+        let err = client.try_expire(&1).unwrap_err().unwrap();
         assert_eq!(err, EscrowError::DeadlineNotReached);
     }
 
@@ -346,10 +371,10 @@ mod tests {
         let (env, payer, freelancer, token, contract) = setup();
         env.ledger().set_timestamp(1000);
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &500, &Some(999));
+        client.create(&1, &payer, &freelancer, &token, &500, &Some(999));
         // Timestamp 1000 > deadline 999 — should succeed
-        client.expire();
-        assert_eq!(client.get_status(), EscrowStatus::Expired);
+        client.expire(&1);
+        assert_eq!(client.get_status(&1), EscrowStatus::Expired);
         assert_eq!(TokenClient::new(&env, &token).balance(&payer), 1_000);
     }
 
@@ -357,8 +382,8 @@ mod tests {
     fn test_expire_no_deadline_fails() {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
-        client.create(&payer, &freelancer, &token, &500, &None);
-        let err = client.try_expire().unwrap_err().unwrap();
+        client.create(&1, &payer, &freelancer, &token, &500, &None);
+        let err = client.try_expire(&1).unwrap_err().unwrap();
         assert_eq!(err, EscrowError::NoDeadline);
     }
 
@@ -369,13 +394,13 @@ mod tests {
         let (env, payer, freelancer, token, contract) = setup();
         let client = EscrowContractClient::new(&env, &contract);
 
-        client.create(&payer, &freelancer, &token, &500, &None);
-        assert_eq!(client.get_status(), EscrowStatus::Active);
+        client.create(&1, &payer, &freelancer, &token, &500, &None);
+        assert_eq!(client.get_status(&1), EscrowStatus::Active);
 
-        client.submit_work();
-        assert_eq!(client.get_status(), EscrowStatus::WorkSubmitted);
+        client.submit_work(&1);
+        assert_eq!(client.get_status(&1), EscrowStatus::WorkSubmitted);
 
-        client.approve();
-        assert_eq!(client.get_status(), EscrowStatus::Approved);
+        client.approve(&1);
+        assert_eq!(client.get_status(&1), EscrowStatus::Approved);
     }
 }
