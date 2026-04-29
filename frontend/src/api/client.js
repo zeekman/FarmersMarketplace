@@ -117,6 +117,7 @@ export const api = {
   login: (body) => request('/auth/login', { method: 'POST', body }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   refresh: () => refreshAccessToken(),
+  getCurrentUser: () => request('/auth/me'),
 
   getProducts: (filters = {}) => request(`/products${toQs(filters)}`),
   getCategories: () => request('/products/categories'),

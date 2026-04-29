@@ -11,19 +11,14 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     api.refresh()
       .then((token) => {
-        if (token) {
-          // Fetch user info from the token payload (decode without verify — server already verified)
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          // We only have id + role in the token; restore full user from localStorage if available
-          const stored = (() => { try { return JSON.parse(localStorage.getItem('user')); } catch { return null; } })();
-          if (stored && stored.id === payload.id) {
-            setUser(stored);
-          } else {
-            setUser({ id: payload.id, role: payload.role });
-          }
-        }
+        if (!token) return;
+        return api.getCurrentUser()
+          .then((profile) => {
+            setUser(profile);
+            localStorage.setItem('user', JSON.stringify(profile));
+          });
       })
-      .catch(() => {}) // no cookie or expired — stay logged out
+      .catch(() => {}) // no cookie, expired, or profile fetch failed — stay logged out
       .finally(() => setLoading(false));
   }, []);
 
