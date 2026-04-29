@@ -15,19 +15,38 @@ function err(res, status, message, code) {
   });
 }
 
-/** Express 4-arg error handler — mount last in app.js */
+/**
+ * Structured error logging middleware — logs route errors with request context
+ * @param {Error} error
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 function errorHandler(error, req, res, next) { // eslint-disable-line no-unused-vars
-  logger.error('Unhandled error', {
-    error: error.message,
-    stack: error.stack,
-    requestId: req.requestId,
-    method: req.method,
-    url: req.url
-  });
-function errorHandler(error, req, res, next) {
-  // eslint-disable-line no-unused-vars
-  console.error(error);
-  return err(res, 500, 'Internal server error', 'internal_error');
+  const errorLog = {
+    timestamp: new Date().toISOString(),
+    error: {
+      message: error.message,
+      code: error.code,
+      statusCode: error.statusCode || 500,
+      stack: error.stack,
+    },
+    request: {
+      id: req.requestId,
+      method: req.method,
+      url: req.url,
+      path: req.path,
+      query: req.query,
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+    },
+  };
+
+  logger.error('Unhandled error', errorLog);
+  
+  const status = error.statusCode || 500;
+  const message = error.message || 'Internal server error';
+  return err(res, status, message, error.code);
 }
 
 module.exports = { err, errorHandler };
