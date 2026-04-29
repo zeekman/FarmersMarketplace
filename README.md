@@ -244,7 +244,19 @@ npm run test:contracts
 | `TEST_HORIZON_URL` | `http://localhost:8000` | Local Horizon endpoint |
 | `TEST_SOROBAN_RPC_URL` | `http://localhost:8000/soroban/rpc` | Local Soroban RPC |
 | `TEST_NETWORK_PASSPHRASE` | `Standalone Network ; February 2017` | Local network passphrase |
-| `SKIP_CONTRACT_TESTS` | `false` | Set to `true` to skip in CI without Docker |
+| `SKIP_CONTRACT_TESTS` | `false` | Set to `true` to skip contract tests in CI without Docker |
+
+### SKIP_CONTRACT_TESTS
+
+Contract tests require a running local Stellar node (Docker). In CI environments where Docker is not available, set `SKIP_CONTRACT_TESTS=true` to skip the suite without failing the build:
+
+```bash
+SKIP_CONTRACT_TESTS=true npm run test:contracts
+```
+
+When skipped in CI, a warning is printed to the log so the omission is visible.
+
+A dedicated **nightly CI job** (`contract-tests-nightly` in `.github/workflows/ci.yml`) runs the full contract test suite on a schedule with Docker available, ensuring these tests are not silently broken.
 
 ## Notes
 
