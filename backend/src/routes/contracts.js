@@ -9,6 +9,16 @@ function validateContractId(contractId) {
   return /^[A-Z2-7]{56}$|^[0-9a-fA-F]{64}$/.test(contractId);
 }
 
+const ARGS_MAX_BYTES = 65535;
+const TRUNCATED_SUFFIX = ' [truncated]';
+
+function truncateArgs(args) {
+  if (args == null) return null;
+  const serialised = JSON.stringify(args);
+  if (serialised.length <= ARGS_MAX_BYTES) return serialised;
+  return serialised.slice(0, ARGS_MAX_BYTES - TRUNCATED_SUFFIX.length) + TRUNCATED_SUFFIX;
+}
+
 async function logInvocation({ contractId, method, args, result, txHash, success, error, userId }) {
   try {
     await db.query(
@@ -17,7 +27,7 @@ async function logInvocation({ contractId, method, args, result, txHash, success
       [
         contractId,
         method,
-        args != null ? JSON.stringify(args) : null,
+        truncateArgs(args),
         result != null ? JSON.stringify(result) : null,
         txHash || null,
         success ? 1 : 0,
