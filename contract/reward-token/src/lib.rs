@@ -46,8 +46,6 @@ impl RewardToken {
         let new_balance = balance + amount;
         
         env.storage().persistent().set(&(BALANCE, to.clone()), &new_balance);
-        
-        token::TokenInterface::mint(&env, to, amount);
     }
 
     pub fn balance(env: Env, id: Address) -> i128 {
@@ -150,5 +148,31 @@ mod test {
 
         assert_eq!(client.balance(&user1), 700);
         assert_eq!(client.balance(&user2), 300);
+    }
+
+    #[test]
+    fn test_mint_increases_balance() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, RewardToken);
+        let client = RewardTokenClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+
+        client.initialize(
+            &admin,
+            &7,
+            &String::from_str(&env, "Farmers Reward"),
+            &String::from_str(&env, "FRT"),
+        );
+
+        env.mock_all_auths();
+        assert_eq!(client.balance(&user), 0);
+        
+        client.mint(&user, &500);
+        assert_eq!(client.balance(&user), 500);
+        
+        client.mint(&user, &250);
+        assert_eq!(client.balance(&user), 750);
     }
 }
