@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { validateLogin, validateRegister, validatePassword } from '../utils/validation';
@@ -51,6 +52,7 @@ export function LoginPage() {
   const [formError, setFormError] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
+  const passwordRef = React.useRef(null);
 
   function handleChange(field, value) {
     setForm(f => ({ ...f, [field]: value }));
@@ -68,11 +70,17 @@ export function LoginPage() {
       navigate(user.role === 'farmer' ? '/dashboard' : '/marketplace');
     } catch (err) {
       setFormError(getErrorMessage(err));
+      setForm(f => ({ ...f, password: '' }));
+      passwordRef.current?.focus();
     }
   }
 
   return (
     <div style={s.wrap}>
+      <Helmet>
+        <title>Login – Farmers Marketplace</title>
+        <meta name="description" content="Sign in to your Farmers Marketplace account." />
+      </Helmet>
       <div style={s.card}>
         <div style={s.title}>{t('auth.welcomeBack')}</div>
         <form onSubmit={handleSubmit} noValidate>
@@ -84,7 +92,7 @@ export function LoginPage() {
           </div>
           <div style={s.field}>
             <label style={s.label} htmlFor="login-password">{t('auth.password')}</label>
-            <input id="login-password" style={errors.password ? s.inputErr : s.input} type="password"
+            <input id="login-password" ref={passwordRef} style={errors.password ? s.inputErr : s.input} type="password"
               value={form.password} onChange={e => handleChange('password', e.target.value)} autoComplete="current-password" />
             {errors.password && <div style={s.err} role="alert">{errors.password}</div>}
           </div>
@@ -129,6 +137,10 @@ export function RegisterPage() {
 
   return (
     <div style={s.wrap}>
+      <Helmet>
+        <title>Register – Farmers Marketplace</title>
+        <meta name="description" content="Create a free account on Farmers Marketplace to buy fresh produce or sell your farm products." />
+      </Helmet>
       <div style={s.card}>
         <div style={s.title}>{t('auth.createAccount')}</div>
         <form onSubmit={handleSubmit} noValidate>

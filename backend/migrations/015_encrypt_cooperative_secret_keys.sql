@@ -1,0 +1,4 @@
+-- 015_encrypt_cooperative_secret_keys.sql
+-- No DDL change: stellar_secret_key column already exists as TEXT.
+-- Existing plaintext keys are encrypted by the accompanying data migration:
+--   node scripts/encrypt-cooperative-keys.js

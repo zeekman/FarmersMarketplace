@@ -70,19 +70,32 @@ router.get('/:userId', auth, async (req, res) => {
   const otherUserId = parseInt(req.params.userId, 10);
   if (isNaN(otherUserId)) return err(res, 400, 'Invalid user ID', 'validation_error');
 
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+  const offset = (page - 1) * limit;
+
   try {
     await db.query(
       `UPDATE messages SET read_at = NOW() WHERE sender_id = $1 AND receiver_id = $2 AND read_at IS NULL`,
       [otherUserId, currentUserId]
     );
+
+    const { rows: countRows } = await db.query(
+      `SELECT COUNT(*) as total FROM messages WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1)`,
+      [currentUserId, otherUserId]
+    );
+    const total = parseInt(countRows[0].total);
+    const pages = Math.ceil(total / limit);
+
     const { rows } = await db.query(
       `SELECT m.*, s.name as sender_name, r.name as receiver_name
        FROM messages m JOIN users s ON s.id = m.sender_id JOIN users r ON r.id = m.receiver_id
        WHERE (m.sender_id = $1 AND m.receiver_id = $2) OR (m.sender_id = $2 AND m.receiver_id = $1)
-       ORDER BY m.created_at ASC`,
-      [currentUserId, otherUserId]
+       ORDER BY m.created_at DESC
+       LIMIT $3 OFFSET $4`,
+      [currentUserId, otherUserId, limit, offset]
     );
-    res.json({ success: true, data: rows });
+    res.json({ success: true, data: rows, page, limit, total, pages });
   } catch (e) {
     err(res, 500, 'Failed to fetch messages: ' + e.message, 'server_error');
   }

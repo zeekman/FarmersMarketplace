@@ -3,6 +3,7 @@ const logger = require('../logger');
 const db = require('../db/schema');
 const { sendPayment } = require('../utils/stellar');
 const { nextOrderDate } = require('../routes/subscriptions');
+const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
 
 async function processSubscriptions() {
   const now = new Date().toISOString();
@@ -51,6 +52,13 @@ async function processSubscriptions() {
     }
 
     try {
+      const idempotencyKey = `sub_payment_${sub.id}_${sub.next_order_at}`;
+      const cached = await getCachedResponse(idempotencyKey);
+      if (cached) {
+        logger.info(`[subscriptions] Sub ${sub.id} payment already processed, skipping`);
+        continue;
+      }
+
       const txHash = await sendPayment({
         senderSecret: sub.buyer_secret,
         receiverPublicKey: sub.farmer_wallet,
@@ -69,6 +77,9 @@ async function processSubscriptions() {
           sub.id
         );
       })();
+
+      // Cache the successful payment
+      await cacheResponse(idempotencyKey, { success: true }, 24);
 
       console.log(
         `[subscriptions] Sub ${sub.id} → order ${orderId} paid (${txHash.slice(0, 12)}…)`

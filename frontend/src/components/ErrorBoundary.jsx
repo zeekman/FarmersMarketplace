@@ -37,8 +37,10 @@ class ErrorBoundary extends React.Component {
   }
 
   logErrorToBackend = (error, errorInfo) => {
+    const url = import.meta.env.VITE_ERROR_REPORTING_URL;
+    if (!url) return;
     try {
-      fetch('/api/errors', {
+      fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

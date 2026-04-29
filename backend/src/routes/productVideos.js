@@ -7,8 +7,8 @@ const auth = require('../middleware/auth');
 const db = require('../db/schema');
 const { err } = require('../middleware/error');
 
-const MAX_BYTES = 50 * 1024 * 1024;
-const ALLOWED = ['video/mp4'];
+const MAX_BYTES = 100 * 1024 * 1024; // 100 MB
+const ALLOWED = ['video/mp4', 'video/webm', 'video/ogg'];
 const uploadsDir = path.join(__dirname, '../../uploads/videos');
 fs.mkdirSync(uploadsDir, { recursive: true });
 
@@ -23,12 +23,12 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: MAX_BYTES },
-  fileFilter: (_req, file, cb) => {
-    if (!ALLOWED.includes(file.mimetype)) {
-      return cb(Object.assign(new Error('Only MP4 videos are allowed'), { code: 'INVALID_TYPE' }));
-    }
-    cb(null, true);
-  },
+   fileFilter: (_req, file, cb) => {
+     if (!ALLOWED.includes(file.mimetype)) {
+       return cb(Object.assign(new Error('Only MP4, WebM, or OGG videos are allowed'), { code: 'INVALID_TYPE' }));
+     }
+     cb(null, true);
+   },
 });
 
 function probeDurationSeconds(filePath) {
@@ -58,14 +58,14 @@ router.post('/:id/video', auth, (req, res) => {
   if (req.user.role !== 'farmer')
     return err(res, 403, 'Only farmers can upload videos', 'forbidden');
 
-  upload.single('video')(req, res, async (uploadErr) => {
-    if (uploadErr) {
-      if (uploadErr.code === 'LIMIT_FILE_SIZE')
-        return err(res, 400, 'Video must be 50 MB or smaller', 'file_too_large');
-      if (uploadErr.code === 'INVALID_TYPE')
-        return err(res, 400, uploadErr.message, 'invalid_file_type');
-      return err(res, 400, 'Upload failed', 'upload_error');
-    }
+   upload.single('video')(req, res, async (uploadErr) => {
+     if (uploadErr) {
+       if (uploadErr.code === 'LIMIT_FILE_SIZE')
+         return err(res, 400, 'Video must be 100 MB or smaller', 'file_too_large');
+       if (uploadErr.code === 'INVALID_TYPE')
+         return err(res, 400, uploadErr.message, 'invalid_file_type');
+       return err(res, 400, 'Upload failed', 'upload_error');
+     }
 
     if (!req.file) return err(res, 400, 'No video file provided', 'no_file');
 

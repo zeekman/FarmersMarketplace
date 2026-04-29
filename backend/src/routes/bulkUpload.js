@@ -28,10 +28,13 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
   const results = { created: 0, skipped: 0, errors: [] };
 
   try {
+    const REQUIRED_HEADERS = ['name', 'price', 'quantity'];
+    let detectedHeaders = null;
+
     const records = await new Promise((resolve, reject) => {
       const rows = [];
       const parser = parse(req.file.buffer, {
-        columns: true,
+        columns: (hdrs) => { detectedHeaders = hdrs; return hdrs; },
         skip_empty_lines: true,
         trim: true,
       });
@@ -39,6 +42,15 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
       parser.on('end', () => resolve(rows));
       parser.on('error', reject);
     });
+
+    if (!detectedHeaders) {
+      return err(res, 400, 'CSV file is empty or has no header row', 'validation_error');
+    }
+
+    const missingHeaders = REQUIRED_HEADERS.filter((h) => !detectedHeaders.includes(h));
+    if (missingHeaders.length > 0) {
+      return err(res, 400, `Missing required columns: ${missingHeaders.join(', ')}`, 'missing_columns');
+    }
 
     // Limit to 500 rows
     if (records.length > 500) {
