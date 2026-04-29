@@ -223,6 +223,11 @@ impl EscrowContract {
             .get(&DataKey::Escrow(order_id))
             .ok_or(EscrowError::NotFound)
     }
+
+    /// Read-only view: returns the escrow state for `order_id`, or `None` if it does not exist.
+    pub fn get_escrow(env: Env, order_id: u64) -> Option<Escrow> {
+        env.storage().persistent().get(&DataKey::Escrow(order_id))
+    }
 }
 
 #[cfg(test)]
@@ -665,5 +670,31 @@ mod test {
         let fee = (amount * 250_i128) / 10_000;
         assert_eq!(fee, 25_0000);
         assert_eq!(amount - fee, 975_0000);
+    }
+
+    // ── #477 get_escrow view function ─────────────────────────────────────────
+
+    #[test]
+    fn get_escrow_returns_none_for_unknown_order() {
+        let env = Env::default();
+        let result = EscrowContract::get_escrow(env, 999);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn get_escrow_returns_correct_data_after_create() {
+        let env = Env::default();
+        let buyer = Address::generate(&env);
+        let farmer = Address::generate(&env);
+        store_escrow(&env, 100, buyer.clone(), farmer.clone());
+        let result = EscrowContract::get_escrow(env, 100);
+        assert!(result.is_some());
+        let escrow = result.unwrap();
+        assert_eq!(escrow.buyer, buyer);
+        assert_eq!(escrow.farmer, farmer);
+        assert_eq!(escrow.amount, 1_000_0000);
+        assert!(!escrow.released);
+        assert!(!escrow.refunded);
+        assert!(!escrow.disputed);
     }
 }
