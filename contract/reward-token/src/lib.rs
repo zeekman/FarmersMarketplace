@@ -200,6 +200,7 @@ mod test {
     }
 
     #[test]
+    fn test_mint_increases_balance() {
     fn test_transfer_emits_event() {
     fn test_total_supply_mint_and_burn() {
         let env = Env::default();
@@ -219,6 +220,13 @@ mod test {
         );
 
         env.mock_all_auths();
+        assert_eq!(client.balance(&user), 0);
+        
+        client.mint(&user, &500);
+        assert_eq!(client.balance(&user), 500);
+        
+        client.mint(&user, &250);
+        assert_eq!(client.balance(&user), 750);
         client.mint(&user1, &1000);
         
         env.events().publish(("transfer", user1.clone(), user2.clone()), 500i128);
