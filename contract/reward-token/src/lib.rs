@@ -23,6 +23,26 @@ pub enum DataKey {
 #[contract]
 pub struct RewardToken;
 
+const ADMIN: Symbol = Symbol::short("ADMIN");
+const BALANCE: Symbol = Symbol::short("BALANCE");
+const METADATA: Symbol = Symbol::short("METADATA");
+const TOTAL_SUPPLY: Symbol = Symbol::short("TSUPPLY");
+const PENDING_ADMIN: Symbol = Symbol::short("PADMIN");
+
+#[contracttype]
+#[derive(Clone)]
+pub struct AllowanceKey {
+    pub from: Address,
+    pub spender: Address,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct AllowanceValue {
+    pub amount: i128,
+    pub expiration_ledger: u32,
+}
+
 #[contractimpl]
 impl RewardToken {
     pub fn initialize(env: Env, admin: Address, decimal: u32, name: String, symbol: String) {
@@ -144,6 +164,64 @@ impl RewardToken {
     pub fn symbol(env: Env) -> String {
         let metadata: TokenMetadata = env.storage().instance().get(&DataKey::Metadata).unwrap();
         metadata.symbol
+    }
+
+    /// Approve `spender` to spend up to `amount` tokens from `from`'s balance.
+    /// The allowance expires at `expiration_ledger` (inclusive).
+    pub fn approve(env: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+        from.require_auth();
+        if amount < 0 {
+            panic!("amount must be non-negative");
+        }
+        let key = AllowanceKey { from: from.clone(), spender: spender.clone() };
+        let value = AllowanceValue { amount, expiration_ledger };
+        env.storage().persistent().set(&key, &value);
+        env.storage().persistent().extend_ttl(&key, expiration_ledger, expiration_ledger);
+        env.events().publish(("approve", from, spender), (amount, expiration_ledger));
+    }
+
+    /// Returns the current allowance for `spender` to spend from `from`.
+    pub fn allowance(env: Env, from: Address, spender: Address) -> i128 {
+        let key = AllowanceKey { from, spender };
+        let val: Option<AllowanceValue> = env.storage().persistent().get(&key);
+        match val {
+            Some(a) if env.ledger().sequence() <= a.expiration_ledger => a.amount,
+            _ => 0,
+        }
+    }
+
+    /// Transfer `amount` tokens from `from` to `to` using `spender`'s allowance.
+    pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        spender.require_auth();
+        if amount <= 0 {
+            panic!("amount must be positive");
+        }
+
+        let key = AllowanceKey { from: from.clone(), spender: spender.clone() };
+        let val: AllowanceValue = env.storage().persistent().get(&key)
+            .unwrap_or(AllowanceValue { amount: 0, expiration_ledger: 0 });
+
+        if env.ledger().sequence() > val.expiration_ledger {
+            panic!("allowance expired");
+        }
+        if val.amount < amount {
+            panic!("insufficient allowance");
+        }
+
+        // Deduct allowance
+        let new_allowance = AllowanceValue { amount: val.amount - amount, expiration_ledger: val.expiration_ledger };
+        env.storage().persistent().set(&key, &new_allowance);
+
+        // Transfer tokens
+        let from_balance = Self::balance(env.clone(), from.clone());
+        if from_balance < amount {
+            panic!("insufficient balance");
+        }
+        let to_balance = Self::balance(env.clone(), to.clone());
+        env.storage().persistent().set(&(BALANCE, from.clone()), &(from_balance - amount));
+        env.storage().persistent().set(&(BALANCE, to.clone()), &(to_balance + amount));
+
+        env.events().publish(("transfer_from", spender, from, to), amount);
     }
 }
 
@@ -278,6 +356,85 @@ mod test {
         assert_eq!(client.balance(&user), 500);
     }
 
+    // ── #483 approve / transfer_from ─────────────────────────────────────────
+
+    fn setup_token(env: &Env) -> (RewardTokenClient, Address) {
+        let contract_id = env.register_contract(None, RewardToken);
+        let client = RewardTokenClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        client.initialize(&admin, &7, &String::from_str(env, "Farmers Reward"), &String::from_str(env, "FRT"));
+        (client, admin)
+    }
+
+    #[test]
+    fn test_approve_and_allowance() {
+        let env = Env::default();
+        let (client, _admin) = setup_token(&env);
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+
+        env.mock_all_auths();
+        // No allowance yet
+        assert_eq!(client.allowance(&owner, &spender), 0);
+
+        // Approve 500 tokens, expiring at ledger 1000
+        client.approve(&owner, &spender, &500, &1000);
+        assert_eq!(client.allowance(&owner, &spender), 500);
+    }
+
+    #[test]
+    fn test_transfer_from_within_allowance() {
+        let env = Env::default();
+        let (client, _admin) = setup_token(&env);
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        env.mock_all_auths();
+        client.mint(&owner, &1000);
+        client.approve(&owner, &spender, &400, &1000);
+
+        client.transfer_from(&spender, &owner, &recipient, &300);
+
+        assert_eq!(client.balance(&owner), 700);
+        assert_eq!(client.balance(&recipient), 300);
+        assert_eq!(client.allowance(&owner, &spender), 100);
+    }
+
+    #[test]
+    #[should_panic(expected = "insufficient allowance")]
+    fn test_transfer_from_exceeding_allowance_panics() {
+        let env = Env::default();
+        let (client, _admin) = setup_token(&env);
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        env.mock_all_auths();
+        client.mint(&owner, &1000);
+        client.approve(&owner, &spender, &100, &1000);
+
+        client.transfer_from(&spender, &owner, &recipient, &200);
+    }
+
+    #[test]
+    #[should_panic(expected = "allowance expired")]
+    fn test_transfer_from_expired_allowance_panics() {
+        let env = Env::default();
+        let (client, _admin) = setup_token(&env);
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        env.mock_all_auths();
+        client.mint(&owner, &1000);
+        // Approve with expiration_ledger = 0; ledger sequence starts at 0 so
+        // after advancing past 0 the allowance is expired.
+        client.approve(&owner, &spender, &500, &0);
+        // Advance ledger sequence past expiration
+        env.ledger().set_sequence_number(1);
+
+        client.transfer_from(&spender, &owner, &recipient, &100);
     // ── #475 — DataKey upgrade simulation ────────────────────────────────────
     // Verify that a balance written under DataKey::Balance(addr) is retrievable
     // after the contract is re-registered (simulating an upgrade).
