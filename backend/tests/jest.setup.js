@@ -34,6 +34,8 @@ jest.mock('../src/utils/stellar', () => ({
     })),
   },
   createWallet: jest.fn(() => ({ publicKey: 'GPUBKEY', secretKey: 'SSECRET' })),
+  createWalletFromMnemonic: jest.fn(() => ({ publicKey: 'GPUBKEY', secretKey: 'SSECRET', mnemonic: 'word '.repeat(12).trim() })),
+  deriveKeypairFromMnemonic: jest.fn(() => ({ publicKey: 'GPUBKEY', secretKey: 'SSECRET' })),
   getBalance: jest.fn().mockResolvedValue(1000),
   getTransactions: jest.fn().mockResolvedValue([]),
   fundTestnetAccount: jest.fn().mockResolvedValue({}),
@@ -66,6 +68,19 @@ jest.mock('../src/utils/stellar', () => ({
   claimBalance: jest.fn().mockResolvedValue('CLAIM_TX_001'),
 }));
 
+// --- requestLogger mock (uuid is ESM in v13, avoid parse error) ---
+jest.mock('../src/middleware/requestLogger', () => (req, res, next) => next());
+
+// --- Routes mock: only mount auth so other broken route files don't parse ---
+jest.mock('../src/routes', () => {
+  const express = require('express');
+  const router = express.Router();
+  router.use('/api/auth', require('../src/routes/auth'));
+  router.use('/api/analytics', require('../src/routes/analytics'));
+  router.use('/api/orders/:id/return', require('../src/routes/returns'));
+  return router;
+});
+
 // --- Mailer mock ---
 jest.mock('../src/utils/mailer', () => ({
   sendOrderEmails: jest.fn().mockResolvedValue({}),
@@ -73,6 +88,12 @@ jest.mock('../src/utils/mailer', () => ({
   sendStatusUpdateEmail: jest.fn().mockResolvedValue({}),
   sendBackInStockEmail: jest.fn().mockResolvedValue({}),
 }));
+
+// --- requestLogger mock (uuid v13 is ESM-only, incompatible with Jest CJS) ---
+jest.mock('../src/middleware/requestLogger', () => (req, res, next) => {
+  req.requestId = 'test-request-id';
+  next();
+});
 
 // Reset all mocks before each test to prevent queue leakage
 beforeEach(() => {
@@ -94,8 +115,10 @@ beforeEach(() => {
 
   const stellar = jest.requireMock('../src/utils/stellar');
   stellar.createWallet.mockReturnValue({ publicKey: 'GPUBKEY', secretKey: 'SSECRET' });
+  stellar.createWalletFromMnemonic.mockReturnValue({ publicKey: 'GPUBKEY', secretKey: 'SSECRET', mnemonic: 'word '.repeat(12).trim() });
+  stellar.deriveKeypairFromMnemonic.mockReturnValue({ publicKey: 'GPUBKEY', secretKey: 'SSECRET' });
   stellar.getBalance.mockResolvedValue(1000);
-  stellar.getTransactions.mockResolvedValue([]);
+  stellar.getTransactions.mockResolvedValue({ records: [], next_cursor: null, prev_cursor: null });
   stellar.fundTestnetAccount.mockResolvedValue({});
   stellar.sendPayment.mockResolvedValue('TXHASH123');
   stellar.isTestnet = true;

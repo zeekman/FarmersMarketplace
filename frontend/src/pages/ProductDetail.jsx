@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -11,8 +11,12 @@ import Spinner from '../components/Spinner';
 import FlashSaleCountdown from '../components/FlashSaleCountdown';
 import ShareButtons from '../components/ShareButtons';
 import PriceHistoryChart from '../components/PriceHistoryChart';
+import MapView from '../components/MapView';
 import { Helmet } from 'react-helmet-async';
 import { useTranslation } from 'react-i18next';
+import QRCode from 'qrcode.react';
+import { useReviewForm } from '../hooks/useReviewForm';
+import { usePaymentLink } from '../hooks/usePaymentLink';
 
 const POLL_INTERVAL_MS = 3000;
 const TIMEOUT_MS = 60000;
@@ -76,26 +80,21 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [confirming, setConfirming] = useState(null); // { orderId, startedAt }
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState('');
-  const { usd } = useXlmRate();
+   const [progress, setProgress] = useState(0);
+   const [error, setError] = useState('');
+   const { usd } = useXlmRate();
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [useEscrow, setUseEscrow] = useState(false);
   const [alertSet, setAlertSet] = useState(false);
   const [alertLoading, setAlertLoading] = useState(false);
   const [images, setImages] = useState([]);
-  const [activeImg, setActiveImg] = useState(0);
-  const [paidOrders, setPaidOrders] = useState([]);
-  const [reviewRating, setReviewRating] = useState(5);
-  const [reviewComment, setReviewComment] = useState('');
-  const [reviewOrderId, setReviewOrderId] = useState('');
-  const [reviewLoading, setReviewLoading] = useState(false);
-  const [reviewError, setReviewError] = useState('');
-  const [reviewSuccess, setReviewSuccess] = useState('');
-  const [customPrice, setCustomPrice] = useState('');
+   const [activeImg, setActiveImg] = useState(0);
+   const [paidOrders, setPaidOrders] = useState([]);
+   const [customPrice, setCustomPrice] = useState('');
+  const [liveStock, setLiveStock] = useState(null); // Real-time stock from SSE
 
-  // Price tiers state
+   // Price tiers state
   const [tiers, setTiers] = useState([]);
   // Price history state
   const [priceHistory, setPriceHistory] = useState([]);
@@ -105,6 +104,14 @@ export default function ProductDetail() {
   const [couponResult, setCouponResult] = useState(null); // { discount, final_total, discount_type, discount_value }
   const [couponError, setCouponError] = useState('');
   const [couponLoading, setCouponLoading] = useState(false);
+  const [walletPaymentOpen, setWalletPaymentOpen] = useState(false);
+  const [walletOrderId, setWalletOrderId] = useState(null);
+  const [paymentLink, setPaymentLink] = useState('');
+  const [walletLoading, setWalletLoading] = useState(false);
+  const [walletStatus, setWalletStatus] = useState('pending');
+  const walletPollingIntervalRef = useRef(null);
+  const walletPollingTimeoutRef = useRef(null);
+  const mountedRef = useRef(true);
 
   // Nutrition state
   const [nutritionExpanded, setNutritionExpanded] = useState(false);
@@ -121,12 +128,22 @@ export default function ProductDetail() {
   const [feeInfo, setFeeInfo] = useState(null); // { feePercent, feeAmount, farmerAmount }
   const [shareMeta, setShareMeta] = useState(null);
 
-  const loadReviews = useCallback(async () => {
-    try { const res = await api.getProductReviews(id); setReviews(res.data ?? []); }
-    catch { setReviews([]); }
-  }, [id]);
+   const loadReviews = useCallback(async () => {
+     try { const res = await api.getProductReviews(id); setReviews(res.data ?? []); }
+     catch { setReviews([]); }
+   }, [id]);
 
-  useEffect(() => {
+   const handleReviewSuccess = useCallback(() => {
+     loadReviews();
+     api.getProduct(id).then(res => setProduct(res.data ?? res)).catch(() => {});
+   }, [loadReviews, id]);
+
+   const review = useReviewForm(id, { onSuccess: handleReviewSuccess });
+   const { setReviewOrderId } = review;
+
+   const { paymentLinkData, paymentLinkLoading, paymentLinkError, generatePaymentLink, setPaymentLinkError } = usePaymentLink();
+
+   useEffect(() => {
     api.getProduct(id).then(res => {
       const p = res.data ?? res;
       setProduct(p);
@@ -137,7 +154,7 @@ export default function ProductDetail() {
     api.getProductImages(id).then(res => {
       const imgs = res.data ?? [];
       setImages(imgs);
-      if (imgs.length > 0) setActiveImg(0);
+      setActiveImg(imgs.length > 0 ? 0 : 0);
     }).catch(() => {});
     api.getProductTiers(id).then(res => setTiers(res.data ?? [])).catch(() => setTiers([]));
     api.getPriceHistory(id).then(res => setPriceHistory(res.data ?? [])).catch(() => setPriceHistory([]));
@@ -174,14 +191,14 @@ export default function ProductDetail() {
     api.getMyAlert(id).then(res => setAlertSet(res.subscribed)).catch(() => {});
   }, [id, user]);
 
-  useEffect(() => {
-    if (user?.role !== 'buyer') return;
-    api.getOrders({ limit: 100 }).then(res => {
-      const orders = (res.data ?? []).filter(o => o.product_id === parseInt(id) && o.status === 'paid');
-      setPaidOrders(orders);
-      if (orders.length > 0) setReviewOrderId(String(orders[0].id));
-    }).catch(() => {});
-  }, [id, user]);
+   useEffect(() => {
+     if (user?.role !== 'buyer') return;
+     api.getOrders({ limit: 100 }).then(res => {
+       const orders = (res.data ?? []).filter(o => o.product_id === parseInt(id) && o.status === 'paid');
+       setPaidOrders(orders);
+       if (orders.length > 0) setReviewOrderId(String(orders[0].id));
+     }).catch(() => {});
+   }, [id, user, setReviewOrderId]);
 
   // Load buyer's non-XLM assets for path payment selector
   useEffect(() => {
@@ -209,7 +226,77 @@ export default function ProductDetail() {
     }).finally(() => setPathEstimateLoading(false));
   }, [sourceAsset, qty, couponResult, product]);
 
+  const handleGeneratePaymentLink = useCallback(() => {
+    if (!user) return navigate('/login');
+    if (user.role === 'farmer') return setPaymentLinkError(t('productDetail.farmersCannotOrder'));
+    if (addresses.length > 0 && !selectedAddressId) return setPaymentLinkError(t('productDetail.selectAddress'));
+    if (!product) return;
+    generatePaymentLink({
+      productId: product.id,
+      quantity: qty,
+      addressId: selectedAddressId,
+      couponCode: couponResult ? couponCode : undefined
+    });
+  }, [user, navigate, addresses.length, selectedAddressId, generatePaymentLink, product, qty, couponResult, couponCode, t]);
+
+  // Compute total for fee preview (safe to call before product loads)
+  const _previewTotal = product
+    ? (() => {
+        const tiers_ = tiers ?? [];
+        const getTierPrice_ = (q) => {
+          for (let i = tiers_.length - 1; i >= 0; i--) {
+            if (q >= tiers_[i].min_quantity) return tiers_[i].price_per_unit;
+          }
+          return product.price;
+        };
+        const isFlash = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
+        const uPrice = isFlash ? Number(product.flash_sale_price) : getTierPrice_(qty);
+        const effPrice = (product.pricing_model === 'pwyw' || product.pricing_model === 'donation') ? (parseFloat(customPrice) || 0) : uPrice;
+        const sub = product.pricing_type === 'weight' ? (product.price * (parseFloat(weight) || 0)).toFixed(2) : (effPrice * qty).toFixed(2);
+        return couponResult ? couponResult.final_total.toFixed(2) : sub;
+      })()
+    : '0';
+  useEffect(() => {
+    const n = parseFloat(_previewTotal);
+    if (!n) return;
+    api.getFeePreview(n).then(r => setFeeInfo(r)).catch(() => setFeeInfo(null));
+  }, [_previewTotal]); // eslint-disable-line react-hooks/exhaustive-deps
+  // SSE: connect to stock-stream for real-time stock updates
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (walletPollingIntervalRef.current) {
+        clearInterval(walletPollingIntervalRef.current);
+        walletPollingIntervalRef.current = null;
+      }
+      if (walletPollingTimeoutRef.current) {
+        clearTimeout(walletPollingTimeoutRef.current);
+        walletPollingTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!id) return;
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+    const es = new EventSource(`${apiBase}/api/products/${id}/stock-stream`);
+    es.onmessage = (e) => {
+      try {
+        const { quantity } = JSON.parse(e.data);
+        setLiveStock(quantity);
+      } catch { /* ignore malformed events */ }
+    };
+    return () => es.close();
+  }, [id]);
+
   if (!product) return <Spinner />;
+
+  // Clamp activeImg to valid range
+  const safeActiveImg = images.length > 0 ? Math.min(activeImg, images.length - 1) : 0;
+
+  // Use live SSE stock if available, fall back to product.quantity
+  const currentStock = liveStock !== null ? liveStock : product.quantity;
 
   const shareUrl = shareMeta?.url || `${window.location.origin}/product/${id}`;
   const shareTitle = shareMeta?.title || `${product.name} on Farmers Marketplace`;
@@ -228,13 +315,6 @@ export default function ProductDetail() {
     return product.price;
   };
 
-  const isFlashSaleActive = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
-  const baseUnitPrice = getTierPrice(qty);
-  const unitPrice = isFlashSaleActive ? Number(product.flash_sale_price) : baseUnitPrice;
-  const subtotal = product?.pricing_type === 'weight'
-    ? (product.price * (parseFloat(weight) || 0)).toFixed(2)
-    : (unitPrice * qty).toFixed(2);
-  const total = couponResult ? couponResult.final_total.toFixed(2) : subtotal;
     const isFlashSaleActive = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
     const baseUnitPrice = getTierPrice(qty);
     const unitPrice = isFlashSaleActive ? Number(product.flash_sale_price) : baseUnitPrice;
@@ -261,13 +341,6 @@ export default function ProductDetail() {
     } catch { /* ignore */ }
     setAlertLoading(false);
   }
-  // Fetch fee info whenever total changes
-  const totalNum = parseFloat(total);
-  React.useEffect(() => {
-    if (!totalNum) return;
-    api.getFeePreview(totalNum).then(r => setFeeInfo(r)).catch(() => setFeeInfo(null));
-  }, [total]); // eslint-disable-line react-hooks/exhaustive-deps
-
   async function handleApplyCoupon() {
     if (!couponCode.trim()) return;
     setCouponLoading(true);
@@ -324,25 +397,74 @@ export default function ProductDetail() {
     }
   }
 
-  async function handleReviewSubmit(e) {
-    e.preventDefault();
-    setReviewError('');
-    setReviewSuccess('');
-    if (!reviewOrderId) return setReviewError(t('productDetail.noEligibleOrder'));
-    setReviewLoading(true);
+  async function handleWalletPay() {
+    if (!user) return navigate('/login');
+    if (walletPollingIntervalRef.current) {
+      clearInterval(walletPollingIntervalRef.current);
+      walletPollingIntervalRef.current = null;
+    }
+    if (walletPollingTimeoutRef.current) {
+      clearTimeout(walletPollingTimeoutRef.current);
+      walletPollingTimeoutRef.current = null;
+    }
+
+    setWalletLoading(true);
     try {
-      await api.submitReview({ order_id: parseInt(reviewOrderId), rating: reviewRating, comment: reviewComment.trim() || undefined });
-      setReviewSuccess(t('productDetail.reviewSubmitted'));
-      setReviewComment('');
-      setReviewRating(5);
-      loadReviews();
-      api.getProduct(id).then(res => setProduct(res.data ?? res)).catch(() => {});
+      const orderRes = await api.placeOrder({
+        product_id: product.id,
+        quantity: qty,
+        address_id: selectedAddressId || undefined,
+        coupon_code: couponResult ? couponCode.trim() : undefined,
+      });
+      const linkRes = await api.getOrderPaymentLink(orderRes.orderId);
+      setWalletOrderId(orderRes.orderId);
+      setPaymentLink(linkRes.paymentLink);
+      setWalletStatus('pending');
+      setWalletPaymentOpen(true);
+
+      const interval = setInterval(async () => {
+        try {
+          const ordersRes = await api.getOrders({ product_id: product.id });
+          const order = ordersRes.data.find(o => o.id === orderRes.orderId);
+          if (order && order.status === 'paid') {
+            if (mountedRef.current) setWalletStatus('paid');
+            if (walletPollingIntervalRef.current) {
+              clearInterval(walletPollingIntervalRef.current);
+              walletPollingIntervalRef.current = null;
+            }
+            if (walletPollingTimeoutRef.current) {
+              clearTimeout(walletPollingTimeoutRef.current);
+              walletPollingTimeoutRef.current = null;
+            }
+          } else if (order && order.status === 'failed') {
+            if (mountedRef.current) setWalletStatus('failed');
+            if (walletPollingIntervalRef.current) {
+              clearInterval(walletPollingIntervalRef.current);
+              walletPollingIntervalRef.current = null;
+            }
+            if (walletPollingTimeoutRef.current) {
+              clearTimeout(walletPollingTimeoutRef.current);
+              walletPollingTimeoutRef.current = null;
+            }
+          }
+        } catch {}
+      }, 5000);
+      walletPollingIntervalRef.current = interval;
+      walletPollingTimeoutRef.current = setTimeout(() => {
+        if (walletPollingIntervalRef.current) {
+          clearInterval(walletPollingIntervalRef.current);
+          walletPollingIntervalRef.current = null;
+        }
+        walletPollingTimeoutRef.current = null;
+      }, 5 * 60 * 1000); // 5 min
     } catch (e) {
-      setReviewError(getErrorMessage(e));
+      setError(getErrorMessage(e));
     } finally {
-      setReviewLoading(false);
+      setWalletLoading(false);
     }
   }
+
+   const handleReviewSubmit = review.handleReviewSubmit;
 
   if (result) {
     return (
@@ -386,6 +508,11 @@ export default function ProductDetail() {
                   <p style={{ marginTop: 4, fontSize: 13, color: '#555' }}>Paid via path payment using <strong>{result.sourceAsset}</strong></p>
                 )}
                 <p style={{ marginTop: 4, fontSize: 12, wordBreak: 'break-all', color: '#555' }}>TX: {result.txHash}</p>
+                {result.bundleDiscount && (
+                  <p style={{ marginTop: 4, fontSize: 13, color: '#2d6a4f' }}>
+                    🏷️ Bundle discount applied: −{result.bundleDiscount.amount.toFixed(4)} XLM ({result.bundleDiscount.percent}% off for {result.bundleDiscount.minProducts}+ products)
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -416,11 +543,16 @@ export default function ProductDetail() {
     <div style={s.page}>
       <Helmet>
         <title>{shareTitle}</title>
+        <meta name="description" content={shareDescription} />
         <meta property="og:title" content={shareTitle} />
         <meta property="og:description" content={shareDescription} />
         <meta property="og:url" content={shareUrl} />
         <meta property="og:type" content="product" />
         {shareImage ? <meta property="og:image" content={shareImage} /> : null}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={shareTitle} />
+        <meta name="twitter:description" content={shareDescription} />
+        {shareImage ? <meta name="twitter:image" content={shareImage} /> : null}
       </Helmet>
       <div style={s.card}>
         {product.video_url ? (
@@ -436,7 +568,7 @@ export default function ProductDetail() {
         {images.length > 0 ? (
           <div style={{ marginBottom: 16 }}>
             <div style={{ position: 'relative' }}>
-              <img src={images[activeImg].url} alt={`${product.name} photo ${activeImg + 1}`} style={s.galleryMain} />
+              <img src={images[safeActiveImg].url} alt={`${product.name} photo ${safeActiveImg + 1}`} style={s.galleryMain} />
               {images.length > 1 && (
                 <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: '100%', display: 'flex', justifyContent: 'space-between', padding: '0 8px', boxSizing: 'border-box', pointerEvents: 'none' }}>
                   <button style={{ ...s.navBtn, pointerEvents: 'all' }} onClick={() => setActiveImg(i => (i - 1 + images.length) % images.length)} aria-label={t('productDetail.previousImage')}>‹</button>
@@ -448,7 +580,7 @@ export default function ProductDetail() {
               <div style={s.thumbRow}>
                 {images.map((img, i) => (
                   <img key={img.id} src={img.url} alt={t('productDetail.thumbnail', { n: i + 1 })}
-                    style={{ ...s.thumb, ...(i === activeImg ? s.thumbActive : {}) }} onClick={() => setActiveImg(i)} />
+                    style={{ ...s.thumb, ...(i === safeActiveImg ? s.thumbActive : {}) }} onClick={() => setActiveImg(i)} />
                 ))}
               </div>
             )}
@@ -492,6 +624,17 @@ export default function ProductDetail() {
         <div style={s.desc}>
           {product.description || "Fresh from the farm."}
         </div>
+
+        {product.farm_lat != null && product.farm_lng != null ? (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#2d6a4f', marginBottom: 12 }}>Farm Location</div>
+            <MapView lat={product.farm_lat} lng={product.farm_lng} farmerName={product.farmer_name} />
+          </div>
+        ) : (
+          <div style={{ marginBottom: 20, padding: '16px', borderRadius: 10, background: '#f8fdf9', color: '#555' }}>
+            Location not provided
+          </div>
+        )}
 
         <ShareButtons
           title={shareTitle}
@@ -697,13 +840,35 @@ export default function ProductDetail() {
         )}
 
         <div style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
-          {t('productDetail.inStock', { qty: product.quantity, unit: product.unit })}
+          {t('productDetail.inStock', { qty: currentStock, unit: product.unit })}
+          {currentStock > 0 && currentStock <= 5 && (
+            <span style={{ marginLeft: 8, color: '#c0392b', fontWeight: 700 }}>
+              ⚠️ Only {currentStock} left!
+            </span>
+          )}
           {product.min_order_quantity > 1 && (
             <span style={{ marginLeft: 10, color: '#e67e22', fontWeight: 600 }}>
               Min. order: {product.min_order_quantity} {product.unit}
             </span>
           )}
         </div>
+        {product.harvest_date && (
+          <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
+            Harvested: {new Date(product.harvest_date).toLocaleDateString()}
+          </div>
+        )}
+        {product.best_before && (
+          <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
+            Best before: {new Date(product.best_before).toLocaleDateString()}
+          </div>
+        )}
+        {(product.available_from || product.available_until) && (
+          <div style={{ fontSize: 13, color: '#2d6a4f', background: '#f0faf4', border: '1px solid #b7e4c7', borderRadius: 6, padding: '6px 10px', marginBottom: 12, display: 'inline-block' }}>
+            🗓 Availability window:
+            {product.available_from ? ` from ${new Date(product.available_from).toLocaleString()}` : ''}
+            {product.available_until ? ` until ${new Date(product.available_until).toLocaleString()}` : ''}
+          </div>
+        )}
 
         {product.pricing_type === 'weight' ? (
           <div style={{ marginBottom: 20 }}>
@@ -728,9 +893,9 @@ export default function ProductDetail() {
         ) : (
           <div style={s.row}>
             <label style={{ fontSize: 14 }}>{t('productDetail.quantity')}</label>
-            <input style={s.input} type="number" min={product.min_order_quantity || 1} max={product.quantity} value={qty}
+            <input style={s.input} type="number" min={product.min_order_quantity || 1} max={currentStock} value={qty}
               onChange={e => {
-                setQty(Math.max(product.min_order_quantity || 1, Math.min(product.quantity, parseInt(e.target.value) || (product.min_order_quantity || 1))));
+                setQty(Math.max(product.min_order_quantity || 1, Math.min(currentStock, parseInt(e.target.value) || (product.min_order_quantity || 1))));
                 setCouponResult(null);
                 setCouponError('');
               }} />
@@ -756,7 +921,7 @@ export default function ProductDetail() {
           </div>
         )}
 
-        {user?.role === 'buyer' && product.quantity > 0 && (
+        {user?.role === 'buyer' && currentStock > 0 && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
@@ -795,10 +960,13 @@ export default function ProductDetail() {
               <div style={{ fontWeight: 600, color: '#2d6a4f' }}>Farmer receives: {feeInfo.farmerAmount.toFixed(7)} XLM</div>
             </div>
           )}
+          <div style={{ marginTop: 6, fontSize: 12, color: '#2d6a4f' }}>
+            🏷️ Bundle discount may apply if you order multiple products from this farmer
+          </div>
         </div>
 
         {/* Path payment asset selector */}
-        {user?.role === 'buyer' && product.quantity > 0 && (
+        {user?.role === 'buyer' && currentStock > 0 && (
           <div style={{ marginBottom: 16 }}>
             <label style={s.label}>Pay with</label>
             <select
@@ -876,7 +1044,7 @@ export default function ProductDetail() {
           </div>
         )}
 
-        {product.quantity === 0 ? (
+        {currentStock === 0 ? (
           <div>
             <div style={{ color: '#c0392b', fontWeight: 600, marginBottom: 12 }}>{t('productDetail.outOfStock')}</div>
             {user?.role === 'buyer' && (
@@ -894,10 +1062,44 @@ export default function ProductDetail() {
               </label>
             )}
             <button style={{ ...s.btn, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
-              onClick={handleBuy} disabled={loading || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}>
+              onClick={handleBuy}
+              disabled={loading || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}
+              aria-disabled={loading}
+              aria-busy={loading}
+              data-testid="buy-now-btn">
               {loading && <div className="spinner-sm" style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />}
               {loading ? t('productDetail.processing') : `${useEscrow ? t('productDetail.payToEscrow') : t('productDetail.buyNow')} · ${sourceAsset && pathEstimate ? `~${pathEstimate.sourceAmount.toFixed(4)} ${pathEstimate.sourceCode}` : `${total} XLM`}`}
             </button>
+            {user?.role === 'buyer' && (
+              <button style={{ ...s.btn, background: '#1e40af', marginBottom: 12 }} onClick={handleWalletPay} disabled={walletLoading || currentStock === 0}>
+                {walletLoading ? '...' : `💳 Pay with Stellar Wallet · ${total} XLM`}
+              </button>
+            )}
+            <button style={{ ...s.btn, marginTop: 12, background: '#006d77', fontSize: 14 }} onClick={handleGeneratePaymentLink} disabled={paymentLinkLoading || loading}>
+              {paymentLinkLoading ? '...' : 'Pay with Stellar Wallet (SEP-0007)'}
+            </button>
+            {paymentLinkError && <div style={{ ...s.err, marginTop: 8 }}>{paymentLinkError}</div>}
+            {paymentLinkData && (
+              <div style={{ marginTop: 16, padding: 12, border: '1px solid #ddd', borderRadius: 8, background: '#f9fff9' }}>
+                <div style={{ marginBottom: 8, fontWeight: 600 }}>SEP-0007 Payment Link</div>
+                <a href={paymentLinkData.paymentLink} target="_blank" rel="noreferrer" style={{ wordBreak: 'break-all', color: '#1b4332' }}>
+                  {paymentLinkData.paymentLink}
+                </a>
+                <div style={{ marginTop: 8, fontSize: 12, color: '#555' }}>
+                  Expires at: {new Date(paymentLinkData.expiresAt).toLocaleString()}
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <img
+                    src={api.getOrderPaymentLinkQr(paymentLinkData.orderId)}
+                    alt="Payment link QR"
+                    style={{ width: 220, height: 220, borderRadius: 10, border: '1px solid #e0e0e0' }}
+                  />
+                </div>
+                <button style={{ ...s.btnSm, marginTop: 8 }} onClick={() => navigator.clipboard.writeText(paymentLinkData.paymentLink)}>
+                  Copy payment link
+                </button>
+              </div>
+            )}
             <style>{`@keyframes spin { to { transform: rotate(360deg); } } .spinner-sm { display: inline-block; }`}</style>
           </>
         )}
@@ -920,34 +1122,34 @@ export default function ProductDetail() {
           ))
         )}
 
-        {user?.role === 'buyer' && paidOrders.length > 0 && !reviewSuccess && (
-          <form onSubmit={handleReviewSubmit} style={{ marginTop: 24, borderTop: '1px solid #f0f0f0', paddingTop: 20 }}>
-            <div style={{ ...s.sectionTitle, fontSize: 15, marginBottom: 12 }}>{t('productDetail.leaveReview')}</div>
-            {paidOrders.length > 1 && (
-              <div style={{ marginBottom: 12 }}>
-                <label style={s.label}>{t('productDetail.order')}</label>
-                <select style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}
-                  value={reviewOrderId} onChange={e => setReviewOrderId(e.target.value)}>
-                  {paidOrders.map(o => <option key={o.id} value={o.id}>Order #{o.id} — {o.quantity} {o.unit}</option>)}
-                </select>
-              </div>
-            )}
-            <div style={{ marginBottom: 12 }}>
-              <label style={s.label}>{t('productDetail.rating')}</label>
-              <StarRating value={reviewRating} size={28} onChange={setReviewRating} />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={s.label}>{t('productDetail.comment')}</label>
-              <textarea style={s.textarea} placeholder={t('productDetail.commentPlaceholder')}
-                value={reviewComment} onChange={e => setReviewComment(e.target.value)} maxLength={1000} />
-            </div>
-            {reviewError && <div style={s.err}>{reviewError}</div>}
-            <button type="submit" style={s.btnSm} disabled={reviewLoading}>
-              {reviewLoading ? t('productDetail.submitting') : t('productDetail.submitReview')}
-            </button>
-          </form>
-        )}
-        {reviewSuccess && <div style={{ ...s.success, marginTop: 16 }}>{reviewSuccess}</div>}
+         {user?.role === 'buyer' && paidOrders.length > 0 && !review.reviewSuccess && (
+           <form onSubmit={handleReviewSubmit} style={{ marginTop: 24, borderTop: '1px solid #f0f0f0', paddingTop: 20 }}>
+             <div style={{ ...s.sectionTitle, fontSize: 15, marginBottom: 12 }}>{t('productDetail.leaveReview')}</div>
+             {paidOrders.length > 1 && (
+               <div style={{ marginBottom: 12 }}>
+                 <label style={s.label}>{t('productDetail.order')}</label>
+                 <select style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}
+                   value={review.reviewOrderId} onChange={e => review.setReviewOrderId(e.target.value)}>
+                   {paidOrders.map(o => <option key={o.id} value={o.id}>Order #{o.id} — {o.quantity} {o.unit}</option>)}
+                 </select>
+               </div>
+             )}
+             <div style={{ marginBottom: 12 }}>
+               <label style={s.label}>{t('productDetail.rating')}</label>
+               <StarRating value={review.reviewRating} size={28} onChange={review.setReviewRating} />
+             </div>
+             <div style={{ marginBottom: 14 }}>
+               <label style={s.label}>{t('productDetail.comment')}</label>
+               <textarea style={s.textarea} placeholder={t('productDetail.commentPlaceholder')}
+                 value={review.reviewComment} onChange={e => review.setReviewComment(e.target.value)} maxLength={1000} />
+             </div>
+             {review.reviewError && <div style={s.err}>{review.reviewError}</div>}
+             <button type="submit" style={s.btnSm} disabled={review.reviewLoading}>
+               {review.reviewLoading ? t('productDetail.submitting') : t('productDetail.submitReview')}
+             </button>
+           </form>
+         )}
+         {review.reviewSuccess && <div style={{ ...s.success, marginTop: 16 }}>{review.reviewSuccess}</div>}
       </div>
     </div>
   );

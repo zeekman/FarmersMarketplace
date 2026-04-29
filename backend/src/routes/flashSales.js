@@ -16,12 +16,16 @@ router.patch('/:id/flash-sale', auth, async (req, res) => {
     ? new Date(req.body.flash_sale_ends_at)
     : null;
 
-  const { rows } = await db.query('SELECT id, farmer_id, price FROM products WHERE id = $1', [id]);
+  const { rows } = await db.query('SELECT id, farmer_id, price, flash_sale_ends_at FROM products WHERE id = $1', [id]);
   const product = rows[0];
   if (!product) return err(res, 404, 'Product not found', 'not_found');
   if (product.farmer_id !== req.user.id) return err(res, 403, 'Not your product', 'forbidden');
 
   if (flashSalePrice != null) {
+    // Check for overlapping flash sales
+    if (product.flash_sale_ends_at && new Date(product.flash_sale_ends_at) > new Date()) {
+      return err(res, 409, 'Cannot create overlapping flash sales on the same product', 'flash_sale_overlap');
+    }
     if (!Number.isFinite(flashSalePrice) || flashSalePrice <= 0) {
       return err(res, 400, 'flash_sale_price must be a positive number', 'validation_error');
     }

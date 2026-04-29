@@ -32,7 +32,11 @@ describe('GET /api/wallet', () => {
 describe('GET /api/wallet/transactions', () => {
   it('returns transaction list', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ stellar_public_key: 'GPUB' }], rowCount: 1 });
-    stellar.getTransactions.mockResolvedValueOnce([{ id: 'tx1', amount: '10' }]);
+    stellar.getTransactions.mockResolvedValueOnce({
+      records: [{ id: 'tx1', amount: '10' }],
+      next_cursor: null,
+      prev_cursor: null,
+    });
     const res = await request(app)
       .get('/api/wallet/transactions')
       .set('Authorization', `Bearer ${token}`);
@@ -219,5 +223,59 @@ describe('POST /api/wallet/send', () => {
       .set('X-CSRF-Token', csrf)
       .send(validBody);
     expect(res.status).toBe(401);
+  });
+});
+
+describe('PATCH /api/wallet/budget', () => {
+  const { token: csrf, cookieStr } = {};
+
+  async function patchBudget(body) {
+    const csrfData = await getCsrf();
+    return request(app)
+      .patch('/api/wallet/budget')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Cookie', csrfData.cookieStr)
+      .set('X-CSRF-Token', csrfData.token)
+      .send(body);
+  }
+
+  it('should_accept_valid_monthly_limit', async () => {
+    // GET monthly_budget + GET spent
+    mockQuery
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE
+      .mockResolvedValueOnce({ rows: [{ monthly_budget: 1000 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ spent: '0' }], rowCount: 1 });
+
+    const res = await patchBudget({ monthly_limit: 1000 });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.budgetGuardEnabled).toBe(true);
+  });
+
+  it('should_reject_negative_monthly_limit', async () => {
+    const res = await patchBudget({ monthly_limit: -100 });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/cannot be negative/i);
+  });
+
+  it('should_disable_budget_guard_on_zero', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE sets null
+      .mockResolvedValueOnce({ rows: [{ monthly_budget: null }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ spent: '0' }], rowCount: 1 });
+
+    const res = await patchBudget({ monthly_limit: 0 });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // 0 disables the guard — stored as null, budgetGuardEnabled should be false
+    expect(res.body.budgetGuardEnabled).toBe(false);
+  });
+
+  it('should_reject_non_numeric_monthly_limit', async () => {
+    const res = await patchBudget({ monthly_limit: 'abc' });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/must be a number/i);
   });
 });

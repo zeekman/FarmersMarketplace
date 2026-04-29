@@ -19,10 +19,18 @@ const helmet = require('helmet');
 const { enforceHttps, hsts } = require('./middleware/https');
 const { csrfProtect, csrfTokenHandler } = require('./middleware/csrf');
 const { errorHandler } = require('./middleware/error');
+const { notFoundHandler } = require('./middleware/error');
 const { sanitizeResponse } = require('./middleware/sanitize');
 const requestLogger = require('./middleware/requestLogger');
 
 const app = express();
+
+// Configure proxy trust based on environment
+// In production, set TRUST_PROXY to the number of proxies or 'true' for all
+const trustProxy = process.env.TRUST_PROXY || (process.env.NODE_ENV === 'production' ? 1 : false);
+if (trustProxy) {
+  app.set('trust proxy', trustProxy);
+}
 
 app.use(requestLogger);
 app.use(enforceHttps);
@@ -51,9 +59,6 @@ app.use(helmet({
 }));
 
 const corsOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
-const allowedOrigins = corsOrigins.split(',').map(o => o.trim());
-const corsOrigins =
-  process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
 const allowedOrigins = corsOrigins.split(',').map((o) => o.trim());
 
 app.use(
@@ -95,6 +100,7 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 app.use(require('./routes'));
+app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Start background jobs (skip in test to avoid open handles)

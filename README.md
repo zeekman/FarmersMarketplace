@@ -210,6 +210,42 @@ DATABASE_URL=postgresql://user:pass@host:5432/dbname \
   node backend/scripts/migrate-sqlite-to-pg.js
 ```
 
+## Contract Testing (Soroban)
+
+Test Soroban contracts against a local Stellar node using the built-in test harness.
+
+### Start the local node
+
+```bash
+docker-compose -f docker-compose.test.yml up -d
+```
+
+This starts a `stellar/quickstart` node on port 8000 with Soroban RPC enabled.
+
+### Run contract tests
+
+```bash
+cd backend
+npm run test:contracts
+```
+
+### Test helpers
+
+`backend/src/__tests__/helpers/soroban.js` exposes:
+
+- `fundAccount(publicKey)` — fund via local Friendbot
+- `deployContract(wasmBuffer, keypair)` — upload WASM and create contract instance
+- `invokeContract(contractId, method, args, keypair)` — call a contract function
+
+### Environment variables (optional)
+
+| Variable | Default | Description |
+|---|---|---|
+| `TEST_HORIZON_URL` | `http://localhost:8000` | Local Horizon endpoint |
+| `TEST_SOROBAN_RPC_URL` | `http://localhost:8000/soroban/rpc` | Local Soroban RPC |
+| `TEST_NETWORK_PASSPHRASE` | `Standalone Network ; February 2017` | Local network passphrase |
+| `SKIP_CONTRACT_TESTS` | `false` | Set to `true` to skip in CI without Docker |
+
 ## Notes
 
 - Stellar wallets are auto-created on registration

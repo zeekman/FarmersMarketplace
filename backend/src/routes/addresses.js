@@ -22,6 +22,12 @@ router.post('/', auth, async (req, res) => {
   if (!label || !street || !city || !country)
     return err(res, 400, 'label, street, city, and country are required', 'validation_error');
 
+  const maxAddresses = parseInt(process.env.MAX_ADDRESSES_PER_USER, 10) || 10;
+  const { rows: countRows } = await db.query('SELECT COUNT(*) as count FROM addresses WHERE user_id = $1', [req.user.id]);
+  if (parseInt(countRows[0].count, 10) >= maxAddresses) {
+    return err(res, 422, 'Maximum number of addresses reached', 'address_limit_reached');
+  }
+
   if (is_default)
     await db.query('UPDATE addresses SET is_default = 0 WHERE user_id = $1', [req.user.id]);
 

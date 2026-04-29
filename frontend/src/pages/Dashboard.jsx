@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 
 const s = {
@@ -17,6 +18,18 @@ const s = {
   msg: { padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 14 },
 };
 
+function getEmptyForm() {
+  return {
+    name: '',
+    description: '',
+    price: '',
+    quantity: '',
+    unit: 'kg',
+    category: 'other',
+    is_preorder: false,
+    preorder_delivery_date: '',
+  };
+}
 const EMPTY_FORM = {
   name: '',
   description: '',
@@ -43,37 +56,59 @@ const EMPTY_FORM = {
     fiber: '',
     vitamins: {},
   },
+  harvest_date: '',
+  best_before: '',
+  available_from: '',
+  available_until: '',
 };
 
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import { getErrorMessage } from '../utils/errorMessages';
 
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_SIZE_MB = 5;
+const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+
 export default function Dashboard() {
   const { user } = useAuth();
   const { t } = useTranslation();
   const [products, setProducts] = useState([]);
+  const [form, setForm] = useState(getEmptyForm);
+  const [restockVals, setRestockVals] = useState({});
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [harvestBatches, setHarvestBatches] = useState([]);
   const [batchForm, setBatchForm] = useState({ batch_code: '', harvest_date: '', notes: '' });
   const [batchMsg, setBatchMsg] = useState(null);
   const [msg, setMsg] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [auctionForm, setAuctionForm] = useState({ product_id: '', start_price: '', ends_at: '' });
   const [auctionMsg, setAuctionMsg] = useState(null);
   const [formErrors, setFormErrors] = useState({});
   const [sales, setSales] = useState([]);
   const [salesMsg, setSalesMsg] = useState({});
   const [forecastByProduct, setForecastByProduct] = useState({});
+  const [waitlistAnalytics, setWaitlistAnalytics] = useState([]);
   const [videoUploadingByProduct, setVideoUploadingByProduct] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [flashSaleForm, setFlashSaleForm] = useState({ product_id: '', flash_sale_price: '', flash_sale_ends_at: '' });
   const [flashSaleMsg, setFlashSaleMsg] = useState(null);
 
+  // bulk price update state
+  const [bulkPriceSelections, setBulkPriceSelections] = useState({}); // { [productId]: newPrice }
+  const [bulkAdjustPct, setBulkAdjustPct] = useState('');
+  const [bulkPriceMsg, setBulkPriceMsg] = useState(null);
+
   // bundle state
   const [bundles, setBundles] = useState([]);
   const [bundleForm, setBundleForm] = useState({ name: '', description: '', price: '', items: [{ product_id: '', quantity: 1 }] });
   const [bundleMsg, setBundleMsg] = useState(null);
+
+  // bundle discount state
+  const [bundleDiscounts, setBundleDiscounts] = useState([]);
+  const [bdForm, setBdForm] = useState({ min_products: '', discount_percent: '' });
+  const [bdMsg, setBdMsg] = useState(null);
 
   // image state
   const [imageFile, setImageFile] = useState(null);
@@ -212,7 +247,6 @@ export default function Dashboard() {
     setError(null);
     try {
       const [productsRes, salesRes, profileRes, bundlesRes, couponsRes, coopsRes, batchesRes, forecastRes] = await Promise.all([
-      const [productsRes, salesRes, profileRes, bundlesRes, couponsRes, coopsRes, forecastRes] = await Promise.all([
         api.getMyProducts().catch(() => ({ data: [] })),
         api.getSales().catch(() => ({ data: [] })),
         user?.id ? api.getFarmer(user.id).catch(() => ({})) : Promise.resolve({}),
@@ -239,10 +273,17 @@ export default function Dashboard() {
       });
       setForecastByProduct(forecastMap);
 
+      // Waitlist analytics
+      const waitlistRes = await api.getWaitlistAnalytics().catch(() => ({ data: [] }));
+      setWaitlistAnalytics(waitlistRes.data ?? []);
+
       const allPending = await Promise.all(
         coops.map(c => api.getPendingTxs(c.id).then(r => (r.data ?? []).map(t => ({ ...t, coopName: c.name }))).catch(() => []))
       );
       setPendingTxs(allPending.flat().filter(t => t.status === 'pending' && !t.alreadySigned));
+
+      const bdRes = await api.getBundleDiscounts().catch(() => ({ data: [] }));
+      setBundleDiscounts(bdRes.data ?? []);
 
       if (profileRes.data) {
         const d = profileRes.data;
@@ -369,30 +410,15 @@ export default function Dashboard() {
   async function handleAdd(e) {
     e.preventDefault();
     setMsg(null);
-    const nutritionData = {};
-    if (form.nutrition.calories) nutritionData.calories = parseFloat(form.nutrition.calories);
-    if (form.nutrition.protein) nutritionData.protein = parseFloat(form.nutrition.protein);
-    if (form.nutrition.carbs) nutritionData.carbs = parseFloat(form.nutrition.carbs);
-    if (form.nutrition.fat) nutritionData.fat = parseFloat(form.nutrition.fat);
-    if (form.nutrition.fiber) nutritionData.fiber = parseFloat(form.nutrition.fiber);
-
-    const batchId = form.batch_id ? parseInt(form.batch_id, 10) : undefined;
-    const payload = {
-      ...form,
-      price: parseFloat(form.price),
-      quantity: parseInt(form.quantity, 10),
-      is_preorder: form.is_preorder ? 1 : 0,
-      preorder_delivery_date: form.is_preorder ? form.preorder_delivery_date : null,
-      image_url: imageUrl || undefined,
-      nutrition: Object.keys(nutritionData).length > 0 ? nutritionData : undefined,
-      pricing_type: form.pricing_type || 'unit',
-      min_weight: form.pricing_type === 'weight' ? parseFloat(form.min_weight) : undefined,
-      max_weight: form.pricing_type === 'weight' ? parseFloat(form.max_weight) : undefined,
-      batch_id: Number.isFinite(batchId) ? batchId : undefined,
-    };
-
-    try {
-      await api.createProduct(payload);
+    const newErrors = {};
+    if (form.is_preorder) {
+      if (!form.preorder_delivery_date) {
+        newErrors.preorder_delivery_date = 'Date must be in YYYY-MM-DD format';
+      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(form.preorder_delivery_date)) {
+        newErrors.preorder_delivery_date = 'Date must be in YYYY-MM-DD format';
+      }
+    }
+    if (Object.keys(newErrors).length > 0) { setFormErrors(newErrors); return; }
     setFormErrors({});
     let finalImageUrl = imageUrl;
 
@@ -418,6 +444,8 @@ export default function Dashboard() {
       if (form.nutrition.fat) nutritionData.fat = parseFloat(form.nutrition.fat);
       if (form.nutrition.fiber) nutritionData.fiber = parseFloat(form.nutrition.fiber);
 
+      const batchId = form.batch_id ? parseInt(form.batch_id, 10) : undefined;
+
       await api.createProduct({
         ...form,
         price: parseFloat(form.price),
@@ -434,8 +462,12 @@ export default function Dashboard() {
         min_order_quantity: form.min_order_quantity ? parseInt(form.min_order_quantity) : undefined,
         allergens: form.allergens && form.allergens.length > 0 ? form.allergens : undefined,
         allowed_regions: form.allowed_regions && form.allowed_regions.length > 0 ? form.allowed_regions : undefined,
+        available_from: form.available_from || undefined,
+        available_until: form.available_until || undefined,
+        batch_id: Number.isFinite(batchId) ? batchId : undefined,
       });
       setMsg({ type: 'ok', text: t('dashboard.productListedOk') });
+      setForm(getEmptyForm());
       setForm({ ...EMPTY_FORM });
       removeImage();
       load();
@@ -445,8 +477,19 @@ export default function Dashboard() {
   }
 
   async function handleDelete(id) {
-    if (!confirm('Remove this product?')) return;
-    try { await api.deleteProduct(id); load(); } catch { /* ignore */ }
+    const product = products.find(p => p.id === id);
+    if (!product) return;
+    const openOrders = sales.filter(o => o.product_id === id && ['pending', 'paid', 'processing', 'shipped'].includes(o.status)).length;
+    setDeleteConfirm({ id, name: product.name, openOrders });
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirm) return;
+    try {
+      await api.deleteProduct(deleteConfirm.id);
+      setDeleteConfirm(null);
+      load();
+    } catch { /* ignore */ }
   }
 
   async function handleCreateAuction(e) {
@@ -490,9 +533,138 @@ export default function Dashboard() {
     }
   }
 
+  const [salesExportFrom, setSalesExportFrom] = React.useState('');
+  const [salesExportTo, setSalesExportTo] = React.useState('');
+
+  function triggerExport(path) {
+    const token = localStorage.getItem('token');
+    window.location.href = `/api${path}&_token=${encodeURIComponent(token || '')}`;
+  }
+
+  function exportProducts(format) {
+    const token = localStorage.getItem('token');
+    const a = document.createElement('a');
+    a.href = `/api/products/export?format=${format}`;
+    // Use fetch to pass auth header, then trigger download
+    fetch(a.href, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        Object.assign(document.createElement('a'), { href: url, download: `products.${format}` }).click();
+        URL.revokeObjectURL(url);
+      });
+  }
+
+  function exportSales(format) {
+    const token = localStorage.getItem('token');
+    const qs = new URLSearchParams({ format, ...(salesExportFrom && { from: salesExportFrom }), ...(salesExportTo && { to: salesExportTo }) });
+    fetch(`/api/orders/sales/export?${qs}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        Object.assign(document.createElement('a'), { href: url, download: `sales.${format}` }).click();
+        URL.revokeObjectURL(url);
+      });
+  }
+
+  async function handleBulkPriceUpdate() {
+    setBulkPriceMsg(null);
+    const updates = Object.entries(bulkPriceSelections)
+      .filter(([, price]) => price !== '')
+      .map(([id, price]) => ({ id: Number(id), price: parseFloat(price) }));
+
+    if (updates.length === 0 && bulkAdjustPct === '') {
+      setBulkPriceMsg({ type: 'err', text: 'Select products and enter prices, or enter a % adjustment.' });
+      return;
+    }
+
+    const adjustmentPercent = bulkAdjustPct !== '' ? parseFloat(bulkAdjustPct) : undefined;
+    const payload = adjustmentPercent != null
+      ? { updates: products.map((p) => ({ id: p.id })), adjustment_percent: adjustmentPercent }
+      : { updates };
+
+    try {
+      const res = await api.bulkUpdatePrices(payload.updates, payload.adjustment_percent);
+      const { updated, failed } = res.data;
+      setBulkPriceMsg({ type: 'ok', text: `Updated ${updated.length} product(s).${failed.length ? ` ${failed.length} failed.` : ''}` });
+      setBulkPriceSelections({});
+      setBulkAdjustPct('');
+      load();
+    } catch (e) {
+      setBulkPriceMsg({ type: 'err', text: e.message || 'Bulk update failed' });
+    }
+  }
+
   return (
     <div style={s.page}>
+      {deleteConfirm && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-modal-title"
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+        >
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 400, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+            <div id="delete-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 10, color: '#333' }}>
+              Delete {deleteConfirm.name}? This cannot be undone.
+            </div>
+            {deleteConfirm.openOrders > 0 && (
+              <p style={{ fontSize: 14, color: '#c0392b', marginBottom: 20 }}>
+                This product has {deleteConfirm.openOrders} open order{deleteConfirm.openOrders > 1 ? 's' : ''}. Deleting it may affect buyers.
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteConfirm(null)} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                Cancel
+              </button>
+              <button onClick={confirmDelete} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#c0392b', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <Helmet>
+        <title>Farmer Dashboard – Farmers Marketplace</title>
+        <meta name="description" content="Manage your product listings, track sales, and grow your farm business on Farmers Marketplace." />
+      </Helmet>
       <div style={s.title}>🌾 Farmer Dashboard</div>
+
+      {/* Waitlist Analytics */}
+      {waitlistAnalytics.length > 0 && (
+        <div style={{ ...s.card, marginBottom: 24 }}>
+          <h3 style={{ marginBottom: 12, color: '#333' }}>📋 Waitlist Analytics</h3>
+          {waitlistAnalytics.some((r) => r.alert) && (
+            <div style={{ background: '#fff3cd', color: '#856404', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 14, fontWeight: 600 }}>
+              ⚠️ Some products have more than 10 buyers waiting — consider restocking!
+            </div>
+          )}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid #eee' }}>
+                <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>Product</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>Queue</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>Avg Wait (hrs)</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>Conversion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {waitlistAnalytics.map((r) => (
+                <tr key={r.product_id} style={{ borderBottom: '1px solid #f0f0f0', background: r.alert ? '#fff8e1' : 'transparent' }}>
+                  <td style={{ padding: '6px 8px', fontWeight: 600 }}>
+                    {r.product_name}
+                    {r.alert && <span style={{ marginLeft: 6, fontSize: 11, background: '#f9a825', color: '#fff', borderRadius: 4, padding: '1px 6px' }}>High demand</span>}
+                  </td>
+                  <td style={{ padding: '6px 8px' }}>{r.queue_length}</td>
+                  <td style={{ padding: '6px 8px' }}>{r.avg_wait_hours != null ? r.avg_wait_hours : '—'}</td>
+                  <td style={{ padding: '6px 8px' }}>{r.conversion_rate != null ? `${r.conversion_rate}%` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div style={{ ...s.card, marginBottom: 24 }}>
         <h3 style={{ marginBottom: 12, color: '#333' }}>Flash Sales</h3>
         {flashSaleMsg && <div style={{ ...s.msg, background: flashSaleMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: flashSaleMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>{flashSaleMsg.text}</div>}
@@ -526,6 +698,59 @@ export default function Dashboard() {
           ))}
         </div>
       </div>
+
+      {/* Bulk Price Update */}
+      <div style={{ ...s.card, marginBottom: 24 }}>
+        <h3 style={{ marginBottom: 12, color: '#333' }}>💰 Bulk Price Update</h3>
+        {bulkPriceMsg && (
+          <div style={{ ...s.msg, background: bulkPriceMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: bulkPriceMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
+            {bulkPriceMsg.text}
+          </div>
+        )}
+        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ ...s.label, marginBottom: 0 }}>% Adjustment (all products):</label>
+          <input
+            style={{ ...s.input, width: 100, marginBottom: 0 }}
+            type="number"
+            step="any"
+            placeholder="e.g. +10"
+            value={bulkAdjustPct}
+            onChange={(e) => setBulkAdjustPct(e.target.value)}
+          />
+          <span style={{ fontSize: 13, color: '#888' }}>or set individual prices below</span>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, marginBottom: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: '2px solid #eee' }}>
+              <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>Product</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>Current Price (XLM)</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>New Price (XLM)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {products.map((p) => (
+              <tr key={p.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                <td style={{ padding: '6px 8px' }}>{p.name}</td>
+                <td style={{ padding: '6px 8px', color: '#666' }}>{p.price}</td>
+                <td style={{ padding: '6px 8px' }}>
+                  <input
+                    style={{ ...s.input, width: 100, marginBottom: 0, padding: '5px 8px' }}
+                    type="number"
+                    min="0.0000001"
+                    step="any"
+                    placeholder="—"
+                    value={bulkPriceSelections[p.id] || ''}
+                    onChange={(e) => setBulkPriceSelections((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                    disabled={bulkAdjustPct !== ''}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <button style={s.btn} onClick={handleBulkPriceUpdate}>Apply Price Update</button>
+      </div>
+
       <div style={s.grid}>
         <div style={s.card}>
           <h3 style={{ marginBottom: 16, color: '#333' }}>Add New Product</h3>
@@ -839,6 +1064,38 @@ export default function Dashboard() {
               </>
             )}
 
+            <label style={s.label}>Harvest Date (optional)</label>
+            <input
+              style={s.input}
+              type="date"
+              value={form.harvest_date}
+              onChange={e => setForm({ ...form, harvest_date: e.target.value })}
+            />
+
+            <label style={s.label}>Best Before Date (optional)</label>
+            <input
+              style={s.input}
+              type="date"
+              value={form.best_before}
+              onChange={e => setForm({ ...form, best_before: e.target.value })}
+            />
+
+            <label style={s.label}>Available From (optional)</label>
+            <input
+              style={s.input}
+              type="datetime-local"
+              value={form.available_from}
+              onChange={e => setForm({ ...form, available_from: e.target.value })}
+            />
+
+            <label style={s.label}>Available Until (optional)</label>
+            <input
+              style={s.input}
+              type="datetime-local"
+              value={form.available_until}
+              onChange={e => setForm({ ...form, available_until: e.target.value })}
+            />
+
             {/* Image upload */}
             <label style={s.label}>{t('dashboard.productImage')} <span style={{ color: '#aaa', fontWeight: 400 }}>{t('dashboard.imageHint')}</span></label>
 
@@ -882,6 +1139,10 @@ export default function Dashboard() {
 
         <div style={s.card}>
           <h3 style={{ marginBottom: 16, color: '#333' }}>My Listings ({products.length})</h3>
+          <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+            <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportProducts('csv')}>⬇ CSV</button>
+            <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportProducts('pdf')}>⬇ PDF</button>
+          </div>
           {products.length === 0 && <p style={{ color: '#888', fontSize: 14 }}>No products yet. Add your first listing.</p>}
           {products.map(p => (
             <div key={p.id} style={s.product}>
@@ -1243,6 +1504,12 @@ export default function Dashboard() {
         <h3 style={{ padding: '16px 20px', borderBottom: '1px solid #eee', margin: 0, color: '#333' }}>
           📋 {t('dashboard.incomingOrders', { count: sales.length })}
         </h3>
+        <div style={{ padding: '12px 20px', borderBottom: '1px solid #eee', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <input type="date" value={salesExportFrom} onChange={e => setSalesExportFrom(e.target.value)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }} placeholder="From" />
+          <input type="date" value={salesExportTo} onChange={e => setSalesExportTo(e.target.value)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }} placeholder="To" />
+          <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportSales('csv')}>⬇ CSV</button>
+          <button style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }} onClick={() => exportSales('pdf')}>⬇ PDF</button>
+        </div>
         {sales.length === 0 ? (
           <p style={{ padding: '20px', color: '#888', fontSize: 14 }}>{t('dashboard.noOrders')}</p>
         ) : (
@@ -1267,6 +1534,11 @@ export default function Dashboard() {
                       <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
                         Harvest batch: {o.harvest_batch_code}
                         {o.harvest_batch_date ? ` · ${o.harvest_batch_date}` : ''}
+                      </div>
+                    )}
+                    {o.stellar_memo && (
+                      <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
+                        📝 Memo: <span style={{ fontFamily: 'monospace' }}>{o.stellar_memo}</span>
                       </div>
                     )}
                     {m && <div style={{ fontSize: 12, color: m.type === 'ok' ? '#2d6a4f' : '#c0392b', marginTop: 4 }}>{m.text}</div>}
@@ -1336,6 +1608,77 @@ export default function Dashboard() {
               </div>
             );
           })
+        )}
+      </div>
+
+      {/* Bundle Discount Tiers */}
+      <div style={{ ...s.card, marginTop: 24 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: '#2d6a4f', marginBottom: 12 }}>🏷️ Bundle Discounts</div>
+        <p style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>
+          Buyers who order multiple different products from you get an automatic discount. Add tiers below (e.g. 3+ products = 10% off).
+        </p>
+        {bdMsg && (
+          <div style={{ ...s.msg, background: bdMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: bdMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
+            {bdMsg.text}
+          </div>
+        )}
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBdMsg(null);
+            try {
+              await api.createBundleDiscount({ min_products: parseInt(bdForm.min_products, 10), discount_percent: parseFloat(bdForm.discount_percent) });
+              setBdForm({ min_products: '', discount_percent: '' });
+              const res = await api.getBundleDiscounts();
+              setBundleDiscounts(res.data ?? []);
+              setBdMsg({ type: 'ok', text: 'Discount tier added.' });
+            } catch (err) { setBdMsg({ type: 'error', text: err.message }); }
+          }}
+          style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}
+        >
+          <div>
+            <label style={s.label}>Min. distinct products</label>
+            <input style={{ ...s.input, width: 120 }} type="number" min="2" placeholder="e.g. 3" value={bdForm.min_products} onChange={(e) => setBdForm((f) => ({ ...f, min_products: e.target.value }))} required />
+          </div>
+          <div>
+            <label style={s.label}>Discount %</label>
+            <input style={{ ...s.input, width: 120 }} type="number" min="0.01" max="100" step="0.01" placeholder="e.g. 10" value={bdForm.discount_percent} onChange={(e) => setBdForm((f) => ({ ...f, discount_percent: e.target.value }))} required />
+          </div>
+          <button type="submit" style={s.btn}>Add Tier</button>
+        </form>
+        {bundleDiscounts.length === 0 ? (
+          <div style={{ color: '#888', fontSize: 13 }}>No discount tiers configured.</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '2px solid #eee', color: '#555' }}>Min. products</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '2px solid #eee', color: '#555' }}>Discount</th>
+                <th style={{ padding: '8px 10px', borderBottom: '2px solid #eee' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {bundleDiscounts.map((bd) => (
+                <tr key={bd.id}>
+                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #f0f0f0' }}>{bd.min_products}+ products</td>
+                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #f0f0f0', color: '#2d6a4f', fontWeight: 600 }}>{bd.discount_percent}% off</td>
+                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #f0f0f0', textAlign: 'right' }}>
+                    <button
+                      style={{ background: '#fee', color: '#c0392b', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 }}
+                      onClick={async () => {
+                        if (!confirm('Delete this discount tier?')) return;
+                        try {
+                          await api.deleteBundleDiscount(bd.id);
+                          const res = await api.getBundleDiscounts();
+                          setBundleDiscounts(res.data ?? []);
+                        } catch (err) { setBdMsg({ type: 'error', text: err.message }); }
+                      }}
+                    >Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
