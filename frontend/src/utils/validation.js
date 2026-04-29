@@ -15,9 +15,15 @@ export function validatePassword(password) {
   return issues;
 }
 
-/** Returns true if the email looks valid. */
+/** Returns true if the email looks valid (RFC 5321 compliant). */
 export function isValidEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  // RFC 5321 compliant: allows subdomains, plus-addressing, dots in local part, etc.
+  // Still rejects clearly invalid addresses (missing @, missing TLD, consecutive dots).
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+         /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(email.trim()) &&
+         !/\.\./.test(email) &&
+         !/\.@/.test(email) &&
+         !/@\./.test(email);
 }
 
 /**

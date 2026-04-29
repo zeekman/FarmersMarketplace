@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useEffect, useContext } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { HelmetProvider } from 'react-helmet-async';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { FavoritesProvider } from './context/FavoritesContext';
 import { CompareProvider } from './context/CompareContext';
@@ -7,6 +8,7 @@ import { LoadingProvider, LoadingContext } from './context/LoadingContext';
 import { setLoadingCallback, setLogoutCallback } from './api/client';
 import ErrorBoundary from './components/ErrorBoundary';
 import Navbar from './components/Navbar';
+import AnnouncementBanner from './components/AnnouncementBanner';
 import LoadingSpinner from './components/LoadingSpinner';
 import PageLoader from './components/PageLoader';
 
@@ -59,6 +61,7 @@ function AppContent() {
 
   return (
     <>
+      <AnnouncementBanner />
       <Navbar />
       <LoadingSpinner />
       <main id="main-content" style={{ paddingTop: 24 }}>
@@ -88,16 +91,18 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ErrorBoundary>
-      <AuthProvider>
-        <FavoritesProvider>
-          <CompareProvider>
-            <LoadingProvider>
-              <AppContent />
-            </LoadingProvider>
-          </CompareProvider>
-        </FavoritesProvider>
-      </AuthProvider>
-    </ErrorBoundary>
+    <HelmetProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          <FavoritesProvider>
+            <CompareProvider>
+              <LoadingProvider>
+                <AppContent />
+              </LoadingProvider>
+            </CompareProvider>
+          </FavoritesProvider>
+        </AuthProvider>
+      </ErrorBoundary>
+    </HelmetProvider>
   );
 }

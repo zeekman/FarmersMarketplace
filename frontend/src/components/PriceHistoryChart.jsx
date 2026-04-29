@@ -4,7 +4,13 @@ import {
 } from 'recharts';
 
 export default function PriceHistoryChart({ data }) {
-  if (!data || data.length < 2) return null;
+  if (!data || data.length < 2) {
+    return (
+      <div style={{ marginBottom: 24, fontSize: 14, color: '#888' }}>
+        No price history available.
+      </div>
+    );
+  }
 
   const formatted = data.map((d) => ({
     date: new Date(d.recorded_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),

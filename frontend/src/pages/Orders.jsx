@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { Helmet } from 'react-helmet-async';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import Spinner from '../components/Spinner';
 
-const ALL_STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'failed'];
+const ALL_STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'disputed', 'cancelled', 'refunded', 'failed'];
 const FILTER_TABS = ['all', ...ALL_STATUSES];
 
 const STATUS_STYLE = {
@@ -13,10 +15,14 @@ const STATUS_STYLE = {
   shipped:    { bg: '#d1ecf1', color: '#0c5460' },
   delivered:  { bg: '#d4edda', color: '#155724' },
   failed:     { bg: '#fee',    color: '#c0392b' },
+  disputed:   { bg: '#ffe4cc', color: '#a04000' },
+  cancelled:  { bg: '#f0f0f0', color: '#555' },
+  refunded:   { bg: '#e8d5f5', color: '#6a0dad' },
 };
 
 const STATUS_ICON = {
   pending: '⏳', paid: '✅', processing: '⚙️', shipped: '🚚', delivered: '📦', failed: '❌',
+  disputed: '⚠️', cancelled: '🚫', refunded: '↩️',
 };
 
 // Timeline steps shown in order detail
@@ -76,13 +82,16 @@ function StatusTimeline({ status }) {
 
 export default function Orders() {
   const [allOrders, setAllOrders] = useState([]);
-  const [activeTab, setActiveTab]  = useState('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = FILTER_TABS.includes(searchParams.get('status')) ? searchParams.get('status') : 'all';
+  const setActiveTab = (tab) => setSearchParams(tab === 'all' ? {} : { status: tab }, { replace: true });
   const [loading, setLoading]      = useState(true);
   const [error, setError]          = useState(null);
   const [hovered, setHovered]      = useState(null);
   const { user } = useAuth();
   const [claimingId, setClaimingId] = useState(null);
   const [claimError, setClaimError] = useState({});
+  const [downloadingReceipt, setDownloadingReceipt] = useState(null);
   const [bundleOrders, setBundleOrders] = useState([]);
   const [returnModal, setReturnModal] = useState(null); // orderId
   const [returnReason, setReturnReason] = useState('');
@@ -150,6 +159,10 @@ export default function Orders() {
 
   return (
     <div style={s.page}>
+      <Helmet>
+        <title>My Orders – Farmers Marketplace</title>
+        <meta name="description" content="View and track your orders on Farmers Marketplace." />
+      </Helmet>
       <div style={s.title}>📦 My Orders</div>
       <div style={s.sub}>Track your purchases and verify transactions</div>
 
@@ -224,6 +237,11 @@ export default function Orders() {
                       <a href={`https://stellar.expert/explorer/testnet/tx/${o.stellar_tx_hash}`} target="_blank" rel="noreferrer" style={{ color: '#2d6a4f' }}>
                         {o.stellar_tx_hash}
                       </a>
+                    </div>
+                  )}
+                  {o.stellar_memo && (
+                    <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
+                      📝 Memo: <span style={{ fontFamily: 'monospace' }}>{o.stellar_memo}</span>
                     </div>
                   )}
                   <StatusTimeline status={o.status} />
@@ -301,6 +319,19 @@ export default function Orders() {
                     {STATUS_ICON[o.status]} {o.status}
                   </span>
                   <span style={s.price}>{parseFloat(o.total_price).toFixed(2)} XLM</span>
+                  {o.status === 'paid' && (
+                    <button
+                      style={{ fontSize: 12, padding: '5px 12px', borderRadius: 8, border: '1px solid #2d6a4f', cursor: downloadingReceipt === o.id ? 'not-allowed' : 'pointer', background: '#fff', color: '#2d6a4f', fontWeight: 600 }}
+                      disabled={downloadingReceipt === o.id}
+                      onClick={async () => {
+                        setDownloadingReceipt(o.id);
+                        try { await api.downloadReceipt(o.id); } catch {}
+                        finally { setDownloadingReceipt(null); }
+                      }}
+                    >
+                      {downloadingReceipt === o.id ? '⏳' : '🧾'} Download Receipt
+                    </button>
+                  )}
                 </div>
               </div>
             );
