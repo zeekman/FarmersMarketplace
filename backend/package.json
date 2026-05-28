@@ -28,15 +28,12 @@
       "<rootDir>/tests/jest.setup.js"
     ],
     "moduleNameMapper": {
-      "^uuid$": "<rootDir>/tests/__mocks__/uuid.js"
+      "^uuid$": "<rootDir>/node_modules/uuid/dist-node/index.js"
     },
     "testEnvironmentOptions": {
       "env": {
         "NODE_ENV": "test"
       }
-    },
-    "moduleNameMapper": {
-      "^uuid$": "<rootDir>/node_modules/uuid/dist-node/index.js"
     }
   },
   "dependencies": {
@@ -72,7 +69,7 @@
   "devDependencies": {
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
-    "jest": "^30.3.0",
+    "jest": "^30.4.2",
     "nodemon": "^3.1.0",
     "supertest": "^7.2.2"
   }
