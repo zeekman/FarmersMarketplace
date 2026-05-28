@@ -298,6 +298,7 @@ router.post('/', auth, createPerUserRateLimiter(10, 60 * 1000), validate.order, 
     let balanceId = null;
 
     if (use_soroban_escrow) {
+      // Soroban escrow: funded contract holds payment
       const timeoutDays = parseInt(process.env.SOROBAN_ESCROW_TIMEOUT_DAYS || '14', 10);
       const timeoutUnix = Math.floor(Date.now() / 1000) + timeoutDays * 24 * 60 * 60;
       const result = await invokeEscrowContract({
@@ -316,6 +317,7 @@ router.post('/', auth, createPerUserRateLimiter(10, 60 * 1000), validate.order, 
         ['paid', txHash, balanceId, 'funded', orderId],
       );
     } else if (product.is_preorder && product.preorder_delivery_date) {
+      // Pre-order: claimable balance held until delivery date
       const unlockAtUnix = parsePreorderUnlockUnix(product.preorder_delivery_date);
       if (!unlockAtUnix) throw new Error('Invalid pre-order delivery date on product');
       const hold = await createPreorderClaimableBalance({
@@ -331,28 +333,13 @@ router.post('/', auth, createPerUserRateLimiter(10, 60 * 1000), validate.order, 
         ['paid', txHash, balanceId, 'funded', orderId],
       );
     } else if (usePathPayment) {
+      // Cross-asset payment using path payment
       const estimate = await getPathPaymentEstimate({
-        sourceAssetCode: sourceAsset.code,
-        sourceAssetIssuer: sourceAsset.issuer,
+        sourceAssetCode: source_asset.code,
+        sourceAssetIssuer: source_asset.issuer,
         destPublicKey: product.farmer_wallet,
         destAmount: totalPrice,
       });
-      const sendMax = (estimate.sourceAmount * 1.01).toFixed(7);
-      await db.query('UPDATE orders SET status=$1, stellar_tx_hash=$2, escrow_balance_id=$3, escrow_status=$4 WHERE id=$5', ['paid', txHash, balanceId, 'funded', orderId]);
-
-    } else if (product.is_preorder && product.preorder_delivery_date) {
-      const { txHash: hTx, balanceId: bId } = await createPreorderClaimableBalance({
-        senderSecret: buyer.stellar_secret_key,
-        farmerPublicKey: product.farmer_wallet,
-        amount: totalPrice,
-        unlockAtUnix: parsePreorderUnlockUnix(product.preorder_delivery_date),
-      });
-      txHash = hTx;
-      balanceId = bId;
-      await db.query('UPDATE orders SET status=$1, stellar_tx_hash=$2, escrow_balance_id=$3, escrow_status=$4 WHERE id=$5', ['paid', txHash, balanceId, 'funded', orderId]);
-
-    } else if (usePathPayment) {
-      const estimate = await getPathPaymentEstimate({ sourceAssetCode: source_asset.code, sourceAssetIssuer: source_asset.issuer, destPublicKey: product.farmer_wallet, destAmount: totalPrice });
       txHash = await pathPayment({
         senderSecret: buyer.stellar_secret_key,
         sourceAssetCode: source_asset.code,
@@ -363,9 +350,14 @@ router.post('/', auth, createPerUserRateLimiter(10, 60 * 1000), validate.order, 
         memo: `Order#${orderId}`
       });
       await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
-
     } else {
-      txHash = await sendPayment({ senderSecret: buyer.stellar_secret_key, receiverPublicKey: product.farmer_wallet, amount: totalPrice, memo: `Order#${orderId}` });
+      // Direct XLM payment with order ID in memo for on-chain reconciliation
+      txHash = await sendPayment({
+        senderSecret: buyer.stellar_secret_key,
+        receiverPublicKey: product.farmer_wallet,
+        amount: totalPrice,
+        memo: `Order#${orderId}`
+      });
       await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
     }
 
@@ -478,72 +470,6 @@ router.post('/', auth, createPerUserRateLimiter(10, 60 * 1000), validate.order, 
     const errorData = { success: false, message: 'Payment failed: ' + e.message, code: 'payment_failed', orderId };
     if (idempotencyKey) await cacheResponse(idempotencyKey, errorData);
     return res.status(402).json(errorData);
-
-    await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
-
-    // Referral bonus
-    if (buyer.referred_by && buyer.referral_bonus_sent === 0) {
-      const { rows: refRows } = await db.query('SELECT stellar_public_key FROM users WHERE id = $1', [buyer.referred_by]);
-      const treasury = process.env.MARKETPLACE_TREASURY_SECRET;
-      if (refRows[0] && treasury) {
-        sendPayment({ senderSecret: treasury, receiverPublicKey: refRows[0].stellar_public_key, amount: 1.0, memo: `Ref Bonus: ${buyer.name}`.slice(0, 28) })
-          .then(() => db.query('UPDATE users SET referral_bonus_sent = 1 WHERE id = $1', [buyer.id]))
-          .catch(e => console.error('[Ref] Bonus fail:', e.message));
-      }
-    }
-
-    // Rewards
-    const rewardAmt = Math.floor(totalPrice);
-    if (rewardAmt > 0) mintRewardTokens(buyer.stellar_public_key, rewardAmt).catch(e => console.error('[Rewards] fail:', e.message));
-
-    // Notifications
-    sendOrderEmails({ order: { id: orderId, quantity, total_price: totalPrice, stellar_tx_hash: txHash }, product, buyer, farmer }).catch(e => console.error('[Mail] fail:', e.message));
-    sendPushToUser(farmer.id, { title: 'New order', body: `${buyer.name} ordered ${product.name}`, url: '/dashboard' }).catch(e => console.error('[Push] fail:', e.message));
-
-    // Cleanup & Cache
-    if (appliedCoupon) await db.query('UPDATE coupons SET used_count = used_count + 1 WHERE id = $1', [appliedCoupon.id]);
-          .catch(e => logger.error('[Referral] Failed to send bonus:', { error: e.message }));
-      }
-    }
-
-    const { rows: fRows } = await db.query('SELECT id, name, email, stellar_public_key FROM users WHERE id = $1', [product.farmer_id]);
-    sendOrderEmails({ order: { id: orderId, quantity, total_price: totalPrice, stellar_tx_hash: txHash }, product, buyer, farmer: fRows[0] })
-      .catch(e => logger.error('Email notification failed:', { error: e.message }));
-
-    // Mint reward tokens (1 token per 1 XLM spent)
-    const rewardAmount = Math.floor(totalPrice);
-    if (rewardAmount > 0 && buyer.stellar_public_key) {
-      mintRewardTokens(buyer.stellar_public_key, rewardAmount)
-        .catch(e => logger.error('[Rewards] Failed to mint tokens:', { error: e.message }));
-    }
-
-    // Low-stock check
-    const { rows: updRows } = await db.query('SELECT quantity, low_stock_threshold, low_stock_alerted FROM products WHERE id = $1', [product_id]);
-    const updated = updRows[0];
-    // Only send alert if threshold is set (not null/0) and stock is at or below threshold
-    if (updated && updated.low_stock_threshold && updated.low_stock_threshold > 0 && updated.quantity <= updated.low_stock_threshold && !updated.low_stock_alerted) {
-      await db.query('UPDATE products SET low_stock_alerted = 1 WHERE id = $1', [product_id]);
-      sendLowStockAlert({ product: { ...product, quantity: updated.quantity }, farmer: fRows[0] })
-        .catch(e => logger.error('Low-stock alert failed:', { error: e.message }));
-    }
-       await db.query('UPDATE coupons SET used_count = used_count + 1 WHERE id = $1', [appliedCoupon.id]);
-    }
-
-    const { rows: fRows } = await db.query('SELECT id, name, email, stellar_public_key FROM users WHERE id = $1', [product.farmer_id]);
-    const farmer = fRows[0];
-
-    sendOrderEmails({ order: { id: orderId, quantity, total_price: totalPrice, stellar_tx_hash: txHash }, product, buyer, farmer })
-      .catch(e => console.error('Email failed:', e.message));
-
-    const responseData = { success: true, orderId, status: 'paid', txHash, totalPrice };
-    if (idempotencyKey) cacheResponse(idempotencyKey, responseData);
-    res.json(responseData);
-
-  } catch (e) {
-    // Rollback stock and update order status on payment failure
-    await db.query('UPDATE orders SET status=$1 WHERE id=$2', ['failed', orderId]);
-    await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [quantity, product_id]);
-    res.status(402).json({ success: false, message: 'Payment failed: ' + e.message, code: 'payment_failed', orderId });
   }
 });
 
