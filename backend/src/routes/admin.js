@@ -2,18 +2,11 @@ const router = require('express').Router();
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const adminAuth = require('../middleware/adminAuth');
-const { getContractWasmHash, deployContract } = require('../utils/stellar');
+const { getContractWasmHash, deployContract, normalizeWasmHash } = require('../utils/stellar');
 const { invokeEscrowContract } = require('../utils/stellar');
 const multer = require('multer');
 
 const STELLAR_NETWORK = (process.env.STELLAR_NETWORK || 'testnet').toLowerCase();
-
-function normalizeWasmHash(h) {
-  if (h == null || typeof h !== 'string') return null;
-  const x = h.trim().toLowerCase().replace(/^0x/, '');
-  if (!/^[0-9a-f]{64}$/.test(x)) return null;
-  return x;
-}
 
 router.use(auth, adminAuth);
 

@@ -31,7 +31,7 @@ const schemaSql = `
     product_id INTEGER NOT NULL,
     quantity INTEGER NOT NULL,
     total_price REAL NOT NULL,
-    status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'paid', 'failed')),
+    status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'paid', 'failed', 'refunded')),
     stellar_tx_hash TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (buyer_id) REFERENCES users(id),

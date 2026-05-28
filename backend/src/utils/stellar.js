@@ -491,7 +491,24 @@ async function getContractWasmHash(contractId) {
     throw err;
   }
 
-  return Buffer.from(raw).toString("hex").toLowerCase();
+  const hash = Buffer.from(raw).toString("hex").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hash)) {
+    const e = new Error(`Unexpected WASM hash format: ${hash}`);
+    e.code = "parse_error";
+    throw e;
+  }
+  return hash;
+}
+
+/**
+ * Validate and normalize a WASM hash to 64-char lowercase hex.
+ * Returns the normalized hash, or null if invalid.
+ */
+function normalizeWasmHash(h) {
+  if (h == null || typeof h !== 'string') return null;
+  const x = h.trim().toLowerCase().replace(/^0x/, '');
+  if (!/^[0-9a-f]{64}$/.test(x)) return null;
+  return x;
 }
 
 /**
@@ -1460,6 +1477,7 @@ module.exports = {
   invokeContract,
   simulateContract,
   getMemo,
+  normalizeWasmHash,
 };
 
 // .
