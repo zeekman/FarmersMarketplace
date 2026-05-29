@@ -65,4 +65,76 @@ router.post('/returns/:id/reject', adminAuth, (req, res) => {
   res.json({ message: 'Return request rejected' });
 });
 
+// GET /api/admin/analytics/summary - last-30-day platform metrics
+router.get('/analytics/summary', adminAuth, (req, res) => {
+  const gmv = db.prepare(`
+    SELECT
+      ROUND(SUM(total_price), 7)                                             AS total,
+      ROUND(SUM(total_price - COALESCE(shipping_cost, 0)), 7)                AS product,
+      ROUND(SUM(COALESCE(shipping_cost, 0)), 7)                              AS shipping,
+      COUNT(*)                                                                AS paid_orders
+    FROM orders
+    WHERE status = 'paid'
+      AND created_at >= datetime('now', '-30 days')
+  `).get();
+
+  const conversion = db.prepare(`
+    SELECT
+      COUNT(*)                                                                              AS total_orders,
+      SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END)                                    AS paid_orders,
+      ROUND(100.0 * SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) / COUNT(*), 2)       AS rate_pct
+    FROM orders
+    WHERE created_at >= datetime('now', '-30 days')
+  `).get();
+
+  const topProducts = db.prepare(`
+    SELECT p.id, p.name, u.name AS farmer_name,
+           SUM(o.quantity)                                                   AS units_sold,
+           ROUND(SUM(o.total_price - COALESCE(o.shipping_cost, 0)), 7)      AS revenue
+    FROM orders o
+    JOIN products p ON o.product_id = p.id
+    JOIN users u ON p.farmer_id = u.id
+    WHERE o.status = 'paid'
+      AND o.created_at >= datetime('now', '-30 days')
+    GROUP BY p.id
+    ORDER BY revenue DESC
+    LIMIT 5
+  `).all();
+
+  // Daily active users: distinct buyers + farmers touched by orders each day
+  const dailyActiveUsers = db.prepare(`
+    SELECT day, COUNT(DISTINCT user_id) AS active_users
+    FROM (
+      SELECT date(o.created_at) AS day, o.buyer_id AS user_id
+      FROM orders o
+      WHERE o.created_at >= datetime('now', '-30 days')
+      UNION ALL
+      SELECT date(o.created_at) AS day, p.farmer_id AS user_id
+      FROM orders o
+      JOIN products p ON o.product_id = p.id
+      WHERE o.created_at >= datetime('now', '-30 days')
+    )
+    GROUP BY day
+    ORDER BY day ASC
+  `).all();
+
+  const dailyGmv = db.prepare(`
+    SELECT date(created_at) AS day, ROUND(SUM(total_price), 7) AS gmv, COUNT(*) AS orders
+    FROM orders
+    WHERE status = 'paid'
+      AND created_at >= datetime('now', '-30 days')
+    GROUP BY date(created_at)
+    ORDER BY day ASC
+  `).all();
+
+  res.json({
+    period: 'last_30_days',
+    gmv,
+    conversion: conversion.total_orders ? conversion : { total_orders: 0, paid_orders: 0, rate_pct: 0 },
+    top_products: topProducts,
+    daily_active_users: dailyActiveUsers,
+    daily_gmv: dailyGmv,
+  });
+});
+
 module.exports = router;
