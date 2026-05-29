@@ -1,0 +1,148 @@
+/**
+ * browser-compat.css
+ * Cross-browser compatibility fixes and normalizations.
+ * Imported once in main.jsx.
+ */
+
+/* ── Box-sizing reset (all browsers) ──────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ── Remove default button appearance (Safari / iOS) ──────────────────────── */
+button,
+input[type='button'],
+input[type='submit'],
+input[type='reset'] {
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+/* ── Normalize select appearance (Safari / Firefox) ───────────────────────── */
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23666' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+}
+
+/* ── Input / textarea normalization ───────────────────────────────────────── */
+input,
+textarea {
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 0; /* iOS rounds text inputs by default */
+}
+
+/* Remove iOS tap highlight */
+a,
+button,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Prevent font size inflation on orientation change (iOS Safari) ────────── */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ── Smooth scrolling (respects prefers-reduced-motion) ───────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* ── Image rendering normalization ────────────────────────────────────────── */
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* ── Prevent horizontal overflow on mobile ────────────────────────────────── */
+body {
+  overflow-x: hidden;
+}
+
+/* ── Focus-visible polyfill fallback (older Safari) ───────────────────────── */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid #2d6a4f;
+  outline-offset: 2px;
+}
+
+/* ── Range input cross-browser normalization ──────────────────────────────── */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #ddd;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #2d6a4f;
+  cursor: pointer;
+}
+input[type='range']::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #2d6a4f;
+  cursor: pointer;
+  border: none;
+}
+
+/* ── Number input — hide spinners (Chrome/Safari/Edge) ────────────────────── */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield; /* Firefox */
+}
+
+/* ── Flexbox gap fallback for older Safari (< 14.1) ───────────────────────── */
+/* Use margin-based fallback when gap is not supported in flex context */
+@supports not (gap: 1px) {
+  .flex-gap > * + * {
+    margin-left: var(--gap, 8px);
+  }
+}
+
+/* ── Grid auto-fill min-content fix (Firefox) ─────────────────────────────── */
+/* Firefox sometimes miscomputes minmax in auto-fill; explicit min-width helps */
+.grid-auto-fill {
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+}
+
+/* ── Sticky positioning (older iOS Safari) ────────────────────────────────── */
+.sticky {
+  position: -webkit-sticky;
+  position: sticky;
+}
+
+/* ── Backdrop-filter fallback (Firefox < 103) ─────────────────────────────── */
+@supports not (backdrop-filter: blur(1px)) {
+  .backdrop-blur {
+    background-color: rgba(255, 255, 255, 0.95);
+  }
+}

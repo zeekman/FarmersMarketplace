@@ -1,0 +1,54 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: farmersmarketplace
+      POSTGRES_USER: fmuser
+      POSTGRES_PASSWORD: fmpassword
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fmuser -d farmersmarketplace']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://fmuser:fmpassword@postgres:5432/farmersmarketplace
+      JWT_SECRET: ${JWT_SECRET}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      STELLAR_NETWORK: ${STELLAR_NETWORK:-testnet}
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:3000}
+    ports:
+      - '4000:4000'
+    volumes:
+      - uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '3000:80'
+
+volumes:
+  pgdata:
+  uploads:

@@ -1,0 +1,141 @@
+name: Browser Compatibility Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # ── Build the frontend once, then fan out to browser matrix ────────────────
+  build:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 1
+
+  # ── Browser test matrix ────────────────────────────────────────────────────
+  browser-tests:
+    name: E2E — ${{ matrix.browser }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false   # run all browsers even if one fails
+      matrix:
+        include:
+          # Desktop browsers
+          - browser: chromium
+            os: ubuntu-latest
+            project: chromium
+          - browser: firefox
+            os: ubuntu-latest
+            project: firefox
+          - browser: webkit
+            os: ubuntu-latest
+            project: webkit
+          # Mobile emulation (runs on ubuntu via Playwright device emulation)
+          - browser: mobile-chrome-android
+            os: ubuntu-latest
+            project: mobile-chrome-android
+          - browser: mobile-safari-ios
+            os: ubuntu-latest
+            project: mobile-safari-ios
+          - browser: mobile-safari-ipad
+            os: ubuntu-latest
+            project: mobile-safari-ipad
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps ${{ matrix.browser == 'mobile-chrome-android' && 'chromium' || matrix.browser == 'mobile-safari-ios' && 'webkit' || matrix.browser == 'mobile-safari-ipad' && 'webkit' || matrix.browser }}
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Start preview server
+        run: npx vite preview --port 3000 &
+        env:
+          VITE_API_URL: http://localhost:4000
+
+      - name: Wait for server
+        run: npx wait-on http://localhost:3000 --timeout 30000
+
+      - name: Run Playwright tests — ${{ matrix.browser }}
+        run: npx playwright test --project=${{ matrix.project }}
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          CI: true
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: frontend/playwright-report/
+          retention-days: 7
+
+  # ── Merge reports into a single summary ────────────────────────────────────
+  report:
+    name: Merge Browser Test Reports
+    needs: browser-tests
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Download all reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: playwright-report-*
+          path: all-reports
+          merge-multiple: true
+
+      - name: Merge JUnit results
+        run: |
+          echo "Browser test reports collected:"
+          find all-reports -name "*.xml" | head -20

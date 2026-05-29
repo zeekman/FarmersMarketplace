@@ -1,0 +1,9 @@
+node_modules/
+build/
+dist/
+coverage/
+tests/
+contracts/
+contract/
+vite.config.js
+playwright.config.js
