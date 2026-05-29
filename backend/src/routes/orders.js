@@ -72,6 +72,158 @@ router.post('/', auth, async (req, res) => {
   if (!product_id || !quantity)
     return res.status(400).json({ error: 'product_id and quantity required' });
 
+async function getEffectiveUnitPrice(product, productId, quantity) {
+  if (isFlashSaleActive(product)) return Number(product.flash_sale_price);
+  return getTierPrice(productId, quantity);
+}
+
+// GET /api/orders/fee-preview
+// GET /api/orders/fee-preview?amount=X — returns fee breakdown for a given amount
+router.get('/fee-preview', (req, res) => {
+  const amount = parseFloat(req.query.amount);
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'amount is required' });
+  const info = getPlatformFeeInfo(amount);
+  res.json({ success: true, total: amount, ...info });
+});
+
+/**
+ * @swagger
+ * tags:
+ *   name: Orders
+ *   description: Order placement and management
+ */
+
+// POST /api/orders
+/**
+ * @swagger
+ * /api/orders:
+ *   post:
+ *     summary: Place and pay for an order (buyer only)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/', auth, validate.order, async (req, res) => {
+  if (req.user.role !== 'buyer') return err(res, 403, 'Only buyers can place orders', 'forbidden');
+
+  const { product_id, quantity, address_id, coupon_code, use_soroban_escrow, custom_price, weight, source_asset } = req.body;
+  const idempotencyKey = req.headers['x-idempotency-key'];
+
+  if (idempotencyKey) {
+    const cached = getCachedResponse(idempotencyKey);
+    if (cached) return res.status(cached.success ? 200 : 402).json(cached);
+    if (cached) return res.json(cached);
+  }
+
+  if (address_id) {
+    const { rows: addrRows } = await db.query('SELECT * FROM addresses WHERE id = $1 AND user_id = $2', [address_id, req.user.id]);
+    if (!addrRows[0]) return err(res, 400, 'Invalid address_id', 'validation_error');
+  }
+
+  // 1. Fetch Product & Buyer
+  const { rows: prodRows } = await db.query(
+    `SELECT p.*, u.stellar_public_key as farmer_wallet, u.id as farmer_id FROM products p JOIN users u ON p.farmer_id = u.id WHERE p.id = $1`,
+    [product_id]
+  );
+  const product = prodRows[0];
+  if (!product) return err(res, 404, 'Product not found', 'not_found');
+
+  const { rows: buyerRows } = await db.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+  const buyer = buyerRows[0];
+
+  // Geo-fence check
+  // Use req.ip which respects app.set('trust proxy') configuration
+  const clientIp = req.ip || req.socket?.remoteAddress || '';
+  const { allowed: geoAllowed } = await checkGeoFence(product, buyer, clientIp);
+  if (!geoAllowed) return err(res, 403, 'Not available in your region', 'region_restricted');
+
+  const parsedWeight = req.body.weight ? parseFloat(req.body.weight) : (weight ? parseFloat(weight) : null);
+  if (product.pricing_type === 'weight') {
+    if (!parsedWeight || isNaN(parsedWeight) || parsedWeight <= 0) return err(res, 400, 'weight is required for weight-based products', 'validation_error');
+    if (parsedWeight < product.min_weight) return err(res, 400, `weight must be at least ${product.min_weight} ${product.unit}`, 'validation_error');
+    if (parsedWeight > product.max_weight) return err(res, 400, `weight cannot exceed ${product.max_weight} ${product.unit}`, 'validation_error');
+  }
+
+  // MOQ validation
+  const moq = product.min_order_quantity || 1;
+  if (quantity < moq) {
+    return err(res, 400, `Minimum order is ${moq} units`, 'below_moq');
+  }
+
+  const { rows: bRows } = await db.query(
+    'SELECT id, name, email, stellar_public_key, stellar_secret_key, referred_by, referral_bonus_sent FROM users WHERE id = $1',
+    [req.user.id]
+  );
+
+  // buyer already fetched above; use bRows for the more detailed version
+  const buyerDetailed = bRows[0] || buyer;
+
+  let subtotal;
+  if (product.pricing_type === 'weight') {
+    subtotal = Number(product.price) * parsedWeight;
+  } else {
+    const unitPrice = await getEffectiveUnitPrice(product, product_id, quantity);
+    subtotal = unitPrice * quantity;
+  }
+  let discount = 0;
+  let appliedCoupon = null;
+  if (coupon_code) {
+    const { rows: cRows } = await db.query(
+      `SELECT * FROM coupons WHERE code = $1 AND farmer_id = $2 AND (expires_at IS NULL OR expires_at > NOW()) AND (max_uses IS NULL OR used_count < max_uses)`,
+      [coupon_code.trim().toUpperCase(), product.farmer_id]
+    );
+    if (!cRows[0]) return err(res, 400, 'Invalid or expired coupon', 'invalid_coupon');
+    appliedCoupon = cRows[0];
+    if (appliedCoupon.max_uses_per_user != null) {
+      const { rows: useRows } = await db.query(
+        'SELECT COUNT(*) as cnt FROM coupon_uses WHERE coupon_id = $1 AND user_id = $2',
+        [appliedCoupon.id, req.user.id]
+      );
+      if (parseInt(useRows[0].cnt, 10) >= appliedCoupon.max_uses_per_user)
+        return err(res, 409, 'Coupon already used', 'coupon_already_used');
+    }
+    discount = appliedCoupon.discount_type === 'percent'
+      ? parseFloat((subtotal * appliedCoupon.discount_value / 100).toFixed(7))
+      : Math.min(parseFloat(appliedCoupon.discount_value), subtotal);
+  }
+  // 2. Validate Pricing & Calculate Total
+  let unitPrice = 0;
+  if (product.pricing_model === 'pwyw') {
+    if (!custom_price || custom_price < product.min_price) {
+      return err(res, 422, `Offered price is below the minimum of ${product.min_price} XLM`, 'below_min_price');
+    }
+    unitPrice = parseFloat(custom_price);
+  } else if (product.pricing_model === 'donation') {
+    if (!custom_price || custom_price <= 0) {
+      return err(res, 400, 'Donation amount must be positive', 'validation_error');
+    }
+    unitPrice = parseFloat(custom_price);
+  } else if (product.pricing_type === 'weight') {
+    if (!weight) return err(res, 400, 'Weight is required', 'validation_error');
+    unitPrice = product.price; // Price is per unit of weight
+  } else {
+    unitPrice = await getEffectiveUnitPrice(product, product_id, quantity);
+  }
+
+  const subtotal = product.pricing_type === 'weight' ? unitPrice * weight : unitPrice * quantity;
+  let discount = 0;
+  let appliedCoupon = null;
+
+  if (coupon_code && product.pricing_model === 'fixed') { // Coupons usually apply to fixed price
+    const result = await db.query('SELECT * FROM coupons WHERE code = $1 AND farmer_id = $2', [coupon_code, product.farmer_id]);
+    if (result.rows[0]) {
+      appliedCoupon = result.rows[0];
+      discount = calcDiscount(appliedCoupon, subtotal);
+  const { rows: buyerRows } = await db.query(
+    'SELECT id, name, email, stellar_public_key, stellar_secret_key, referred_by, referral_bonus_sent FROM users WHERE id = $1',
+    [req.user.id]
+  );
+  const buyer = buyerRows[0];
+
+  const unitPrice = await getEffectiveUnitPrice(product, product_id, quantity);
+  const subtotal = unitPrice * quantity;
+  let discount = 0;
+  let appliedCoupon = null;
   const product = db.prepare(`
     SELECT p.*, u.stellar_public_key AS farmer_wallet, u.farm_lat, u.farm_lng
     FROM products p JOIN users u ON p.farmer_id = u.id

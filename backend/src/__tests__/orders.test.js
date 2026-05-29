@@ -83,7 +83,6 @@ describe('POST /api/orders', () => {
     expect(res.status).toBe(403);
   });
 
-  it('returns 409 when stock is insufficient', async () => {
   it('accepts quantity at MAX_ORDER_QUANTITY (10000)', async () => {
     stellar.getBalance.mockResolvedValueOnce(9999999);
     stellar.sendPayment.mockResolvedValueOnce('FAKE_TX_MAX');
@@ -271,16 +270,14 @@ describe('Pre-order flows', () => {
       balanceId: 'PREORDER_BALANCE_001',
     });
 
-    mockGet
-      .mockReturnValueOnce(preorderProduct) // product lookup
-      .mockReturnValueOnce(buyer) // buyer lookup
-      .mockReturnValueOnce(farmer) // farmer lookup for email
-      .mockReturnValueOnce({ quantity: 8, low_stock_threshold: 5, low_stock_alerted: 0 }); // low-stock check
-
-    mockRun
-      .mockReturnValueOnce({ changes: 1 }) // stock deduct
-      .mockReturnValueOnce({ lastInsertRowid: 91 }) // insert order
-      .mockReturnValueOnce({}); // update paid + escrow fields
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [preorderProduct], rowCount: 1 }) // product lookup
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 })            // buyer lookup
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })                 // stock decrement
+      .mockResolvedValueOnce({ rows: [{ id: 91 }], rowCount: 1 })      // INSERT order
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })                 // UPDATE paid
+      .mockResolvedValueOnce({ rows: [farmer], rowCount: 1 })           // farmer lookup
+      .mockResolvedValueOnce({ rows: [{ quantity: 8, low_stock_threshold: 5, low_stock_alerted: 0 }], rowCount: 1 }); // low-stock
 
     const res = await request(app)
       .post('/api/orders')
@@ -294,14 +291,17 @@ describe('Pre-order flows', () => {
   });
 
   it('returns 400 when farmer claims pre-order before delivery date', async () => {
-    mockGet.mockReturnValueOnce({
-      id: 200,
-      buyer_id: 2,
-      product_id: 10,
-      is_preorder: 1,
-      preorder_delivery_date: '2099-12-31',
-      escrow_status: 'funded',
-      escrow_balance_id: 'PREORDER_BALANCE_001',
+    mockDb.query.mockResolvedValueOnce({
+      rows: [{
+        id: 200,
+        buyer_id: 2,
+        product_id: 10,
+        is_preorder: 1,
+        preorder_delivery_date: '2099-12-31',
+        escrow_status: 'funded',
+        escrow_balance_id: 'PREORDER_BALANCE_001',
+      }],
+      rowCount: 1,
     });
 
     const res = await request(app)
@@ -311,5 +311,104 @@ describe('Pre-order flows', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('preorder_not_deliverable');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PWYW (Pay-What-You-Want) validation
+// ---------------------------------------------------------------------------
+describe('PWYW min_price validation', () => {
+  const pwywProduct = {
+    ...product,
+    pricing_model: 'pwyw',
+    min_price: 3.0,
+  };
+
+  function mockSuccessfulOrder(prod) {
+    stellar.getBalance.mockResolvedValueOnce(9999);
+    stellar.sendPayment.mockResolvedValueOnce('PWYW_TX_HASH');
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [prod], rowCount: 1 })       // product lookup
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 })       // buyer lookup
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })            // stock decrement
+      .mockResolvedValueOnce({ rows: [{ id: 88 }], rowCount: 1 }) // INSERT order
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })            // UPDATE paid
+      .mockResolvedValueOnce({ rows: [farmer], rowCount: 1 })      // farmer lookup
+      .mockResolvedValueOnce({ rows: [{ quantity: 9, low_stock_threshold: 5, low_stock_alerted: 0 }], rowCount: 1 }); // low-stock
+  }
+
+  it('returns 422 when custom_price is below min_price', async () => {
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [pwywProduct], rowCount: 1 }) // product lookup
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 });       // buyer lookup
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ product_id: 10, quantity: 1, custom_price: 1.0 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe('below_min_price');
+    expect(res.body.message).toMatch(/3/); // mentions the min_price
+  });
+
+  it('returns 422 when custom_price is missing for a PWYW product', async () => {
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [pwywProduct], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 });
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ product_id: 10, quantity: 1 });
+
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe('below_min_price');
+  });
+
+  it('accepts custom_price equal to min_price', async () => {
+    mockSuccessfulOrder(pwywProduct);
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ product_id: 10, quantity: 1, custom_price: 3.0 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('paid');
+  });
+
+  it('accepts custom_price above min_price', async () => {
+    mockSuccessfulOrder(pwywProduct);
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ product_id: 10, quantity: 1, custom_price: 10.0 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('paid');
+  });
+
+  it('does not apply PWYW validation to fixed-price products', async () => {
+    // fixed product (no pricing_model / pricing_model = 'fixed') should succeed without custom_price
+    stellar.getBalance.mockResolvedValueOnce(9999);
+    stellar.sendPayment.mockResolvedValueOnce('FIXED_TX_HASH');
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [product], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 89 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [farmer], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ quantity: 9, low_stock_threshold: 5, low_stock_alerted: 0 }], rowCount: 1 });
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ product_id: 10, quantity: 1 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('paid');
   });
 });
