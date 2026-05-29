@@ -84,7 +84,9 @@ if (USE_POSTGRES) {
 
   let sqlite;
   try {
-    sqlite = new Database(path.join(__dirname, '../../market.db'));
+    sqlite = new Database(path.join(__dirname, '../../market.db'), {
+      timeout: parseInt(process.env.DB_QUERY_TIMEOUT_SQLITE || '5000', 10),
+    });
   } catch (err) {
     console.error('[DB] Failed to open SQLite database:', err.message);
     process.exit(1);

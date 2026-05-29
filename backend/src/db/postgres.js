@@ -5,6 +5,7 @@ const pool = new Pool({
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
+  statement_timeout: parseInt(process.env.DB_QUERY_TIMEOUT_POSTGRES || '10000', 10),
 });
 
 module.exports = pool;

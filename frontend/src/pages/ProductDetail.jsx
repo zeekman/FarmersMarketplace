@@ -68,6 +68,24 @@ const s = {
   navBtn:        { background: 'rgba(0,0,0,0.35)', color: '#fff', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' },
 };
 
+function CopyButton({ url }) {
+  const [copied, setCopied] = useState(false);
+  function handleCopy() {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+  return (
+    <button
+      style={{ ...{ background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', cursor: 'pointer', fontWeight: 600, fontSize: 14, width: '100%' } }}
+      onClick={handleCopy}
+    >
+      {copied ? 'Copied!' : 'Copy link'}
+    </button>
+  );
+}
+
 export default function ProductDetail() {
   const { t } = useTranslation();
   const { id } = useParams();
@@ -1085,24 +1103,20 @@ export default function ProductDetail() {
             </button>
             {paymentLinkError && <div style={{ ...s.err, marginTop: 8 }}>{paymentLinkError}</div>}
             {paymentLinkData && (
-              <div style={{ marginTop: 16, padding: 12, border: '1px solid #ddd', borderRadius: 8, background: '#f9fff9' }}>
-                <div style={{ marginBottom: 8, fontWeight: 600 }}>SEP-0007 Payment Link</div>
-                <a href={paymentLinkData.paymentLink} target="_blank" rel="noreferrer" style={{ wordBreak: 'break-all', color: '#1b4332' }}>
-                  {paymentLinkData.paymentLink}
-                </a>
-                <div style={{ marginTop: 8, fontSize: 12, color: '#555' }}>
-                  Expires at: {new Date(paymentLinkData.expiresAt).toLocaleString()}
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                <div style={{ background: '#fff', borderRadius: 12, padding: 24, maxWidth: 360, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: '#2d6a4f' }}>SEP-0007 Payment Link</div>
+                    <button onClick={() => setPaymentLinkData(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888' }} aria-label="Close">✕</button>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                    <QRCode value={paymentLinkData.paymentLink} size={200} />
+                  </div>
+                  <CopyButton url={paymentLinkData.paymentLink} />
+                  <div style={{ marginTop: 8, fontSize: 12, color: '#888', textAlign: 'center' }}>
+                    Expires: {new Date(paymentLinkData.expiresAt).toLocaleString()}
+                  </div>
                 </div>
-                <div style={{ marginTop: 12 }}>
-                  <img
-                    src={api.getOrderPaymentLinkQr(paymentLinkData.orderId)}
-                    alt="Payment link QR"
-                    style={{ width: 220, height: 220, borderRadius: 10, border: '1px solid #e0e0e0' }}
-                  />
-                </div>
-                <button style={{ ...s.btnSm, marginTop: 8 }} onClick={() => navigator.clipboard.writeText(paymentLinkData.paymentLink)}>
-                  Copy payment link
-                </button>
               </div>
             )}
             <style>{`@keyframes spin { to { transform: rotate(360deg); } } .spinner-sm { display: inline-block; }`}</style>
