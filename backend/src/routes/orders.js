@@ -171,7 +171,7 @@ router.post('/', auth, validate.order, async (req, res) => {
   let unitPrice = 0;
   if (product.pricing_model === 'pwyw') {
     if (!custom_price || custom_price < product.min_price) {
-      return err(res, 400, `Minimum price is ${product.min_price} XLM`, 'validation_error');
+      return err(res, 422, `Offered price is below the minimum of ${product.min_price} XLM`, 'below_min_price');
     }
     unitPrice = parseFloat(custom_price);
   } else if (product.pricing_model === 'donation') {

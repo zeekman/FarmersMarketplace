@@ -46,6 +46,9 @@ function errorHandler(error, req, res, next) { // eslint-disable-line no-unused-
   const status = error.statusCode || 500;
   const message = error.message || 'Internal server error';
   return err(res, status, message, error.code);
+}
+
+/**
  * Wrap async route handlers to forward errors to the global error handler.
  * Usage: router.get('/path', asyncHandler(async (req, res) => { ... }))
  */
