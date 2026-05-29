@@ -164,6 +164,34 @@ async function checkSorobanRPC() {
   }
 }
 
+async function checkRedis() {
+  const startTime = Date.now();
+  try {
+    if (!process.env.REDIS_URL) {
+      return { status: 'not_configured', responseTime: '0ms' };
+    }
+    let Redis;
+    try {
+      Redis = require('ioredis');
+    } catch {
+      return { status: 'not_available', responseTime: '0ms', error: 'ioredis not installed' };
+    }
+    const testClient = new Redis(process.env.REDIS_URL, {
+      lazyConnect: true,
+      enableOfflineQueue: false,
+      connectTimeout: 3000
+    });
+    await testClient.ping();
+    testClient.disconnect();
+    const duration = Date.now() - startTime;
+    return { status: 'ok', responseTime: `${duration}ms` };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.error('Redis health check failed:', { error: error.message });
+    return { status: 'down', responseTime: `${duration}ms`, error: error.message };
+  }
+}
+
 // ============================================================================
 // Health Endpoint Handler
 // ============================================================================
@@ -171,16 +199,18 @@ async function checkSorobanRPC() {
 async function getHealthCheckResponse(includeVersion = false) {
   const startTime = Date.now();
   try {
-    const [dbCheck, horizonCheck, sorobanCheck] = await Promise.all([
+    const [dbCheck, horizonCheck, sorobanCheck, redisCheck] = await Promise.all([
       checkDatabase(),
       checkStellarHorizon(),
-      checkSorobanRPC()
+      checkSorobanRPC(),
+      checkRedis()
     ]);
-    
+
     const checks = {
       database: dbCheck,
       horizon: horizonCheck,
-      soroban: sorobanCheck
+      soroban: sorobanCheck,
+      redis: redisCheck
     };
     
     const criticalDown = [dbCheck.status, horizonCheck.status].some(status => status === 'down');
