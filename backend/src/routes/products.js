@@ -843,5 +843,67 @@ router.get('/:id/stock-stream', async (req, res) => {
   });
 });
 
+/**
+ * @swagger
+ * /api/products/{id}/batches:
+ *   get:
+ *     summary: Get harvest batch traceability details for a product
+ *     tags: [Products]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *         description: Product ID
+ *     responses:
+ *       200:
+ *         description: Harvest batch details for the product
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id: { type: integer }
+ *                       batch_code: { type: string }
+ *                       harvest_date: { type: string, format: date }
+ *                       location: { type: string, nullable: true }
+ *                       certifications: { type: string, nullable: true }
+ *                       notes: { type: string, nullable: true }
+ *                       created_at: { type: string, format: date-time }
+ *       404:
+ *         description: Product not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ */
+// GET /api/products/:id/batches — public traceability endpoint
+router.get('/:id/batches', async (req, res) => {
+  const productId = parseInt(req.params.id, 10);
+  if (!productId || productId < 1) return res.status(400).json({ success: false, error: 'Invalid product id', code: 'validation_error' });
+
+  const { rows: prodRows } = await db.query(
+    'SELECT batch_id FROM products WHERE id = $1',
+    [productId],
+  );
+  if (!prodRows[0]) return res.status(404).json({ success: false, error: 'Product not found', code: 'not_found' });
+
+  if (!prodRows[0].batch_id) {
+    return res.json({ success: true, data: [] });
+  }
+
+  const { rows } = await db.query(
+    `SELECT id, batch_code, harvest_date, location, certifications, notes, created_at
+     FROM harvest_batches WHERE id = $1`,
+    [prodRows[0].batch_id],
+  );
+  res.json({ success: true, data: rows });
+});
+
 module.exports = router;
 module.exports.broadcastStockUpdate = broadcastStockUpdate;

@@ -17,7 +17,7 @@ router.get('/', auth, async (req, res) => {
   if (!requireFarmer(req, res)) return;
 
   const { rows } = await db.query(
-    `SELECT id, farmer_id, batch_code, harvest_date, notes, created_at
+    `SELECT id, farmer_id, batch_code, harvest_date, location, certifications, notes, created_at
      FROM harvest_batches
      WHERE farmer_id = $1
      ORDER BY harvest_date DESC, created_at DESC`,
@@ -33,6 +33,8 @@ router.post('/', auth, async (req, res) => {
   const batchCode = typeof req.body.batch_code === 'string' ? req.body.batch_code.trim() : '';
   const harvestDate = typeof req.body.harvest_date === 'string' ? req.body.harvest_date.trim() : '';
   const notes = req.body.notes != null ? sanitizeText(String(req.body.notes)) : null;
+  const location = req.body.location != null ? sanitizeText(String(req.body.location)) : null;
+  const certifications = req.body.certifications != null ? sanitizeText(String(req.body.certifications)) : null;
 
   if (!batchCode) return err(res, 400, 'batch_code is required', 'validation_error');
   if (!harvestDate || !/^\d{4}-\d{2}-\d{2}$/.test(harvestDate)) {
@@ -41,10 +43,10 @@ router.post('/', auth, async (req, res) => {
 
   try {
     const { rows } = await db.query(
-      `INSERT INTO harvest_batches (farmer_id, batch_code, harvest_date, notes)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, farmer_id, batch_code, harvest_date, notes, created_at`,
-      [req.user.id, batchCode, harvestDate, notes],
+      `INSERT INTO harvest_batches (farmer_id, batch_code, harvest_date, location, certifications, notes)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, farmer_id, batch_code, harvest_date, location, certifications, notes, created_at`,
+      [req.user.id, batchCode, harvestDate, location, certifications, notes],
     );
     res.status(201).json({ success: true, data: rows[0] });
   } catch (e) {

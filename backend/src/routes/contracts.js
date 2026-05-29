@@ -10,13 +10,10 @@ function validateContractId(contractId) {
 }
 
 const ARGS_MAX_BYTES = 65535;
-const TRUNCATED_SUFFIX = ' [truncated]';
 
-function truncateArgs(args) {
-  if (args == null) return null;
-  const serialised = JSON.stringify(args);
-  if (serialised.length <= ARGS_MAX_BYTES) return serialised;
-  return serialised.slice(0, ARGS_MAX_BYTES - TRUNCATED_SUFFIX.length) + TRUNCATED_SUFFIX;
+function argsExceedLimit(args) {
+  if (args == null) return false;
+  return JSON.stringify(args).length > ARGS_MAX_BYTES;
 }
 
 async function logInvocation({ contractId, method, args, result, txHash, success, error, userId }) {
@@ -27,7 +24,7 @@ async function logInvocation({ contractId, method, args, result, txHash, success
       [
         contractId,
         method,
-        truncateArgs(args),
+        args != null ? JSON.stringify(args) : null,
         result != null ? JSON.stringify(result) : null,
         txHash || null,
         success ? 1 : 0,
@@ -53,6 +50,9 @@ router.post('/:contractId/simulate', auth, adminAuth, async (req, res) => {
   }
   if (args !== undefined && !Array.isArray(args)) {
     return err(res, 400, 'args must be an array', 'invalid_body');
+  }
+  if (argsExceedLimit(args)) {
+    return err(res, 400, `args must not exceed ${ARGS_MAX_BYTES} bytes when serialized`, 'args_too_large');
   }
 
   const net = (process.env.STELLAR_NETWORK || 'testnet').toLowerCase();
