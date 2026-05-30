@@ -805,17 +805,6 @@ export default function ProductDetail() {
         })()}
 
         <PriceHistoryChart data={priceHistory} />
-        <div style={s.price}>
-          {unitPrice} XLM{" "}
-          <span style={{ fontSize: 14, fontWeight: 400 }}>
-            / {product.unit}
-          </span>
-          {tiers.length > 0 && (
-            <span style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>
-              (bulk pricing available)
-            </span>
-          )}
-        </div>
         {usd(unitPrice) && (
           <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
             {usd(unitPrice)} {t('productDetail.perUnit', { unit: product.unit })} <span style={{ fontSize: 11, color: '#bbb' }}>{t('productDetail.approxRate')}</span>
