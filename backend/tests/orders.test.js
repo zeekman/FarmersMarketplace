@@ -99,6 +99,209 @@ describe('POST /api/orders idempotency', () => {
   });
 });
 
+describe('POST /api/orders with bundle', () => {
+  const bundle = {
+    id: 100,
+    farmer_id: 1,
+    name: 'Veggie Bundle',
+    price: 15.0,
+    farmer_wallet: 'GFARMER',
+  };
+
+  const bundleItems = [
+    { product_id: 10, quantity: 2, product_name: 'Apples', stock: 10, product_price: 5.0 },
+    { product_id: 11, quantity: 1, product_name: 'Carrots', stock: 5, product_price: 10.0 },
+  ];
+
+  it('buyer places a bundle order successfully', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+    stellar.getBalance.mockResolvedValueOnce(9999);
+    stellar.sendPayment.mockResolvedValueOnce('TXHASH_BUNDLE');
+
+    mockQuery
+      .mockResolvedValueOnce({ rows: [bundle], rowCount: 1 }) // bundle lookup
+      .mockResolvedValueOnce({ rows: bundleItems, rowCount: 2 }) // bundle items
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 }) // buyer lookup
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // BEGIN
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // stock decrement item 1
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // stock decrement item 2
+      .mockResolvedValueOnce({ rows: [{ id: 101 }], rowCount: 1 }) // INSERT order item 1
+      .mockResolvedValueOnce({ rows: [{ id: 102 }], rowCount: 1 }) // INSERT order item 2
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // COMMIT
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE order 1 paid
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE order 2 paid
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // coupon usage (none)
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // coupon uses (none)
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // idempotency cache (none)
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }); // idempotency cache (none)
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
+      .send({ bundle_id: 100 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.status).toBe('paid');
+    expect(res.body.bundleId).toBe(100);
+    expect(res.body.orderIds).toEqual([101, 102]);
+    expect(res.body.bundlePrice).toBe(15.0);
+    expect(res.body.individualTotal).toBe(20.0); // 5*2 + 10*1
+    expect(res.body.savings).toBe(5.0);
+  });
+
+  it('rejects bundle order with insufficient stock', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+    const insufficientStockItems = [
+      { product_id: 10, quantity: 2, product_name: 'Apples', stock: 1, product_price: 5.0 },
+      { product_id: 11, quantity: 1, product_name: 'Carrots', stock: 5, product_price: 10.0 },
+    ];
+
+    mockQuery
+      .mockResolvedValueOnce({ rows: [bundle], rowCount: 1 }) // bundle lookup
+      .mockResolvedValueOnce({ rows: insufficientStockItems, rowCount: 2 }); // bundle items
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
+      .send({ bundle_id: 100 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('insufficient_stock');
+    expect(res.body.message).toContain('Insufficient stock for "Apples"');
+  });
+
+  it('rejects bundle order for non-existent bundle', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // bundle not found
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
+      .send({ bundle_id: 999 });
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe('not_found');
+  });
+
+  it('rejects order with both product_id and bundle_id', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
+      .send({ product_id: 10, quantity: 2, bundle_id: 100 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+  });
+
+  it('rejects order with neither product_id nor bundle_id', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+  });
+
+  it('applies coupon discount to bundle order', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+    stellar.getBalance.mockResolvedValueOnce(9999);
+    stellar.sendPayment.mockResolvedValueOnce('TXHASH_BUNDLE');
+
+    const coupon = {
+      id: 50,
+      code: 'BUNDLE20',
+      discount_type: 'percent',
+      discount_value: 20,
+      max_uses_per_user: 10,
+    };
+
+    mockQuery
+      .mockResolvedValueOnce({ rows: [bundle], rowCount: 1 }) // bundle lookup
+      .mockResolvedValueOnce({ rows: bundleItems, rowCount: 2 }) // bundle items
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 }) // buyer lookup
+      .mockResolvedValueOnce({ rows: [coupon], rowCount: 1 }) // coupon lookup
+      .mockResolvedValueOnce({ rows: [{ cnt: 0 }], rowCount: 1 }) // coupon usage check
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // BEGIN
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // stock decrement item 1
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // stock decrement item 2
+      .mockResolvedValueOnce({ rows: [{ id: 101 }], rowCount: 1 }) // INSERT order item 1
+      .mockResolvedValueOnce({ rows: [{ id: 102 }], rowCount: 1 }) // INSERT order item 2
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // COMMIT
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE order 1 paid
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE order 2 paid
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE coupon used_count
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // INSERT coupon_uses
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // idempotency cache (none)
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }); // idempotency cache (none)
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
+      .send({ bundle_id: 100, coupon_code: 'BUNDLE20' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.discount).toBe(3.0); // 20% of 15.0
+    expect(res.body.totalPrice).toBe(12.0); // 15.0 - 3.0
+    expect(res.body.coupon).toEqual({ code: 'BUNDLE20', discount_type: 'percent' });
+  });
+
+  it('rolls back stock on payment failure for bundle order', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+    stellar.getBalance.mockResolvedValueOnce(9999);
+    stellar.sendPayment.mockRejectedValue(new Error('Payment failed'));
+
+    mockQuery
+      .mockResolvedValueOnce({ rows: [bundle], rowCount: 1 }) // bundle lookup
+      .mockResolvedValueOnce({ rows: bundleItems, rowCount: 2 }) // bundle items
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 }) // buyer lookup
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // BEGIN
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // stock decrement item 1
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // stock decrement item 2
+      .mockResolvedValueOnce({ rows: [{ id: 101 }], rowCount: 1 }) // INSERT order item 1
+      .mockResolvedValueOnce({ rows: [{ id: 102 }], rowCount: 1 }) // INSERT order item 2
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // COMMIT
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // BEGIN (rollback)
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE order 1 failed
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE order 2 failed
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // stock rollback item 1
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // stock rollback item 2
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // COMMIT (rollback)
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // idempotency cache (none)
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }); // idempotency cache (none)
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
+      .send({ bundle_id: 100 });
+
+    expect(res.status).toBe(402);
+    expect(res.body.code).toBe('payment_failed');
+    expect(res.body.orderIds).toEqual([101, 102]);
+  });
+});
+
 describe('POST /api/orders', () => {
   it('buyer places an order successfully', async () => {
     const { token: csrf, cookieStr } = await getCsrf();

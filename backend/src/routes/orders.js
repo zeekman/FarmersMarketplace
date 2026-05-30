@@ -82,6 +82,191 @@ router.get('/fee-preview', (req, res) => {
  *   description: Order placement and management
  */
 
+// Handle bundle orders with validation and atomic discount application
+async function handleBundleOrder(req, res, bundle_id, address_id, coupon_code, use_soroban_escrow, idempotencyKey) {
+  const { rows: bundleRows } = await db.query(
+    `SELECT b.*, u.stellar_public_key as farmer_wallet, u.id as farmer_id
+     FROM bundles b JOIN users u ON b.farmer_id = u.id
+     WHERE b.id = $1`,
+    [bundle_id]
+  );
+  const bundle = bundleRows[0];
+  if (!bundle) return err(res, 404, 'Bundle not found', 'not_found');
+
+  // Fetch all required products for this bundle
+  const { rows: bundleItems } = await db.query(
+    `SELECT bi.*, p.name as product_name, p.quantity as stock, p.price as product_price,
+            p.pricing_type, p.min_weight, p.max_weight, p.unit, p.min_order_quantity,
+            p.flash_sale_price, p.flash_sale_starts_at, p.flash_sale_ends_at
+     FROM bundle_items bi
+     JOIN products p ON bi.product_id = p.id
+     WHERE bi.bundle_id = $1`,
+    [bundle_id]
+  );
+
+  if (bundleItems.length === 0) {
+    return err(res, 400, 'Bundle has no products', 'invalid_bundle');
+  }
+
+  // Validate stock for all required products
+  for (const item of bundleItems) {
+    if (item.stock < item.quantity) {
+      return err(res, 400, `Insufficient stock for "${item.product_name}" in bundle`, 'insufficient_stock');
+    }
+  }
+
+  // Fetch buyer information
+  const { rows: buyerRows } = await db.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+  const buyer = buyerRows[0];
+  if (!buyer) return err(res, 404, 'Buyer not found', 'not_found');
+
+  // Geo-fence check for the farmer
+  const clientIp = req.ip || req.socket?.remoteAddress || '';
+  const { allowed: geoAllowed } = await checkGeoFence({ farmer_id: bundle.farmer_id }, buyer, clientIp);
+  if (!geoAllowed) return err(res, 403, 'Not available in your region', 'region_restricted');
+
+  // Calculate total price if buying products individually
+  let individualTotal = 0;
+  for (const item of bundleItems) {
+    let unitPrice = item.product_price;
+    // Apply flash sale pricing if active
+    if (item.flash_sale_price && item.flash_sale_ends_at) {
+      const now = Date.now();
+      const endsAt = new Date(item.flash_sale_ends_at).getTime();
+      if (endsAt > now) {
+        if (item.flash_sale_starts_at) {
+          const startsAt = new Date(item.flash_sale_starts_at).getTime();
+          if (startsAt <= now) {
+            unitPrice = Number(item.flash_sale_price);
+          }
+        } else {
+          unitPrice = Number(item.flash_sale_price);
+        }
+      }
+    }
+    individualTotal += unitPrice * item.quantity;
+  }
+
+  // Apply coupon if provided
+  let discount = 0;
+  let appliedCoupon = null;
+  if (coupon_code) {
+    const { rows: cRows } = await db.query(
+      `SELECT * FROM coupons WHERE code = $1 AND farmer_id = $2 AND (expires_at IS NULL OR expires_at > NOW()) AND (max_uses IS NULL OR used_count < max_uses)`,
+      [coupon_code.trim().toUpperCase(), bundle.farmer_id]
+    );
+    if (!cRows[0]) return err(res, 400, 'Invalid or expired coupon', 'invalid_coupon');
+    appliedCoupon = cRows[0];
+    if (appliedCoupon.max_uses_per_user != null) {
+      const { rows: useRows } = await db.query(
+        'SELECT COUNT(*) as cnt FROM coupon_uses WHERE coupon_id = $1 AND user_id = $2',
+        [appliedCoupon.id, req.user.id]
+      );
+      if (parseInt(useRows[0].cnt, 10) >= appliedCoupon.max_uses_per_user)
+        return err(res, 409, 'Coupon already used', 'coupon_already_used');
+    }
+    discount = appliedCoupon.discount_type === 'percent'
+      ? parseFloat((bundle.price * appliedCoupon.discount_value / 100).toFixed(7))
+      : Math.min(parseFloat(appliedCoupon.discount_value), bundle.price);
+  }
+
+  // Calculate final price (bundle price - coupon discount)
+  const totalPrice = parseFloat((bundle.price - discount).toFixed(7));
+
+  // Balance check
+  const balance = await getBalance(buyer.stellar_public_key);
+  const required = totalPrice + 0.00001;
+  if (balance < required) {
+    return res.status(402).json({ success: false, message: 'Insufficient XLM balance', code: 'insufficient_balance' });
+  }
+
+  // Atomically decrement stock for all products and create orders
+  let orderIds = [];
+  try {
+    await db.query('BEGIN');
+
+    // Decrement stock for all bundle items
+    for (const item of bundleItems) {
+      const { rowCount } = await db.query(
+        'UPDATE products SET quantity = quantity - $1 WHERE id = $2 AND quantity >= $3',
+        [item.quantity, item.product_id, item.quantity]
+      );
+      if (rowCount === 0) {
+        throw new Error(`Insufficient stock for "${item.product_name}"`);
+      }
+    }
+
+    // Create individual orders for each product in the bundle
+    for (const item of bundleItems) {
+      const itemPrice = (item.product_price * item.quantity) / individualTotal * bundle.price;
+      const { rows: orderRows } = await db.query(
+        `INSERT INTO orders (buyer_id, product_id, quantity, total_price, status, address_id, bundle_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [req.user.id, item.product_id, item.quantity, itemPrice, 'pending', address_id || null, bundle_id]
+      );
+      orderIds.push(orderRows[0].id);
+    }
+
+    await db.query('COMMIT');
+  } catch (e) {
+    await db.query('ROLLBACK');
+    return err(res, 400, e.message || 'Failed to process bundle order', 'bundle_order_failed');
+  }
+
+  // Process payment for the bundle
+  try {
+    const txHash = await sendPayment({
+      senderSecret: buyer.stellar_secret_key,
+      receiverPublicKey: bundle.farmer_wallet,
+      amount: totalPrice,
+      memo: `Bundle#${bundle_id}`,
+    });
+
+    // Update all orders to paid status
+    for (const orderId of orderIds) {
+      await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
+    }
+
+    // Update coupon usage if applied
+    if (appliedCoupon) {
+      await db.query('UPDATE coupons SET used_count = used_count + 1 WHERE id = $1', [appliedCoupon.id]);
+      await db.query('INSERT INTO coupon_uses (coupon_id, user_id) VALUES ($1, $2)', [appliedCoupon.id, req.user.id]);
+    }
+
+    const savings = parseFloat((individualTotal - totalPrice).toFixed(7));
+    const responseData = {
+      success: true,
+      orderIds,
+      bundleId: bundle_id,
+      status: 'paid',
+      txHash,
+      totalPrice,
+      bundlePrice: bundle.price,
+      individualTotal,
+      savings: savings > 0 ? savings : undefined,
+      discount: discount > 0 ? discount : undefined,
+      coupon: appliedCoupon ? { code: appliedCoupon.code, discount_type: appliedCoupon.discount_type } : undefined,
+    };
+
+    if (idempotencyKey) await cacheResponse(idempotencyKey, responseData);
+    return res.json(responseData);
+  } catch (e) {
+    // Rollback stock and mark orders as failed
+    await db.query('BEGIN');
+    for (const orderId of orderIds) {
+      await db.query('UPDATE orders SET status = $1 WHERE id = $2', ['failed', orderId]);
+    }
+    for (const item of bundleItems) {
+      await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [item.quantity, item.product_id]);
+    }
+    await db.query('COMMIT');
+
+    const errorData = { success: false, message: 'Payment failed: ' + e.message, code: 'payment_failed', orderIds };
+    if (idempotencyKey) await cacheResponse(idempotencyKey, errorData);
+    return res.status(402).json(errorData);
+  }
+}
+
 // POST /api/orders
 /**
  * @swagger
@@ -95,7 +280,7 @@ router.get('/fee-preview', (req, res) => {
 router.post('/', auth, validate.order, async (req, res) => {
   if (req.user.role !== 'buyer') return err(res, 403, 'Only buyers can place orders', 'forbidden');
 
-  const { product_id, quantity, address_id, coupon_code, use_soroban_escrow, custom_price, weight, source_asset } = req.body;
+  const { product_id, quantity, address_id, coupon_code, use_soroban_escrow, custom_price, weight, source_asset, bundle_id } = req.body;
   const idempotencyKey = req.headers['x-idempotency-key'];
 
   if (idempotencyKey) {
@@ -107,6 +292,11 @@ router.post('/', auth, validate.order, async (req, res) => {
   if (address_id) {
     const { rows: addrRows } = await db.query('SELECT * FROM addresses WHERE id = $1 AND user_id = $2', [address_id, req.user.id]);
     if (!addrRows[0]) return err(res, 400, 'Invalid address_id', 'validation_error');
+  }
+
+  // Handle bundle orders
+  if (bundle_id) {
+    return await handleBundleOrder(req, res, bundle_id, address_id, coupon_code, use_soroban_escrow, idempotencyKey);
   }
 
   // 1. Fetch Product & Buyer

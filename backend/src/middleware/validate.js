@@ -92,7 +92,7 @@ module.exports = {
   }, { message: 'Incomplete pricing configuration: weight-based requires min<max, and PWYW requires min_price' })),
 
   order: validate(z.object({
-    product_id: z.coerce.number().int().positive('product_id must be a positive integer'),
+    product_id: z.coerce.number().int().positive('product_id must be a positive integer').optional(),
     quantity: z.coerce
       .number()
       .int()
@@ -100,7 +100,8 @@ module.exports = {
       .max(
         parseInt(process.env.MAX_ORDER_QUANTITY, 10) || 10000,
         `quantity cannot exceed ${parseInt(process.env.MAX_ORDER_QUANTITY, 10) || 10000}`
-      ),
+      )
+      .optional(),
     address_id: z.coerce.number().int().positive().optional(),
     use_soroban_escrow: z.coerce.boolean().optional(),
     weight: z.coerce.number().positive('weight must be a positive number').optional(),
@@ -110,7 +111,21 @@ module.exports = {
       code: z.string(),
       issuer: z.string().optional(),
     }).optional(),
-  })),
+    bundle_id: z.coerce.number().int().positive('bundle_id must be a positive integer').optional(),
+  }).refine(data => {
+    // Either product_id (single product) or bundle_id (bundle) must be provided
+    if (!data.product_id && !data.bundle_id) {
+      return false;
+    }
+    if (data.product_id && data.bundle_id) {
+      return false;
+    }
+    // If bundle_id is provided, quantity should not be used (bundle has its own quantities)
+    if (data.bundle_id && data.quantity) {
+      return false;
+    }
+    return true;
+  }, { message: 'Either product_id (with quantity) or bundle_id must be provided, but not both' })),
   product: validate(
     z
       .object({
