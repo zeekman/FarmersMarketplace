@@ -63,70 +63,115 @@ router.post('/returns/:id/reject', adminAuth, (req, res) => {
 
   db.prepare('UPDATE returns SET status = ? WHERE id = ?').run('rejected', ret.id);
   res.json({ message: 'Return request rejected' });
-const auth = require('../middleware/auth');
-const adminAuth = require('../middleware/adminAuth');
-const { sendPayment } = require('../stellar');
-
-// GET /api/admin/returns - list all return requests
-router.get('/returns', adminAuth, (req, res) => {
-  const returns = db.prepare(`
-    SELECT r.*, o.total_price, o.shipping_cost, o.stellar_tx_hash AS order_tx_hash,
-           p.name AS product_name,
-           b.name AS buyer_name, b.email AS buyer_email
-    FROM returns r
-    JOIN orders o ON r.order_id = o.id
-    JOIN products p ON o.product_id = p.id
-    JOIN users b ON r.buyer_id = b.id
-    ORDER BY r.created_at DESC
-  `).all();
-  res.json(returns);
 });
 
-// POST /api/admin/returns/:id/approve
-router.post('/returns/:id/approve', adminAuth, async (req, res) => {
-  const ret = db.prepare(`
-    SELECT r.*,
-           o.total_price, o.shipping_cost,
-           b.stellar_public_key AS buyer_wallet,
-           f.stellar_secret_key AS farmer_secret
-    FROM returns r
-    JOIN orders o ON r.order_id = o.id
-    JOIN users b ON r.buyer_id = b.id
-    JOIN products p ON o.product_id = p.id
-    JOIN users f ON p.farmer_id = f.id
-    WHERE r.id = ?
-  `).get(req.params.id);
-
-  if (!ret) return res.status(404).json({ error: 'Return request not found' });
-  if (ret.status !== 'pending') return res.status(400).json({ error: `Return already ${ret.status}` });
-
-  const refundAmount = ret.total_price + (ret.shipping_cost || 0);
-
-  try {
-    const txHash = await sendPayment({
-      senderSecret: ret.farmer_secret,
-      receiverPublicKey: ret.buyer_wallet,
-      amount: refundAmount,
-      memo: `Refund#${ret.id}`,
-    });
-
-    db.prepare('UPDATE returns SET status = ?, refund_tx_hash = ? WHERE id = ?')
-      .run('approved', txHash, ret.id);
-
-    res.json({ message: 'Return approved and refund issued', refundAmount, txHash });
-  } catch (err) {
-    res.status(500).json({ error: 'Refund transaction failed: ' + err.message });
+// GET /api/admin/users - list users with pagination
+router.get('/users', adminAuth, (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
+  const active = req.query.active;
+  
+  const offset = (page - 1) * limit;
+  
+  // Build WHERE clause based on active filter
+  let whereClause = '';
+  if (active !== undefined) {
+    const activeValue = active === '1' || active === 'true' ? 1 : 0;
+    whereClause = `WHERE active = ${activeValue}`;
   }
+  
+  // Get total count
+  const countResult = db.prepare(`SELECT COUNT(*) as count FROM users ${whereClause}`).get();
+  const total = countResult.count;
+  const pages = Math.ceil(total / limit);
+  
+  // Get paginated data
+  const users = db.prepare(`
+    SELECT id, name, email, role, created_at, active
+    FROM users
+    ${whereClause}
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(limit, offset);
+  
+  res.json({
+    data: users,
+    pagination: {
+      page,
+      limit,
+      total,
+      pages
+    }
+  });
 });
 
-// POST /api/admin/returns/:id/reject
-router.post('/returns/:id/reject', adminAuth, (req, res) => {
-  const ret = db.prepare('SELECT * FROM returns WHERE id = ?').get(req.params.id);
-  if (!ret) return res.status(404).json({ error: 'Return request not found' });
-  if (ret.status !== 'pending') return res.status(400).json({ error: `Return already ${ret.status}` });
+// GET /api/admin/orders - list orders with pagination
+router.get('/orders', adminAuth, (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
+  
+  const offset = (page - 1) * limit;
+  
+  // Get total count
+  const countResult = db.prepare('SELECT COUNT(*) as count FROM orders').get();
+  const total = countResult.count;
+  const pages = Math.ceil(total / limit);
+  
+  // Get paginated data
+  const orders = db.prepare(`
+    SELECT 
+      o.id, 
+      o.buyer_id, 
+      b.name AS buyer_name,
+      o.product_id,
+      p.name AS product_name,
+      o.quantity,
+      o.total_price,
+      o.status,
+      o.created_at
+    FROM orders o
+    JOIN users b ON o.buyer_id = b.id
+    JOIN products p ON o.product_id = p.id
+    ORDER BY o.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(limit, offset);
+  
+  res.json({
+    data: orders,
+    pagination: {
+      page,
+      limit,
+      total,
+      pages
+    }
+  });
+});
 
-  db.prepare('UPDATE returns SET status = ? WHERE id = ?').run('rejected', ret.id);
-  res.json({ message: 'Return request rejected' });
+// DELETE /api/admin/users/:id - deactivate user
+router.delete('/users/:id', adminAuth, (req, res) => {
+  const userId = req.params.id;
+  
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  
+  db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(userId);
+  
+  res.json({ message: 'User deactivated successfully' });
+});
+
+// GET /api/admin/stats - dashboard statistics
+router.get('/stats', adminAuth, (req, res) => {
+  const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+  const totalProducts = db.prepare('SELECT COUNT(*) as count FROM products').get().count;
+  const totalOrders = db.prepare('SELECT COUNT(*) as count FROM orders').get().count;
+  const totalRevenue = db.prepare('SELECT COALESCE(SUM(total_price), 0) as total FROM orders WHERE status = ?').get('paid').total;
+  
+  res.json({
+    totalUsers,
+    totalProducts,
+    totalOrders,
+    totalRevenue
+  });
 });
 
 // GET /api/admin/analytics/summary - last-30-day platform metrics
