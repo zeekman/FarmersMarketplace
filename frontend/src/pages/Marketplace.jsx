@@ -331,6 +331,7 @@ export default function Marketplace() {
   const [hasMore, setHasMore] = useState(true);
   const [bundles, setBundles] = useState([]);
   const [bundleMsg, setBundleMsg] = useState({});
+  const [expandedBundles, setExpandedBundles] = useState({});
   const [recommendations, setRecommendations] = useState([]);
   const [recsLoading, setRecsLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid"); // 'grid' | 'map'
@@ -1164,13 +1165,33 @@ export default function Marketplace() {
                   <div style={s.name}>{b.name}</div>
                   <div style={s.farmer}>by {b.farmer_name}</div>
                   {b.description && <div style={s.desc}>{b.description}</div>}
-                  <ul style={s.bundleItems}>
-                    {b.items?.map((i) => (
-                      <li key={i.product_id}>
-                        {i.quantity} × {i.product_name} ({i.unit})
-                      </li>
-                    ))}
-                  </ul>
+                  <button
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#2d6a4f',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      padding: 0,
+                      marginBottom: 8,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                    onClick={() => setExpandedBundles(prev => ({ ...prev, [b.id]: !prev[b.id] }))}
+                  >
+                    {expandedBundles[b.id] ? '▼' : '▶'} Included Items ({b.items?.length || 0})
+                  </button>
+                  {expandedBundles[b.id] && (
+                    <ul style={s.bundleItems}>
+                      {b.items?.map((i) => (
+                        <li key={i.product_id}>
+                          {i.quantity} × {i.product_name} ({i.unit})
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   <div style={s.price}>{b.price} XLM</div>
                   {usd(b.price) && (
                     <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
