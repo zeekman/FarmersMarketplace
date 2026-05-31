@@ -5,6 +5,7 @@ import { HelmetProvider } from "react-helmet-async";
 import App from "./App";
 import "./browser-compat.css";
 import "./responsive.css";
+import "./i18n";
 
 if (import.meta.env.DEV) {
   import('@axe-core/react').then(({ default: axe }) => {
