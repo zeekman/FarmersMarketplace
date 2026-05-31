@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { validatePassword } from '../utils/validation';
+import TwoFactorAuth from '../components/TwoFactorAuth';
 
 const s = {
   page:    { maxWidth: 640, margin: '0 auto', padding: 24 },
@@ -653,6 +654,7 @@ export default function Settings() {
           <ProfileSettings showToast={showToast} />
           <SettingsAccountBody />
           <PasswordChangeForm />
+          <TwoFactorAuth />
           <SeedPhraseBackup />
         </>
       ) : (

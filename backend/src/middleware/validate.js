@@ -293,4 +293,12 @@ module.exports = {
         .nonnegative('monthly_limit cannot be negative'),
     })
   ),
+
+  verify2FA: validate(
+    z.object({
+      secret: z.string().min(1, 'secret is required'),
+      code: z.string().regex(/^\d{6}$/, 'code must be a 6-digit number'),
+      backupCodes: z.array(z.string()).min(1, 'at least one backup code is required'),
+    })
+  ),
 };

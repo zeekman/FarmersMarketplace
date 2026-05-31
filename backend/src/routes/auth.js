@@ -2,6 +2,8 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
 const db = require('../db/schema');
 const {
   createWalletFromMnemonic,
@@ -536,5 +538,120 @@ router.post('/recover', validate.recover, async (req, res) => {
     },
   });
 });
+
+/**
+ * POST /api/auth/2fa/setup
+ * Initiate 2FA setup: generate TOTP secret and return QR code
+ */
+router.post('/2fa/setup', auth, async (req, res) => {
+  try {
+    const secret = speakeasy.generateSecret({
+      name: `Farmers Marketplace (${req.user.id})`,
+      issuer: 'Farmers Marketplace',
+      length: 32,
+    });
+
+    const qrCode = await QRCode.toDataURL(secret.otpauth_url);
+
+    res.json({
+      secret: secret.base32,
+      qrCode,
+      backupCodes: generateBackupCodes(10),
+    });
+  } catch (e) {
+    logger.error('2fa_setup_error', { error: e.message });
+    res.status(500).json({ error: 'Failed to generate 2FA setup' });
+  }
+});
+
+/**
+ * POST /api/auth/2fa/verify
+ * Verify TOTP code and enable 2FA
+ * Body: { secret, code, backupCodes }
+ */
+router.post('/2fa/verify', auth, validate.verify2FA, async (req, res) => {
+  const { secret, code, backupCodes } = req.body;
+
+  try {
+    // Verify the TOTP code
+    const verified = speakeasy.totp.verify({
+      secret,
+      encoding: 'base32',
+      token: code,
+      window: 2,
+    });
+
+    if (!verified) {
+      return err(res, 400, 'Invalid verification code', 'invalid_code');
+    }
+
+    // Hash backup codes
+    const hashedBackupCodes = backupCodes.map(code => 
+      crypto.createHash('sha256').update(code).digest('hex')
+    );
+
+    // Store 2FA settings
+    await db.query(
+      `INSERT INTO user_2fa_settings (user_id, totp_secret, backup_codes, enabled, created_at)
+       VALUES ($1, $2, $3, 1, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+       totp_secret = $2, backup_codes = $3, enabled = 1, updated_at = NOW()`,
+      [req.user.id, secret, JSON.stringify(hashedBackupCodes)]
+    );
+
+    res.json({ success: true, message: '2FA enabled successfully' });
+  } catch (e) {
+    logger.error('2fa_verify_error', { error: e.message, userId: req.user.id });
+    res.status(500).json({ error: 'Failed to verify 2FA' });
+  }
+});
+
+/**
+ * GET /api/auth/2fa/status
+ * Check if 2FA is enabled for the current user
+ */
+router.get('/2fa/status', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      'SELECT enabled FROM user_2fa_settings WHERE user_id = $1',
+      [req.user.id]
+    );
+
+    const enabled = rows[0]?.enabled === 1;
+    res.json({ enabled });
+  } catch (e) {
+    logger.error('2fa_status_error', { error: e.message });
+    res.status(500).json({ error: 'Failed to check 2FA status' });
+  }
+});
+
+/**
+ * POST /api/auth/2fa/disable
+ * Disable 2FA for the current user
+ */
+router.post('/2fa/disable', auth, async (req, res) => {
+  try {
+    await db.query(
+      'UPDATE user_2fa_settings SET enabled = 0, updated_at = NOW() WHERE user_id = $1',
+      [req.user.id]
+    );
+
+    res.json({ success: true, message: '2FA disabled successfully' });
+  } catch (e) {
+    logger.error('2fa_disable_error', { error: e.message });
+    res.status(500).json({ error: 'Failed to disable 2FA' });
+  }
+});
+
+/**
+ * Helper: Generate backup codes
+ */
+function generateBackupCodes(count) {
+  const codes = [];
+  for (let i = 0; i < count; i++) {
+    codes.push(crypto.randomBytes(4).toString('hex').toUpperCase());
+  }
+  return codes;
+}
 
 module.exports = router;

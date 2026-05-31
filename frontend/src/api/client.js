@@ -397,4 +397,10 @@ export const api = {
   adminCreateAnnouncement: (body) => request('/announcements/admin', { method: 'POST', body }),
   adminUpdateAnnouncement: (id, body) => request(`/announcements/admin/${id}`, { method: 'PATCH', body }),
   adminDeleteAnnouncement: (id) => request(`/announcements/admin/${id}`, { method: 'DELETE' }),
+
+  // Two-Factor Authentication
+  setup2FA: () => request('/auth/2fa/setup', { method: 'POST' }),
+  verify2FA: (body) => request('/auth/2fa/verify', { method: 'POST', body }),
+  get2FAStatus: () => request('/auth/2fa/status'),
+  disable2FA: () => request('/auth/2fa/disable', { method: 'POST' }),
 };
