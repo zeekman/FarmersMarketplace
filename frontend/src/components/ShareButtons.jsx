@@ -35,6 +35,7 @@ export default function ShareButtons({ title, url, onShare }) {
   const [toast, setToast] = useState(null);
   const encodedUrl = encodeURIComponent(url);
   const encodedText = encodeURIComponent(`${title} ${url}`);
+  const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
 
   const showToast = useCallback((message, type) => {
     setToast({ message, type });
@@ -43,6 +44,15 @@ export default function ShareButtons({ title, url, onShare }) {
 
   function track(platform) {
     if (typeof onShare === "function") onShare(platform);
+  }
+
+  async function shareNative() {
+    try {
+      await navigator.share({ title, url, text: title });
+      track("native_share");
+    } catch (e) {
+      if (e.name !== "AbortError") showToast("Share failed", "error");
+    }
   }
 
   function shareWhatsApp() {
@@ -100,6 +110,11 @@ export default function ShareButtons({ title, url, onShare }) {
     <div style={s.wrap}>
       <div style={s.title}>Share this product</div>
       <div style={s.row}>
+        {canNativeShare && (
+          <button type="button" style={s.btn} onClick={shareNative}>
+            Share
+          </button>
+        )}
         <button type="button" style={s.btn} onClick={shareWhatsApp}>
           WhatsApp
         </button>

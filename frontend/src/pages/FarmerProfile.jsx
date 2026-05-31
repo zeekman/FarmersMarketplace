@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+
+const PAGE_SIZE = 9;
 
 const s = {
   page:       { maxWidth: 900, margin: '0 auto', padding: 24 },
@@ -18,8 +20,13 @@ const s = {
   cardPrice:  { fontWeight: 700, color: '#2d6a4f', fontSize: 16 },
   cardQty:    { fontSize: 12, color: '#888', marginTop: 3 },
   badge:      { display: 'inline-block', fontSize: 11, background: '#d8f3dc', color: '#2d6a4f', borderRadius: 4, padding: '2px 7px', marginBottom: 6 },
+  verifiedBadge: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, background: '#dbeafe', color: '#1e40af', borderRadius: 20, padding: '3px 10px', marginTop: 8 },
   empty:      { color: '#aaa', fontSize: 14, padding: '32px 0', textAlign: 'center' },
   back:       { fontSize: 13, color: '#2d6a4f', cursor: 'pointer', marginBottom: 16, display: 'inline-block' },
+  pagination: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24 },
+  pageBtn:    { padding: '7px 14px', borderRadius: 8, border: '1px solid #ddd', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: '#fff', color: '#2d6a4f' },
+  pageBtnActive: { background: '#2d6a4f', color: '#fff', border: '1px solid #2d6a4f' },
+  pageBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
 };
 
 const shimmer = `
@@ -76,14 +83,23 @@ export default function FarmerProfile() {
   const [farmer, setFarmer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     setLoading(true);
+    setPage(1);
     api.getFarmer(id)
       .then(res => setFarmer(res.data))
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const totalPages = farmer ? Math.ceil(farmer.listings.length / PAGE_SIZE) : 1;
+  const pagedListings = useMemo(() => {
+    if (!farmer) return [];
+    const start = (page - 1) * PAGE_SIZE;
+    return farmer.listings.slice(start, start + PAGE_SIZE);
+  }, [farmer, page]);
 
   if (loading) return <ProfileSkeleton />;
 
@@ -119,6 +135,9 @@ export default function FarmerProfile() {
           <div style={s.since}>
             Member since {new Date(farmer.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
           </div>
+          {farmer.verified && (
+            <div style={s.verifiedBadge}>✔ Verified Farmer</div>
+          )}
         </div>
       </div>
 
@@ -130,27 +149,56 @@ export default function FarmerProfile() {
       {farmer.listings.length === 0 ? (
         <div style={s.empty}>This farmer has no active listings right now.</div>
       ) : (
-        <div style={s.grid}>
-          {farmer.listings.map(p => (
-            <div
-              key={p.id}
-              style={s.card}
-              onClick={() => navigate(`/product/${p.id}`)}
-              onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
-              onMouseLeave={e => e.currentTarget.style.transform = ''}
-            >
-              {p.image_url
-                ? <img src={p.image_url} alt={p.name} style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 8, marginBottom: 10 }} />
-                : <div style={{ fontSize: 28, marginBottom: 8 }}>🥬</div>
-              }
-              {p.category && p.category !== 'other' && <div style={s.badge}>{p.category}</div>}
-              <div style={s.cardName}>{p.name}</div>
-              <div style={s.cardDesc}>{p.description || 'Fresh from the farm'}</div>
-              <div style={s.cardPrice}>{p.price} XLM <span style={{ fontSize: 12, fontWeight: 400 }}>/ {p.unit}</span></div>
-              <div style={s.cardQty}>{p.quantity} {p.unit} available</div>
+        <>
+          <div style={s.grid}>
+            {pagedListings.map(p => (
+              <div
+                key={p.id}
+                style={s.card}
+                onClick={() => navigate(`/product/${p.id}`)}
+                onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                onMouseLeave={e => e.currentTarget.style.transform = ''}
+              >
+                {p.image_url
+                  ? <img src={p.image_url} alt={p.name} style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 8, marginBottom: 10 }} />
+                  : <div style={{ fontSize: 28, marginBottom: 8 }}>🥬</div>
+                }
+                {p.category && p.category !== 'other' && <div style={s.badge}>{p.category}</div>}
+                <div style={s.cardName}>{p.name}</div>
+                <div style={s.cardDesc}>{p.description || 'Fresh from the farm'}</div>
+                <div style={s.cardPrice}>{p.price} XLM <span style={{ fontSize: 12, fontWeight: 400 }}>/ {p.unit}</span></div>
+                <div style={s.cardQty}>{p.quantity} {p.unit} available</div>
+              </div>
+            ))}
+          </div>
+          {totalPages > 1 && (
+            <div style={s.pagination}>
+              <button
+                style={{ ...s.pageBtn, ...(page === 1 ? s.pageBtnDisabled : {}) }}
+                disabled={page === 1}
+                onClick={() => setPage(p => p - 1)}
+              >
+                ← Prev
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+                <button
+                  key={n}
+                  style={{ ...s.pageBtn, ...(n === page ? s.pageBtnActive : {}) }}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                style={{ ...s.pageBtn, ...(page === totalPages ? s.pageBtnDisabled : {}) }}
+                disabled={page === totalPages}
+                onClick={() => setPage(p => p + 1)}
+              >
+                Next →
+              </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );

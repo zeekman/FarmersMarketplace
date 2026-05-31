@@ -53,6 +53,11 @@ const s = {
   step:      { display: 'flex', flexDirection: 'column', alignItems: 'center', fontSize: 10, color: '#bbb', minWidth: 60 },
   stepDot:   { width: 10, height: 10, borderRadius: '50%', background: '#ddd', marginBottom: 3 },
   stepLine:  { flex: 1, height: 2, background: '#eee', minWidth: 20 },
+  filters:   { display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' },
+  filterLabel: { fontSize: 13, color: '#555', whiteSpace: 'nowrap' },
+  dateInput: { padding: '6px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, color: '#333' },
+  sortSelect: { padding: '6px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, color: '#333', background: '#fff', cursor: 'pointer' },
+  clearBtn:  { fontSize: 12, padding: '5px 12px', borderRadius: 8, border: '1px solid #ddd', cursor: 'pointer', background: '#f5f5f5', color: '#555', fontWeight: 600 },
 };
 
 function StatusTimeline({ status }) {
@@ -84,7 +89,29 @@ export default function Orders() {
   const [allOrders, setAllOrders] = useState([]);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = FILTER_TABS.includes(searchParams.get('status')) ? searchParams.get('status') : 'all';
-  const setActiveTab = (tab) => setSearchParams(tab === 'all' ? {} : { status: tab }, { replace: true });
+  const dateFrom = searchParams.get('date_from') || '';
+  const dateTo = searchParams.get('date_to') || '';
+  const sortBy = searchParams.get('sort') || 'newest';
+
+  const setActiveTab = (tab) => {
+    const p = {};
+    if (tab !== 'all') p.status = tab;
+    if (dateFrom) p.date_from = dateFrom;
+    if (dateTo) p.date_to = dateTo;
+    if (sortBy !== 'newest') p.sort = sortBy;
+    setSearchParams(p, { replace: true });
+  };
+
+  function setFilterParam(key, value) {
+    const p = {};
+    if (activeTab !== 'all') p.status = activeTab;
+    if (dateFrom) p.date_from = dateFrom;
+    if (dateTo) p.date_to = dateTo;
+    if (sortBy !== 'newest') p.sort = sortBy;
+    if (value) p[key] = value;
+    else delete p[key];
+    setSearchParams(p, { replace: true });
+  }
   const [loading, setLoading]      = useState(true);
   const [error, setError]          = useState(null);
   const [hovered, setHovered]      = useState(null);
@@ -189,7 +216,24 @@ export default function Orders() {
     spent:   allOrders.filter(o => o.status === 'paid').reduce((sum, o) => sum + parseFloat(o.total_price || 0), 0),
   };
 
-  const visible = activeTab === 'all' ? allOrders : allOrders.filter(o => o.status === activeTab);
+  let visible = activeTab === 'all' ? allOrders : allOrders.filter(o => o.status === activeTab);
+  if (dateFrom) {
+    const from = new Date(dateFrom);
+    visible = visible.filter(o => new Date(o.created_at) >= from);
+  }
+  if (dateTo) {
+    const to = new Date(dateTo + 'T23:59:59');
+    visible = visible.filter(o => new Date(o.created_at) <= to);
+  }
+  if (sortBy === 'oldest') {
+    visible = [...visible].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  } else if (sortBy === 'total_asc') {
+    visible = [...visible].sort((a, b) => parseFloat(a.total_price) - parseFloat(b.total_price));
+  } else if (sortBy === 'total_desc') {
+    visible = [...visible].sort((a, b) => parseFloat(b.total_price) - parseFloat(a.total_price));
+  } else {
+    visible = [...visible].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
 
   return (
     <div style={s.page}>
@@ -228,6 +272,49 @@ export default function Orders() {
             <div style={s.statCard}><div style={{ ...s.statNum, color: '#856404' }}>{stats.pending}</div><div style={s.statLabel}>Pending</div></div>
             <div style={s.statCard}><div style={{ ...s.statNum, color: '#c0392b' }}>{stats.failed}</div><div style={s.statLabel}>Failed</div></div>
             <div style={s.statCard}><div style={s.statNum}>{stats.spent.toFixed(2)}</div><div style={s.statLabel}>XLM Spent</div></div>
+          </div>
+
+          <div style={s.filters}>
+            <span style={s.filterLabel}>From:</span>
+            <input
+              type="date"
+              style={s.dateInput}
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={e => setFilterParam('date_from', e.target.value)}
+            />
+            <span style={s.filterLabel}>To:</span>
+            <input
+              type="date"
+              style={s.dateInput}
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={e => setFilterParam('date_to', e.target.value)}
+            />
+            <span style={s.filterLabel}>Sort:</span>
+            <select
+              style={s.sortSelect}
+              value={sortBy}
+              onChange={e => setFilterParam('sort', e.target.value === 'newest' ? '' : e.target.value)}
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="total_desc">Total ↓</option>
+              <option value="total_asc">Total ↑</option>
+            </select>
+            {(dateFrom || dateTo) && (
+              <button
+                style={s.clearBtn}
+                onClick={() => {
+                  const p = {};
+                  if (activeTab !== 'all') p.status = activeTab;
+                  if (sortBy !== 'newest') p.sort = sortBy;
+                  setSearchParams(p, { replace: true });
+                }}
+              >
+                Clear dates
+              </button>
+            )}
           </div>
 
           <div style={s.tabs}>
