@@ -1182,10 +1182,20 @@ export default function Dashboard() {
                     : <span style={{ fontSize: 28, marginRight: 10 }}>🥬</span>
                   }
                   <div>
-                    <div style={{ fontWeight: 600 }}>{p.name}</div>
+                    <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {p.name}
+                      {(p.is_preorder || p.is_preorder === 1) && (
+                        <span style={{ fontSize: 11, fontWeight: 700, background: '#e07b00', color: '#fff', borderRadius: 4, padding: '2px 7px', letterSpacing: 0.3 }}>Pre-order</span>
+                      )}
+                    </div>
                     <div style={{ fontSize: 13, color: '#666' }}>
                       {p.pricing_model === 'pwyw' ? `Min ${p.min_price} XLM (PWYW)` : p.pricing_model === 'donation' ? 'Donation' : `${p.price} XLM`} · {p.quantity} {p.unit}
                     </div>
+                    {(p.is_preorder || p.is_preorder === 1) && p.preorder_delivery_date && (
+                      <div style={{ fontSize: 12, color: '#e07b00', marginTop: 2 }}>
+                        📅 Delivery: {p.preorder_delivery_date}
+                      </div>
+                    )}
                     {forecastByProduct[p.id]?.note ? (
                       <div style={{ fontSize: 12, color: '#888' }}>{forecastByProduct[p.id].note}</div>
                     ) : forecastByProduct[p.id] ? (
