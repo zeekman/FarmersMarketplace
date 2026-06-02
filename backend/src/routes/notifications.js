@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
+const db = require('../db/schema');
 const {
   VAPID_PUBLIC_KEY,
   savePushSubscription,
@@ -13,6 +14,39 @@ router.get('/vapid-public-key', (_req, res) => {
     return err(res, 503, 'Web Push is not configured', 'push_not_configured');
   }
   res.json({ success: true, data: { publicKey: VAPID_PUBLIC_KEY } });
+});
+
+router.get('/history', auth, async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const offset = (page - 1) * limit;
+
+  try {
+    const { rows: countRows } = await db.query(
+      'SELECT COUNT(*) as count FROM push_notification_history WHERE user_id = $1',
+      [req.user.id]
+    );
+    const total = parseInt(countRows[0]?.count || 0, 10);
+    const { rows: data } = await db.query(
+      `SELECT id, title, body, status, error, created_at
+       FROM push_notification_history
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [req.user.id, limit, offset]
+    );
+
+    res.json({
+      success: true,
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message, code: 'notification_history_error' });
+  }
 });
 
 router.post('/subscribe', auth, async (req, res) => {

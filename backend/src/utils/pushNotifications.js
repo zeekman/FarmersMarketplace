@@ -27,6 +27,46 @@ async function ensurePushSubscriptionTable() {
   );
 }
 
+async function ensurePushNotificationHistoryTable() {
+  await db.query(
+    `CREATE TABLE IF NOT EXISTS push_notification_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      endpoint TEXT,
+      title TEXT,
+      body TEXT,
+      payload TEXT,
+      status TEXT NOT NULL CHECK(status IN ('sent','delivered','failed')),
+      error TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  );
+}
+
+async function insertPushNotificationHistory({ userId, endpoint, title, body, payload, status, error }) {
+  await ensurePushNotificationHistoryTable();
+  const query = db.isPostgres
+    ? `INSERT INTO push_notification_history (user_id, endpoint, title, body, payload, status, error)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`
+    : `INSERT INTO push_notification_history (user_id, endpoint, title, body, payload, status, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`;
+  const params = [userId, endpoint, title, body, JSON.stringify(payload), status, error || null];
+  const result = await db.query(query, params);
+  if (db.isPostgres) {
+    return result.rows[0]?.id;
+  }
+  const lastRow = await db.query('SELECT last_insert_rowid() AS id');
+  return lastRow.rows[0]?.id;
+}
+
+async function updatePushNotificationHistoryStatus(id, status, error) {
+  if (!id) return;
+  const query = db.isPostgres
+    ? 'UPDATE push_notification_history SET status = $1, error = $2 WHERE id = $3'
+    : 'UPDATE push_notification_history SET status = ?, error = ? WHERE id = ?';
+  await db.query(query, [status, error || null, id]);
+}
+
 async function savePushSubscription(userId, subscription) {
   await ensurePushSubscriptionTable();
   const serialized = JSON.stringify(subscription);
@@ -68,9 +108,23 @@ async function sendPushToUser(userId, payload) {
   const { rows } = await db.query(query, [userId]);
   if (!rows[0]) return;
 
+  const subscription = JSON.parse(rows[0].subscription);
+  const endpoint = subscription.endpoint || null;
+  const historyId = await insertPushNotificationHistory({
+    userId,
+    endpoint,
+    title: payload.title,
+    body: payload.body,
+    payload,
+    status: 'sent',
+    error: null,
+  });
+
   try {
-    await webpush.sendNotification(JSON.parse(rows[0].subscription), JSON.stringify(payload));
+    await webpush.sendNotification(subscription, JSON.stringify(payload));
+    await updatePushNotificationHistoryStatus(historyId, 'delivered', null);
   } catch (e) {
+    await updatePushNotificationHistoryStatus(historyId, 'failed', e?.message || String(e));
     if (e?.statusCode === 404 || e?.statusCode === 410) {
       await deletePushSubscription(userId);
       return;
@@ -84,6 +138,9 @@ module.exports = {
   isConfigured,
   configureWebPush,
   ensurePushSubscriptionTable,
+  ensurePushNotificationHistoryTable,
+  insertPushNotificationHistory,
+  updatePushNotificationHistoryStatus,
   savePushSubscription,
   deletePushSubscription,
   sendPushToUser,
