@@ -78,6 +78,7 @@ async function request(path, options = {}, retry = true) {
       credentials: 'include',
       headers,
       body: isFormData ? options.body : options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
     });
 
     if (res.status === 401 && retry) {
@@ -125,6 +126,7 @@ export const api = {
   createProduct: (body) => request('/products', { method: 'POST', body }),
   getMyProducts: () => request('/products/mine/list'),
   getHarvestBatches: () => request('/batches'),
+  getBatchesByFarmer: (farmerId) => request(`/batches?farmer_id=${farmerId}`),
   createHarvestBatch: (body) => request('/batches', { method: 'POST', body }),
   restockProduct: (id, quantity) => request(`/products/${id}/restock`, { method: 'PATCH', body: { quantity } }),
   deleteProduct: (id) => request(`/products/${id}`, { method: 'DELETE' }),

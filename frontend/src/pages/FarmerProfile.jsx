@@ -21,6 +21,15 @@ const s = {
   cardQty:    { fontSize: 12, color: '#888', marginTop: 3 },
   badge:      { display: 'inline-block', fontSize: 11, background: '#d8f3dc', color: '#2d6a4f', borderRadius: 4, padding: '2px 7px', marginBottom: 6 },
   verifiedBadge: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, background: '#dbeafe', color: '#1e40af', borderRadius: 20, padding: '3px 10px', marginTop: 8 },
+  timeline:   { marginTop: 8 },
+  tlEntry:    { display: 'flex', gap: 14, marginBottom: 20, position: 'relative' },
+  tlDot:      { width: 12, height: 12, borderRadius: '50%', background: '#2d6a4f', flexShrink: 0, marginTop: 4 },
+  tlLine:     { position: 'absolute', left: 5, top: 16, bottom: -20, width: 2, background: '#d8f3dc' },
+  tlBody:     { flex: 1 },
+  tlDate:     { fontSize: 12, color: '#888', marginBottom: 2 },
+  tlBatch:    { fontWeight: 600, fontSize: 14, color: '#2d6a4f', marginBottom: 2 },
+  tlMeta:     { fontSize: 13, color: '#555' },
+  certBadge:  { display: 'inline-block', fontSize: 11, background: '#d8f3dc', color: '#2d6a4f', borderRadius: 4, padding: '1px 6px', marginLeft: 6 },
   empty:      { color: '#aaa', fontSize: 14, padding: '32px 0', textAlign: 'center' },
   back:       { fontSize: 13, color: '#2d6a4f', cursor: 'pointer', marginBottom: 16, display: 'inline-block' },
   pagination: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24 },
@@ -84,6 +93,8 @@ export default function FarmerProfile() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [page, setPage] = useState(1);
+  const [batches, setBatches] = useState([]);
+  const [batchesLoading, setBatchesLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -92,6 +103,12 @@ export default function FarmerProfile() {
       .then(res => setFarmer(res.data))
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
+
+    setBatchesLoading(true);
+    api.getBatchesByFarmer(id)
+      .then(res => setBatches((res.data ?? []).sort((a, b) => new Date(b.harvest_date) - new Date(a.harvest_date))))
+      .catch(() => setBatches([]))
+      .finally(() => setBatchesLoading(false));
   }, [id]);
 
   const totalPages = farmer ? Math.ceil(farmer.listings.length / PAGE_SIZE) : 1;
@@ -200,6 +217,36 @@ export default function FarmerProfile() {
           )}
         </>
       )}
+
+      {/* Harvest Batch Timeline */}
+      <div style={{ marginTop: 32 }}>
+        <h2 style={s.sectionTitle}>🌿 Harvest Traceability</h2>
+        {batchesLoading ? (
+          <div style={s.grid}>
+            {[1,2,3].map(i => <div key={i} style={{ ...s.card, cursor: 'default' }}><SkeletonBlock width="100%" height={60} /></div>)}
+          </div>
+        ) : batches.length === 0 ? (
+          <div style={s.empty}>No harvest batches recorded yet.</div>
+        ) : (
+          <ol style={{ ...s.timeline, listStyle: 'none', padding: 0, margin: 0 }}>
+            {batches.map((b, i) => (
+              <li key={b.id} style={s.tlEntry}>
+                <div style={{ position: 'relative' }}>
+                  <div style={s.tlDot} />
+                  {i < batches.length - 1 && <div style={s.tlLine} />}
+                </div>
+                <div style={s.tlBody}>
+                  <div style={s.tlDate}>{new Date(b.harvest_date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                  <div style={s.tlBatch}>Batch #{b.id} · {b.crop_name}
+                    {b.certified && <span style={s.certBadge}>✔ Certified</span>}
+                  </div>
+                  {b.field_location && <div style={s.tlMeta}>📍 {b.field_location}</div>}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
     </div>
   );
 }
