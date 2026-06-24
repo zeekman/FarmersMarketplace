@@ -136,6 +136,11 @@ router.get('/', async (req, res) => {
   res.json(payload);
 });
 
+// GET /api/products/allergens — returns the canonical allergen whitelist
+router.get('/allergens', (req, res) => {
+  res.json({ success: true, allergens: VALID_ALLERGENS });
+});
+
 // GET /api/products/:id
 router.get('/:id', (req, res) => {
   const product = db.prepare(`
@@ -208,7 +213,14 @@ router.post('/', auth, validate.product, async (req, res) => {
   const preorder = normalizePreorderInput(req.body);
   if (preorder.error) return err(res, 400, preorder.error, 'validation_error');
 
-  const { weight_kg, available_from } = req.body;
+  const { weight_kg, available_from, available_until } = req.body;
+
+  if (available_until != null) {
+    if (new Date(available_until) <= new Date()) return err(res, 400, 'available_until must be in the future', 'validation_error');
+  }
+  if (available_from != null && available_until != null) {
+    if (new Date(available_from) >= new Date(available_until)) return err(res, 400, 'available_from must be before available_until', 'validation_error');
+  }
 
   const result = db.prepare(
     'INSERT INTO products (farmer_id, name, description, price, quantity, unit, weight_kg) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -375,7 +387,7 @@ router.patch('/:id', auth, async (req, res) => {
   }
   if (updates.allergens !== undefined) {
     const allergenResult = parseAndValidateAllergens(updates.allergens);
-    if (allergenResult.error) return err(res, 400, allergenResult.error, 'validation_error');
+    if (allergenResult.error) return err(res, 400, allergenResult.error, 'invalid_allergen');
     updates.allergens = allergenResult.allergens;
   }
   if (updates.allowed_regions !== undefined) {
@@ -395,6 +407,15 @@ router.patch('/:id', auth, async (req, res) => {
       if (!bRows[0]) return err(res, 400, 'Invalid batch_id or not your batch', 'invalid_batch');
       updates.batch_id = bid;
     }
+  }
+
+  if (updates.available_until != null) {
+    if (new Date(updates.available_until) <= new Date()) return err(res, 400, 'available_until must be in the future', 'validation_error');
+  }
+  const patchFrom = updates.available_from != null ? updates.available_from : product.available_from;
+  const patchUntil = updates.available_until !== undefined ? updates.available_until : product.available_until;
+  if (patchFrom != null && patchUntil != null) {
+    if (new Date(patchFrom) >= new Date(patchUntil)) return err(res, 400, 'available_from must be before available_until', 'validation_error');
   }
 
   const nextIsPreorder = updates.is_preorder !== undefined

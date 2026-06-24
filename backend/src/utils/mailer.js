@@ -24,7 +24,40 @@ const transporter = SMTP_CONFIGURED
     })
   : null;
 
-async function sendOrderEmails({ order, product, buyer, farmer }) {
+const CRITICAL_TYPES = new Set(['order_confirmation', 'password_reset']);
+const RETRY_DELAYS = [1000, 2000, 4000];
+
+async function sendWithRetry(mailOptions, type, db) {
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await transporter.sendMail(mailOptions);
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));
+      }
+    }
+  }
+  logger.error('[mailer] sendWithRetry failed', {
+    recipient: mailOptions.to,
+    subject: mailOptions.subject,
+    error: lastErr.message,
+  });
+  if (CRITICAL_TYPES.has(type)) {
+    const resolvedDb = db || require('../db/schema');
+    try {
+      resolvedDb.prepare(
+        'INSERT INTO failed_emails (recipient, subject, error, type) VALUES (?, ?, ?, ?)'
+      ).run(mailOptions.to, mailOptions.subject, lastErr.message, type);
+    } catch (dbErr) {
+      logger.error('[mailer] failed to store failed_email record', { error: dbErr.message });
+    }
+  }
+}
+
+async function sendOrderEmails({ order, product, buyer, farmer }, db) {
   if (!SMTP_CONFIGURED) return; // skip if not configured
 
   const subject = `Order #${order.id} Confirmed – ${product.name}`;
@@ -37,18 +70,18 @@ Date:     ${new Date().toUTCString()}
 `.trim();
 
   await Promise.all([
-    transporter.sendMail({
+    sendWithRetry({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: buyer.email,
       subject,
       text: `Hi ${buyer.name},\n\nYour order has been confirmed!\n\n${summary}\n\nDelivery instructions: Contact the farmer (${farmer.name}) to arrange delivery.\n\nThank you for shopping at Farmers Marketplace!`,
-    }),
-    transporter.sendMail({
+    }, 'order_confirmation', db),
+    sendWithRetry({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: farmer.email,
       subject: `New Sale #${order.id} – ${product.name}`,
       text: `Hi ${farmer.name},\n\nYou have a new sale!\n\nBuyer: ${buyer.name} (${buyer.email})\n\n${summary}\n\nPlease arrange delivery with the buyer at your earliest convenience.\n\nFarmers Marketplace`,
-    }),
+    }, 'order_confirmation', db),
   ]);
 }
 
@@ -131,6 +164,7 @@ async function sendContractAlert({ to, alert }) {
 
 module.exports = {
   transporter,
+  sendWithRetry,
   sendOrderEmails,
   sendLowStockAlert,
   sendStatusUpdateEmail,

@@ -171,39 +171,69 @@ async function lookupFederationAddress(publicKey) {
   }
 }
 
+class FederationError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'FederationError';
+    this.code = code;
+  }
+}
+
+// Cache for resolved federation addresses: address -> { publicKey, memo, expiresAt }
+const _resolveCache = new Map();
+const RESOLVE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 /**
  * Resolves a federation address (e.g. `alice*farmersmarket.io`) to a Stellar public key.
  * If the address has no `*`, it is returned as-is (assumed to already be a public key).
  * Local domain addresses are resolved against the `users` table; others via the Stellar Federation protocol.
  * @param {string} address
  * @param {object} db  better-sqlite3 database instance
- * @returns {Promise<string>} Stellar public key
+ * @returns {Promise<{ publicKey: string, memo: string|null }>}
  */
 async function resolveFederationAddress(address, db) {
-  if (!address || !address.includes('*')) return address;
+  if (!address || !address.includes('*')) return { publicKey: address, memo: null };
+
+  const cached = _resolveCache.get(address);
+  if (cached && Date.now() < cached.expiresAt) return { publicKey: cached.publicKey, memo: cached.memo };
+
   const [username, domain] = address.split('*');
   const rawLocal = (config.federationDomain || config.frontendUrl || 'localhost')
     .replace(/^https?:\/\//, '')
     .replace(/\/$/, '')
     .split(':')[0];
+
+  let publicKey, memo = null;
+
   if (domain === rawLocal || domain === 'localhost') {
     const user = db
       .prepare('SELECT stellar_public_key FROM users WHERE federation_name = ?')
       .get(username.toLowerCase());
     if (!user || !user.stellar_public_key)
-      throw new Error(`Federation address not found: ${address}`);
-    return user.stellar_public_key;
+      throw new FederationError(`Federation address not found: ${address}`, 'federation_unreachable');
+    publicKey = user.stellar_public_key;
+  } else {
+    let record;
+    try {
+      record = await StellarSdk.Federation.Server.resolve(address);
+    } catch (e) {
+      throw new FederationError(`Could not reach federation server for "${address}": ${e.message}`, 'federation_unreachable');
+    }
+    if (!record.account_id) throw new FederationError('No account_id in federation response', 'federation_unreachable');
+    publicKey = record.account_id;
+    memo = record.memo || null;
   }
-  try {
-    const record = await StellarSdk.Federation.Server.resolve(address);
-    if (!record.account_id) throw new Error('No account_id in federation response');
-    return record.account_id;
-  } catch (e) {
-    throw new Error(`Could not resolve federation address "${address}": ${e.message}`);
+
+  if (!StellarSdk.StrKey.isValidEd25519PublicKey(publicKey)) {
+    throw new FederationError(`Resolved address is not a valid Stellar public key: ${publicKey}`, 'invalid_resolved_address');
   }
+
+  _resolveCache.set(address, { publicKey, memo, expiresAt: Date.now() + RESOLVE_TTL_MS });
+  return { publicKey, memo };
 }
 
 module.exports = {
+  FederationError,
   createWallet,
   createWalletFromMnemonic,
   deriveKeypairFromMnemonic,

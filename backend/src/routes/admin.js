@@ -246,4 +246,10 @@ router.get('/analytics/summary', adminAuth, (req, res) => {
   });
 });
 
+// GET /api/admin/failed-emails
+router.get('/failed-emails', adminAuth, (req, res) => {
+  const rows = db.prepare('SELECT * FROM failed_emails ORDER BY created_at DESC').all();
+  res.json({ success: true, data: rows });
+});
+
 module.exports = router;

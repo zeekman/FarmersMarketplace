@@ -17,6 +17,7 @@ const {
   mergeAccount,
   lookupFederationAddress,
 } = require('../utils/stellar');
+const { resolveFederationAddress, FederationError } = require('../utils/stellar-accounts');
 const { err } = require('../middleware/error');
 
 const BASE_RESERVE_XLM = 1;
@@ -58,13 +59,6 @@ function availableAfterReserve(balance) {
  *                 referralCode: { type: string }
  */
 router.get('/', auth, async (req, res) => {
-  const cacheKey = `wallet:${req.user.id}`;
-  const cached = await cache.get(cacheKey);
-  if (cached) return res.json(cached);
-
-  const { rows } = await db.query('SELECT stellar_public_key, referral_code FROM users WHERE id = $1', [req.user.id]);
-  const user = rows[0];
-  if (!user) return err(res, 404, 'User not found', 'user_not_found');
   try {
     const cacheKey = `wallet:${req.user.id}`;
     const cached = await cache.get(cacheKey);
@@ -74,22 +68,11 @@ router.get('/', auth, async (req, res) => {
     const user = rows[0];
     if (!user) return err(res, 404, 'User not found', 'user_not_found');
 
-  const [balance, balances] = await Promise.all([
-    getBalance(user.stellar_public_key),
-    getAllBalances(user.stellar_public_key),
-  ]);
+    const [balance, balances] = await Promise.all([
+      getBalance(user.stellar_public_key),
+      getAllBalances(user.stellar_public_key),
+    ]);
 
-  const payload = {
-    success: true,
-    publicKey: user.stellar_public_key,
-    balance,
-    availableBalance: availableAfterReserve(balance),
-    baseReserve: BASE_RESERVE_XLM,
-    balances,
-    referralCode: user.referral_code,
-  };
-  await cache.set(cacheKey, payload, 30);
-  res.json(payload);
     const payload = {
       success: true,
       publicKey: user.stellar_public_key,
@@ -100,7 +83,6 @@ router.get('/', auth, async (req, res) => {
       referralCode: user.referral_code,
     };
     await cache.set(cacheKey, payload, 30);
-    res.json(payload);
     return res.json(payload);
   } catch (e) {
     return err(res, 500, e.message, 'wallet_error');
@@ -480,6 +462,35 @@ router.post('/merge', auth, async (req, res) => {
       success: false,
       error: `Stellar transaction failed: ${stellarMsg}`,
     });
+  }
+});
+
+/**
+ * @swagger
+ * /api/wallet/resolve-federation:
+ *   get:
+ *     summary: Resolve a federation address to a Stellar public key
+ *     tags: [Wallet]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: address
+ *         required: true
+ *         schema: { type: string }
+ *         example: alice*stellar.org
+ */
+router.get('/resolve-federation', auth, async (req, res) => {
+  const address = String(req.query.address || '').trim();
+  if (!address) return err(res, 400, 'address query parameter is required', 'validation_error');
+  try {
+    const { publicKey, memo } = await resolveFederationAddress(address, db);
+    return res.json({ success: true, publicKey, memo: memo || null });
+  } catch (e) {
+    if (e instanceof FederationError) {
+      return res.status(400).json({ success: false, error: e.message, code: e.code });
+    }
+    return err(res, 500, e.message, 'resolve_error');
   }
 });
 
