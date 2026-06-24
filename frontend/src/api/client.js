@@ -169,7 +169,7 @@ export const api = {
   deleteProductImage: (productId, imageId) => request(`/products/${productId}/images/${imageId}`, { method: 'DELETE' }),
   reorderProductImages: (productId, order) => request(`/products/${productId}/images/reorder`, { method: 'PATCH', body: { order } }),
 
-  bulkUploadProducts: (file) => {
+  uploadProductsCsv: (file) => {
     const form = new FormData();
     form.append('file', file);
     return request('/products/bulk', { method: 'POST', body: form });
