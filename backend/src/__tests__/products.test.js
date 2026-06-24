@@ -340,3 +340,47 @@ describe('GET /api/products — cache role isolation (#388)', () => {
     expect(keys.some((k) => k.includes(':buyer:'))).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #803 — Full-text search
+// ---------------------------------------------------------------------------
+describe('GET /api/products?q= — full-text search (#803)', () => {
+  it('passes ?q= term to DB query on SQLite (LIKE fallback)', async () => {
+    mockDb.isPostgres = false;
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ count: '1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 1, name: 'Organic Tomato', price: 2.5, quantity: 10, farmer_name: 'Joe' }], rowCount: 1 });
+
+    const res = await request(app).get('/api/products?q=organic+tomato');
+    expect(res.status).toBe(200);
+    const allCalls = mockDb.query.mock.calls.map(([sql]) => sql);
+    expect(allCalls.some((sql) => sql.includes('LIKE'))).toBe(true);
+    mockDb.isPostgres = undefined;
+  });
+
+  it('uses tsvector search on PostgreSQL', async () => {
+    mockDb.isPostgres = true;
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ count: '1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 1, name: 'Roma Tomato', price: 3.0, quantity: 5, farmer_name: 'Ana' }], rowCount: 1 });
+
+    const res = await request(app).get('/api/products?q=tomato');
+    expect(res.status).toBe(200);
+    const allCalls = mockDb.query.mock.calls.map(([sql]) => sql);
+    expect(allCalls.some((sql) => sql.includes('plainto_tsquery'))).toBe(true);
+    mockDb.isPostgres = undefined;
+  });
+
+  it('composes seller filter with text search', async () => {
+    mockDb.isPostgres = false;
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ count: '0' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const res = await request(app).get('/api/products?q=tomato&seller=Joe');
+    expect(res.status).toBe(200);
+    const countCall = mockDb.query.mock.calls[0][0];
+    expect(countCall).toMatch(/LIKE/); // seller filter
+    mockDb.isPostgres = undefined;
+  });
+});

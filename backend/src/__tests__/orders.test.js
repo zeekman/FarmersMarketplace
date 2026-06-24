@@ -579,3 +579,62 @@ describe('Flash sale time-window enforcement', () => {
     expect(res.body.status).toBe('paid');
   });
 });
+
+// ---------------------------------------------------------------------------
+// #802 — Idempotency enforcement
+// ---------------------------------------------------------------------------
+describe('POST /api/orders — idempotency (#802)', () => {
+  const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
+
+  it('returns 400 when X-Idempotency-Key is missing', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ product_id: 10, quantity: 1 });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('invalid_idempotency_key');
+  });
+
+  it('returns 400 when X-Idempotency-Key is not a UUID v4', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('X-Idempotency-Key', 'not-a-uuid')
+      .send({ product_id: 10, quantity: 1 });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('invalid_idempotency_key');
+  });
+
+  it('replays a cached 201 response with correct status', async () => {
+    const idempotency = require('../utils/idempotency');
+    jest.spyOn(idempotency, 'getCachedResponse').mockResolvedValueOnce({
+      success: true,
+      orderId: 42,
+      status: 'paid',
+      _status: 201,
+    });
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('X-Idempotency-Key', VALID_UUID)
+      .send({ product_id: 10, quantity: 1 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.orderId).toBe(42);
+  });
+
+  it('returns 503 when getCachedResponse throws', async () => {
+    const idempotency = require('../utils/idempotency');
+    jest.spyOn(idempotency, 'getCachedResponse').mockRejectedValueOnce(new Error('Redis down'));
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('X-Idempotency-Key', VALID_UUID)
+      .send({ product_id: 10, quantity: 1 });
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('idempotency_unavailable');
+  });
+});

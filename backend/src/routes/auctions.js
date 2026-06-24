@@ -4,6 +4,7 @@ const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
+const requireEmailVerified = require('../middleware/requireEmailVerified');
 const { err } = require('../middleware/error');
 const logger = require('../logger');
 
@@ -37,7 +38,7 @@ const bidSchema = z.object({
 });
 
 // ── POST /api/auctions ────────────────────────────────────────────────────────
-router.post('/', auth, validateBody(createAuctionSchema), async (req, res) => {
+router.post('/', auth, requireEmailVerified, validateBody(createAuctionSchema), async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
 
   const { product_id, start_price, reserve_price, min_increment, ends_at } = req.body;

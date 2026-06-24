@@ -1,7 +1,17 @@
 const express = require("express");
 const router = express.Router();
+const rateLimit = require("express-rate-limit");
 const { verifyEmail, issueVerificationToken } = require("../services/emailVerificationService");
 const { sendVerificationEmail } = require("../services/emailService");
+
+const resendVerificationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3,
+  keyGenerator: (req) => (req.body?.email || req.ip || '').toLowerCase(),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many resend attempts. Please try again later.', code: 'rate_limited' },
+});
 
 router.get("/verify-email", async (req, res) => {
   try {
@@ -16,7 +26,7 @@ router.get("/verify-email", async (req, res) => {
   }
 });
 
-router.post("/resend-verification", async (req, res) => {
+router.post("/resend-verification", resendVerificationLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Email is required." });

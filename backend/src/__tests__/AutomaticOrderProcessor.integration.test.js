@@ -223,3 +223,88 @@ const TestDataGenerator = {
 };
 
 module.exports = { TestDataGenerator };
+
+// ---------------------------------------------------------------------------
+// #805 — payment_failed status, balance check, mailer, next-buyer iteration
+// ---------------------------------------------------------------------------
+describe('#805 — AutomaticOrderProcessor waitlist processing', () => {
+  const db = require('../db/schema');
+  const mailer = require('../utils/mailer');
+  const stellar = require('../utils/stellar');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const product = { id: 1, farmer_id: 2, name: 'Apples', price: 5.0, category: 'fruit', unit: 'kg', quantity: 10, is_active: true };
+  const entry   = { id: 10, buyer_id: 3, product_id: 1, quantity: 2, position: 1, buyer_name: 'Bob', buyer_email: 'bob@test.com', stellar_public_key: 'GPUB', stellar_secret_key: 'SSEC' };
+
+  test('sets order status to payment_failed and restores stock when balance insufficient', async () => {
+    const proc = new AutomaticOrderProcessor();
+    jest.spyOn(proc, '_getBalance').mockResolvedValue(0); // no balance
+
+    db.query = jest.fn()
+      .mockResolvedValueOnce({ rowCount: 1 })                        // BEGIN
+      .mockResolvedValueOnce({ rowCount: 1 })                        // stock decrement
+      .mockResolvedValueOnce({ rows: [{ id: 99, buyer_id: 3, product_id: 1, quantity: 2, total_price: 10.0, status: 'pending', created_at: new Date() }], rowCount: 1 }) // INSERT order
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })               // UPDATE payment_failed
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })               // restore stock
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });              // COMMIT
+
+    const result = await proc._createOrderWithPayment({ waitlistEntry: entry, product, buyer: { id: 3, stellar_public_key: 'GPUB', stellar_secret_key: 'SSEC', name: 'Bob', email: 'bob@test.com' }, farmer: { id: 2, stellar_public_key: 'GFARM' }, totalPrice: 10.0 });
+
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('INSUFFICIENT_BALANCE');
+
+    // Verify UPDATE payment_failed was called
+    const calls = db.query.mock.calls.map(([sql]) => sql);
+    expect(calls.some((s) => s.includes('payment_failed'))).toBe(true);
+    // Verify stock was restored
+    expect(calls.some((s) => s.includes('quantity = quantity +'))).toBe(true);
+  });
+
+  test('processWaitlistOnRestock marks entry status=payment_failed and sends mailer on failure', async () => {
+    const proc = new AutomaticOrderProcessor();
+    jest.spyOn(mailer, 'sendOrderEmails').mockResolvedValue(undefined);
+
+    // Stub createAutomaticOrder to simulate payment failure
+    jest.spyOn(proc, 'createAutomaticOrder').mockResolvedValue({ success: false, error: 'Insufficient balance', code: 'INSUFFICIENT_BALANCE' });
+
+    db.query = jest.fn()
+      .mockResolvedValueOnce({ rows: [product], rowCount: 1 })        // product lookup
+      .mockResolvedValueOnce({ rows: [entry], rowCount: 1 })          // waitlist entries
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });              // UPDATE status=payment_failed
+
+    const result = await proc.processWaitlistOnRestock(1, 10);
+
+    expect(result.success).toBe(true);
+    expect(result.skipped).toBe(1);
+
+    const updateCall = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE waitlist_entries'));
+    expect(updateCall).toBeDefined();
+    expect(updateCall[1]).toContain('payment_failed');
+  });
+
+  test('processWaitlistOnRestock continues to next buyer after payment failure', async () => {
+    const proc = new AutomaticOrderProcessor();
+    jest.spyOn(mailer, 'sendOrderEmails').mockResolvedValue(undefined);
+
+    const entry2 = { ...entry, id: 11, buyer_id: 4, position: 2, buyer_name: 'Alice', buyer_email: 'alice@test.com' };
+
+    jest.spyOn(proc, 'createAutomaticOrder')
+      .mockResolvedValueOnce({ success: false, error: 'Insufficient balance', code: 'INSUFFICIENT_BALANCE' }) // first buyer fails
+      .mockResolvedValueOnce({ success: true, orderId: 200, txHash: 'TX123' }); // second buyer succeeds
+
+    db.query = jest.fn()
+      .mockResolvedValueOnce({ rows: [product], rowCount: 1 })        // product lookup
+      .mockResolvedValueOnce({ rows: [entry, entry2], rowCount: 2 })  // waitlist entries
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })               // UPDATE status=payment_failed entry1
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })               // DELETE entry2 (success)
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });              // recalculate positions BEGIN/SELECT/...
+
+    const result = await proc.processWaitlistOnRestock(1, 10);
+
+    expect(result.processed).toBe(1);
+    expect(result.skipped).toBe(1);
+  });
+});

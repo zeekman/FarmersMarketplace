@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
+const requireEmailVerified = require('../middleware/requireEmailVerified');
 const cache = require('../cache');
 const validate = require('../middleware/validate');
 const upload = require('../middleware/upload');
@@ -56,7 +57,7 @@ router.get('/', async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
   const offset = (page - 1) * limit;
-  const { category, minPrice, maxPrice, seller, available = 'true', lat, lng, radius, grade } = req.query;
+  const { category, minPrice, maxPrice, seller, available = 'true', lat, lng, radius, grade, q } = req.query;
 
   const conditions = [];
   const params = [];
@@ -77,6 +78,22 @@ router.get('/', async (req, res) => {
   if (grade) {
     const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];
     if (VALID_GRADES.includes(grade)) { conditions.push(`p.grade = $${params.length + 1}`); params.push(grade); }
+  }
+
+  // Full-text search: PostgreSQL uses tsvector/GIN; SQLite falls back to LIKE
+  let tsRankSelect = '';
+  let tsOrderBy = null;
+  if (q && q.trim()) {
+    if (db.isPostgres) {
+      conditions.push(`p.search_vector @@ plainto_tsquery('english', $${params.length + 1})`);
+      params.push(q.trim());
+      tsRankSelect = `, ts_rank(p.search_vector, plainto_tsquery('english', $${params.length})) as _ts_rank`;
+      tsOrderBy = '_ts_rank DESC';
+    } else {
+      const likeQ = `%${q.trim()}%`;
+      conditions.push(`(p.name LIKE $${params.length + 1} OR p.description LIKE $${params.length + 2})`);
+      params.push(likeQ, likeQ);
+    }
   }
 
   const filterLat = parseFloat(lat);
@@ -100,16 +117,17 @@ router.get('/', async (req, res) => {
 
   const VALID_SORTS = { price_asc: 'p.price ASC', price_desc: 'p.price DESC', newest: 'p.created_at DESC', popular: 'order_count DESC' };
   const sortKey = VALID_SORTS[req.query.sort] ? req.query.sort : 'newest';
-  const orderBy = VALID_SORTS[sortKey];
-  const popularJoin = sortKey === 'popular'
+  // Text search results ordered by relevance rank; other sorts apply normally
+  const orderBy = tsOrderBy || VALID_SORTS[sortKey];
+  const popularJoin = sortKey === 'popular' && !tsOrderBy
     ? `LEFT JOIN (SELECT product_id, COUNT(*) as order_count FROM orders WHERE status='paid' GROUP BY product_id) oc ON oc.product_id = p.id`
     : '';
-  const popularSelect = sortKey === 'popular' ? ', COALESCE(oc.order_count, 0) as order_count' : '';
+  const popularSelect = sortKey === 'popular' && !tsOrderBy ? ', COALESCE(oc.order_count, 0) as order_count' : '';
 
   const { rows: products } = await db.query(
     `SELECT p.*, u.name as farmer_name, u.latitude as farmer_lat, u.longitude as farmer_lng, u.farm_address as farmer_farm_address,
             ROUND(AVG(r.rating)${db.isPostgres ? '::numeric' : ''}, 1) as avg_rating,
-            COUNT(r.id) as review_count${popularSelect}
+            COUNT(r.id) as review_count${popularSelect}${tsRankSelect}
      FROM products p
      JOIN users u ON p.farmer_id = u.id
      LEFT JOIN reviews r ON r.product_id = p.id
@@ -194,7 +212,7 @@ router.get('/:id', (req, res) => {
  *     tags: [Products]
  */
 // POST /api/products
-router.post('/', auth, validate.product, async (req, res) => {
+router.post('/', auth, requireEmailVerified, validate.product, async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can list products', 'forbidden');
 
   const { name, description, unit, category, image_url, nutrition } = req.body;

@@ -357,3 +357,59 @@ describe('GET /api/auth/me', () => {
     expect(res.body.error).toMatch(/No token provided/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #804 — Email verification enforcement & resend rate limit
+// ---------------------------------------------------------------------------
+describe('#804 — requireEmailVerified on order creation', () => {
+  const jwt = require('jsonwebtoken');
+  const unverifiedToken = jwt.sign({ id: 3, role: 'buyer', email_verified_at: null }, process.env.JWT_SECRET);
+  const verifiedToken   = jwt.sign({ id: 3, role: 'buyer', email_verified_at: '2024-01-01T00:00:00.000Z' }, process.env.JWT_SECRET);
+  const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
+
+  it('blocks unverified buyer from placing an order (403)', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${unverifiedToken}`)
+      .set('X-Idempotency-Key', VALID_UUID)
+      .send({ product_id: 10, quantity: 1 });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('email_not_verified');
+  });
+
+  it('allows verified buyer to proceed past the middleware', async () => {
+    // Verified user will pass requireEmailVerified and hit UUID check (key already passes)
+    // then DB query — returning 404 for product is fine, proves middleware passed
+    mockDb.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // address check skipped, product not found
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${verifiedToken}`)
+      .set('X-Idempotency-Key', VALID_UUID)
+      .send({ product_id: 999, quantity: 1 });
+    // Not 403 — middleware passed
+    expect(res.status).not.toBe(403);
+  });
+});
+
+describe('#804 — resend-verification rate limit', () => {
+  it('returns 429 after 3 requests within an hour', async () => {
+    // The emailVerification router uses req.db (knex), not mockDb.query.
+    // We test the limiter fires by checking the 4th call returns 429.
+    // We need to mount the router directly since app mounts auth routes differently.
+    const express = require('express');
+    const emailVerRouter = require('../routes/emailVerification');
+    const testApp = express();
+    testApp.use(express.json());
+    // Provide a stub req.db
+    testApp.use((req, _res, next) => { req.db = () => ({ where: () => ({ first: async () => null }) }); next(); });
+    testApp.use('/api/auth', emailVerRouter);
+
+    const send = () => require('supertest')(testApp)
+      .post('/api/auth/resend-verification')
+      .send({ email: 'test@example.com' });
+
+    await send(); await send(); await send();
+    const fourth = await send();
+    expect(fourth.status).toBe(429);
+  });
+});
