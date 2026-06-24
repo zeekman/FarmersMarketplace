@@ -4,6 +4,12 @@ const logger = require('../logger');
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
+const createPerUserRateLimiter = require('../middleware/rateLimitPerUser');
+
+const orderRateLimit = createPerUserRateLimiter(
+  parseInt(process.env.RATE_LIMIT_ORDER_USER_MAX || '10', 10),
+  60 * 1000,
+);
 const QRCode = require('qrcode');
 const {
   sendPayment,
@@ -223,7 +229,7 @@ async function handleBundleOrder(req, res, bundle_id, address_id, coupon_code, u
  *     security:
  *       - bearerAuth: []
  */
-router.post('/', auth, validate.order, async (req, res) => {
+router.post('/', auth, orderRateLimit, validate.order, async (req, res) => {
   if (req.user.role !== 'buyer') return err(res, 403, 'Only buyers can place orders', 'forbidden');
 
   const { product_id, quantity, address_id, coupon_code, use_soroban_escrow, custom_price, weight, source_asset, bundle_id } = req.body;
