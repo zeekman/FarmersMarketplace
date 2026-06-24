@@ -76,6 +76,44 @@ router.get('/fee-preview', (req, res) => {
   res.json({ success: true, total: amount, ...info });
 });
 
+// GET /api/orders/path-estimate — public DEX routing estimate (no auth required)
+router.get('/path-estimate', async (req, res) => {
+  const { source_asset, source_asset_issuer, amount_xlm } = req.query;
+
+  if (!source_asset || source_asset === 'XLM') {
+    return err(res, 400, 'source_asset must be a non-XLM asset code', 'validation_error');
+  }
+  const destAmount = parseFloat(amount_xlm);
+  if (!amount_xlm || Number.isNaN(destAmount) || destAmount <= 0) {
+    return err(res, 400, 'amount_xlm must be a positive number', 'validation_error');
+  }
+
+  try {
+    const estimate = await getPathPaymentEstimate({
+      sourceAssetCode: source_asset,
+      sourceAssetIssuer: source_asset_issuer || undefined,
+      destAmount,
+    });
+    const slippagePct = parseFloat(process.env.PATH_PAYMENT_SLIPPAGE_PCT ?? '0.5');
+    const sendMax = parseFloat((estimate.sourceAmount * (1 + slippagePct / 100)).toFixed(7));
+    return res.json({
+      success: true,
+      source_asset,
+      source_amount: estimate.sourceAmount,
+      send_max: sendMax,
+      dest_asset: 'XLM',
+      dest_amount: destAmount,
+      path: estimate.path,
+      slippage_pct: slippagePct,
+    });
+  } catch (e) {
+    if (e.code === 'no_path') {
+      return res.status(402).json({ success: false, code: 'no_payment_path', message: e.message });
+    }
+    throw e;
+  }
+});
+
 // Handle bundle orders atomically
 async function handleBundleOrder(req, res, bundle_id, address_id, coupon_code, use_soroban_escrow, idempotencyKey) {
   const { rows: bundleRows } = await db.query(
@@ -226,7 +264,11 @@ async function handleBundleOrder(req, res, bundle_id, address_id, coupon_code, u
 router.post('/', auth, validate.order, async (req, res) => {
   if (req.user.role !== 'buyer') return err(res, 403, 'Only buyers can place orders', 'forbidden');
 
-  const { product_id, quantity, address_id, coupon_code, use_soroban_escrow, custom_price, weight, source_asset, bundle_id } = req.body;
+  const { product_id, quantity, address_id, coupon_code, use_soroban_escrow, custom_price, weight, source_asset, bundle_id, source_asset_code, source_asset_issuer, max_source_amount } = req.body;
+
+  // Resolve path-payment asset from flat fields (preferred) or legacy nested object
+  const _sourceAssetCode = source_asset_code || (source_asset && source_asset.code);
+  const _sourceAssetIssuer = source_asset_issuer || (source_asset && source_asset.issuer);
   const idempotencyKey = req.headers['x-idempotency-key'];
 
   if (idempotencyKey) {
@@ -354,9 +396,32 @@ router.post('/', auth, validate.order, async (req, res) => {
 
   const totalPrice = parseFloat((subtotal - discount - bundleDiscount).toFixed(7));
 
-  // Balance check (skip for path payments — exact source amount unknown until estimate)
-  const usePathPayment = source_asset && source_asset.code && source_asset.code !== 'XLM';
-  if (!usePathPayment) {
+  const usePathPayment = !!(_sourceAssetCode && _sourceAssetCode !== 'XLM');
+
+  // Path payment pre-flight — verify the DEX path and compute sendMax BEFORE creating the
+  // order so that the order is never persisted when no valid path exists.
+  let pathSendMax = null;
+  if (usePathPayment) {
+    const slippagePct = parseFloat(process.env.PATH_PAYMENT_SLIPPAGE_PCT ?? '0.5');
+    let estimate;
+    try {
+      estimate = await getPathPaymentEstimate({
+        sourceAssetCode: _sourceAssetCode,
+        sourceAssetIssuer: _sourceAssetIssuer,
+        destAmount: totalPrice,
+      });
+    } catch {
+      return res.status(402).json({ success: false, code: 'no_payment_path', message: 'No payment path found' });
+    }
+    const slippageAdjusted = parseFloat((estimate.sourceAmount * (1 + slippagePct / 100)).toFixed(7));
+    if (max_source_amount != null && parseFloat(max_source_amount) < estimate.sourceAmount) {
+      return res.status(402).json({ success: false, code: 'no_payment_path', message: 'max_source_amount is below the current path rate' });
+    }
+    pathSendMax = max_source_amount != null
+      ? parseFloat(parseFloat(max_source_amount).toFixed(7))
+      : slippageAdjusted;
+  } else {
+    // Standard XLM balance check (skipped for path payments)
     const balance = await getBalance(buyer.stellar_public_key);
     if (balance < totalPrice + 0.00001)
       return res.status(402).json({ success: false, message: 'Insufficient XLM balance', code: 'insufficient_balance' });
@@ -419,16 +484,11 @@ router.post('/', auth, validate.order, async (req, res) => {
         ['paid', txHash, balanceId, 'funded', orderId]
       );
     } else if (usePathPayment) {
-      const estimate = await getPathPaymentEstimate({
-        sourceAssetCode: source_asset.code,
-        sourceAssetIssuer: source_asset.issuer,
-        destAmount: totalPrice,
-      });
       txHash = await pathPayment({
         senderSecret: buyer.stellar_secret_key,
-        sourceAssetCode: source_asset.code,
-        sourceAssetIssuer: source_asset.issuer,
-        sendMax: (estimate.sourceAmount * 1.05).toFixed(7),
+        sourceAssetCode: _sourceAssetCode,
+        sourceAssetIssuer: _sourceAssetIssuer,
+        sendMax: pathSendMax,
         receiverPublicKey: product.farmer_wallet,
         destAmount: totalPrice,
         memo: `Order#${orderId}`,
@@ -510,15 +570,19 @@ router.post('/', auth, validate.order, async (req, res) => {
       preorder: !!product.is_preorder,
       preorderDeliveryDate: product.preorder_delivery_date || null,
       claimableBalanceId: balanceId,
-      sourceAsset: usePathPayment ? source_asset.code : 'XLM',
+      sourceAsset: usePathPayment ? _sourceAssetCode : 'XLM',
     };
     if (idempotencyKey) await cacheResponse(idempotencyKey, responseData);
     return res.json(responseData);
   } catch (e) {
+    if (usePathPayment) {
+      // Path payment orders must not be persisted on failure — delete the pending row
+      await db.query('DELETE FROM orders WHERE id = $1', [orderId]);
+      await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [quantity, product_id]);
+      return res.status(402).json({ success: false, code: 'no_payment_path', message: e.message || 'Path payment could not be completed' });
+    }
     await db.query('UPDATE orders SET status = $1 WHERE id = $2', ['failed', orderId]);
     await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [quantity, product_id]);
-    if (e.code === 'no_path')
-      return res.status(402).json({ success: false, message: e.message, code: 'no_path', orderId });
     if (e.code === 'account_not_found')
       return res.status(402).json({ success: false, message: 'Please fund your wallet before purchasing', code: 'unfunded_account', orderId });
     const errorData = { success: false, message: 'Payment failed: ' + e.message, code: 'payment_failed', orderId };
