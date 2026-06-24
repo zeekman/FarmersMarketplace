@@ -67,8 +67,11 @@ export default function Dashboard() {
   const [batchForm, setBatchForm] = useState({ batch_code: '', harvest_date: '', notes: '' });
   const [batchMsg, setBatchMsg] = useState(null);
   const [msg, setMsg] = useState(null);
-  const [auctionForm, setAuctionForm] = useState({ product_id: '', start_price: '', ends_at: '' });
+  const [auctionForm, setAuctionForm] = useState({ product_id: '', start_price: '', reserve_price: '', min_increment: '', ends_at: '' });
   const [auctionMsg, setAuctionMsg] = useState(null);
+  const [activeAuction, setActiveAuction] = useState(null);
+  const [auctionBids, setAuctionBids] = useState([]);
+  const [endAuctionConfirm, setEndAuctionConfirm] = useState(false);
   const [formErrors, setFormErrors] = useState({});
   const [sales, setSales] = useState([]);
   const [salesMsg, setSalesMsg] = useState({});
@@ -456,21 +459,63 @@ export default function Dashboard() {
     try { await api.deleteProduct(id); load(); } catch { /* ignore */ }
   }
 
+  const MIN_AUCTION_DURATION_MINUTES = 5;
+
+  function getAuctionMinDate() {
+    return new Date(Date.now() + MIN_AUCTION_DURATION_MINUTES * 60000).toISOString().slice(0, 16);
+  }
+
   async function handleCreateAuction(e) {
     e.preventDefault();
     setAuctionMsg(null);
     try {
-      await api.createAuction({
+      const body = {
         product_id: parseInt(auctionForm.product_id),
         start_price: parseFloat(auctionForm.start_price),
         ends_at: new Date(auctionForm.ends_at).toISOString(),
-      });
+      };
+      if (auctionForm.reserve_price) body.reserve_price = parseFloat(auctionForm.reserve_price);
+      if (auctionForm.min_increment) body.min_increment = parseFloat(auctionForm.min_increment);
+      const res = await api.createAuction(body);
       setAuctionMsg({ type: 'ok', text: 'Auction created!' });
-      setAuctionForm({ product_id: '', start_price: '', ends_at: '' });
+      setAuctionForm({ product_id: '', start_price: '', reserve_price: '', min_increment: '', ends_at: '' });
+      // fetch the created auction for leaderboard
+      if (res.auctionId) {
+        const ar = await api.getAuction(res.auctionId);
+        setActiveAuction(ar.data);
+        loadBids(res.auctionId);
+      }
     } catch (err) {
       setAuctionMsg({ type: 'err', text: err.message });
     }
   }
+
+  async function loadBids(auctionId) {
+    try {
+      const res = await api.getAuctionBids(auctionId);
+      setAuctionBids(res.data ?? []);
+    } catch { /* ignore */ }
+  }
+
+  async function handleEndAuction() {
+    if (!activeAuction) return;
+    try {
+      await api.endAuction(activeAuction.id);
+      setActiveAuction(null);
+      setAuctionBids([]);
+      setEndAuctionConfirm(false);
+      setAuctionMsg({ type: 'ok', text: 'Auction ended.' });
+    } catch (err) {
+      setAuctionMsg({ type: 'err', text: err.message });
+    }
+  }
+
+  // Poll bids every 10s while there's an active auction
+  React.useEffect(() => {
+    if (!activeAuction) return;
+    const interval = setInterval(() => loadBids(activeAuction.id), 10000);
+    return () => clearInterval(interval);
+  }, [activeAuction?.id]);
 
   async function handleSetFlashSale(e) {
     e.preventDefault();
@@ -1284,10 +1329,55 @@ export default function Dashboard() {
           </select>
           <label style={s.label}>Starting Price (XLM)</label>
           <input style={s.input} type="number" min="0.01" step="0.01" value={auctionForm.start_price} onChange={e => setAuctionForm({ ...auctionForm, start_price: e.target.value })} required />
+          <label style={s.label}>Reserve Price (XLM, optional)</label>
+          <input style={s.input} type="number" min="0" step="0.01" placeholder="Optional" value={auctionForm.reserve_price} onChange={e => setAuctionForm({ ...auctionForm, reserve_price: e.target.value })} />
+          <label style={s.label}>Min Increment (XLM, optional)</label>
+          <input style={s.input} type="number" min="0" step="0.01" placeholder="0" value={auctionForm.min_increment} onChange={e => setAuctionForm({ ...auctionForm, min_increment: e.target.value })} />
           <label style={s.label}>Ends At</label>
-          <input style={s.input} type="datetime-local" value={auctionForm.ends_at} onChange={e => setAuctionForm({ ...auctionForm, ends_at: e.target.value })} required />
+          <input style={s.input} type="datetime-local" min={getAuctionMinDate()} value={auctionForm.ends_at} onChange={e => setAuctionForm({ ...auctionForm, ends_at: e.target.value })} required />
           <button style={{ ...s.btn, background: '#e07b00' }} type="submit">Create Auction</button>
         </form>
+
+        {activeAuction && (
+          <div style={{ marginTop: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <strong style={{ color: '#333' }}>📈 Live Bids — {activeAuction.product_name}</strong>
+              <button
+                style={{ ...s.btn, background: '#c0392b', fontSize: 12, padding: '5px 12px' }}
+                onClick={() => setEndAuctionConfirm(true)}
+              >End Early</button>
+            </div>
+            {endAuctionConfirm && (
+              <div style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ marginBottom: 8, fontSize: 13 }}>End auction now? The current highest bidder will win.</div>
+                <button style={{ ...s.btn, fontSize: 12, padding: '5px 12px', marginRight: 8 }} onClick={handleEndAuction}>Confirm</button>
+                <button style={{ ...s.btn, background: '#888', fontSize: 12, padding: '5px 12px' }} onClick={() => setEndAuctionConfirm(false)}>Cancel</button>
+              </div>
+            )}
+            {auctionBids.length === 0 ? (
+              <div style={{ fontSize: 13, color: '#888' }}>No bids yet.</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#f5f5f5' }}>
+                    <th style={{ padding: '6px 8px', textAlign: 'left' }}>Bidder</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>Amount (XLM)</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left' }}>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auctionBids.map((b, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '6px 8px' }}>{b.bidder}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>{b.amount}</td>
+                      <td style={{ padding: '6px 8px', color: '#888' }}>{new Date(b.placed_at).toLocaleTimeString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
       </div>
 
       {/* CSV Bulk Upload */}

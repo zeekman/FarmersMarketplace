@@ -22,6 +22,8 @@ function validateBody(schema) {
 const createAuctionSchema = z.object({
   product_id: z.coerce.number().int().positive(),
   start_price: z.coerce.number().positive(),
+  reserve_price: z.coerce.number().nonnegative().optional(),
+  min_increment: z.coerce.number().nonnegative().optional().default(0),
   ends_at: z.iso
     .datetime({ offset: true })
     .refine(
@@ -34,7 +36,7 @@ const createAuctionSchema = z.object({
 router.post('/', auth, validateBody(createAuctionSchema), (req, res) => {
     if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
 
-    const { product_id, start_price, ends_at } = req.body;
+    const { product_id, start_price, reserve_price, min_increment, ends_at } = req.body;
 
     const product = db
       .prepare('SELECT * FROM products WHERE id = ? AND farmer_id = ?')
@@ -49,9 +51,9 @@ router.post('/', auth, validateBody(createAuctionSchema), (req, res) => {
 
     const { lastInsertRowid } = db
       .prepare(
-        'INSERT INTO auctions (product_id, farmer_id, start_price, ends_at) VALUES (?, ?, ?, ?)'
+        'INSERT INTO auctions (product_id, farmer_id, start_price, reserve_price, min_increment, ends_at) VALUES (?, ?, ?, ?, ?, ?)'
       )
-      .run(product_id, req.user.id, start_price, ends_at);
+      .run(product_id, req.user.id, start_price, reserve_price ?? null, min_increment ?? 0, ends_at);
 
     res.status(201).json({ success: true, auctionId: lastInsertRowid });
 });
@@ -141,6 +143,41 @@ router.get('/:id', (req, res) => {
     .get(req.params.id);
   if (!auction) return err(res, 404, 'Auction not found', 'not_found');
   res.json({ success: true, data: auction });
+});
+
+// GET /api/auctions/:id/bids - bid leaderboard for farmer
+router.get('/:id/bids', auth, (req, res) => {
+  const auction = db.prepare('SELECT * FROM auctions WHERE id = ?').get(req.params.id);
+  if (!auction) return err(res, 404, 'Auction not found', 'not_found');
+  if (auction.farmer_id !== req.user.id) return err(res, 403, 'Forbidden', 'forbidden');
+
+  const bids = db.prepare(
+    `SELECT b.amount, b.created_at, u.name as bidder_name
+     FROM bids b JOIN users u ON b.buyer_id = u.id
+     WHERE b.auction_id = ?
+     ORDER BY b.created_at DESC`
+  ).all(req.params.id);
+
+  // anonymise: first name + last initial
+  const data = bids.map(b => {
+    const parts = (b.bidder_name || '').trim().split(/\s+/);
+    const first = parts[0] || 'Bidder';
+    const last = parts[1] ? parts[1][0] + '.' : '';
+    return { bidder: `${first} ${last}`.trim(), amount: b.amount, placed_at: b.created_at };
+  });
+
+  res.json({ success: true, data });
+});
+
+// PATCH /api/auctions/:id/end - farmer ends auction early
+router.patch('/:id/end', auth, (req, res) => {
+  const auction = db.prepare('SELECT * FROM auctions WHERE id = ?').get(req.params.id);
+  if (!auction) return err(res, 404, 'Auction not found', 'not_found');
+  if (auction.farmer_id !== req.user.id) return err(res, 403, 'Forbidden', 'forbidden');
+  if (auction.status !== 'active') return err(res, 400, 'Auction is not active', 'not_active');
+
+  db.prepare(`UPDATE auctions SET status = 'ended', ends_at = datetime('now') WHERE id = ?`).run(auction.id);
+  res.json({ success: true });
 });
 
 module.exports = router;

@@ -3,199 +3,121 @@ import { useNavigate } from 'react-router-dom';
 import { useCompare } from '../context/CompareContext';
 
 export const MAX_RECENTLY_COMPARED = 10;
+const SESSION_KEY = 'rc_strip_dismissed';
+const MAX_VISIBLE = 4;
 
 const s = {
-  container: {
-    marginBottom: 36,
-    padding: 20,
-    background: '#f9f9f9',
-    borderRadius: 12,
-    border: '1px solid #e0e0e0',
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 700,
-    color: '#2d6a4f',
-    margin: 0,
-  },
-  clearBtn: {
-    padding: '8px 12px',
-    borderRadius: 6,
-    border: '1px solid #ddd',
+  strip: {
+    position: 'fixed',
+    bottom: 0,
+    left: 0,
+    right: 0,
     background: '#fff',
-    cursor: 'pointer',
-    fontSize: 12,
-    fontWeight: 600,
-    color: '#666',
-    transition: 'all 0.2s',
-  },
-  list: {
+    borderTop: '1px solid #e0e0e0',
+    boxShadow: '0 -2px 12px #0002',
+    padding: '10px 20px',
     display: 'flex',
+    alignItems: 'center',
+    gap: 16,
+    zIndex: 1000,
     flexWrap: 'wrap',
-    gap: 12,
   },
-  item: {
-    padding: 12,
-    background: '#fff',
-    borderRadius: 8,
-    border: '1px solid #ddd',
+  label: { fontSize: 13, fontWeight: 700, color: '#2d6a4f', whiteSpace: 'nowrap' },
+  items: { display: 'flex', gap: 10, flex: 1, overflowX: 'auto' },
+  thumb: {
     display: 'flex',
+    flexDirection: 'column',
     alignItems: 'center',
-    gap: 12,
-    cursor: 'pointer',
-    transition: 'all 0.2s',
-  },
-  itemHover: {
-    boxShadow: '0 2px 8px #0001',
-    borderColor: '#2d6a4f',
-  },
-  productNames: {
-    fontSize: 13,
-    color: '#333',
-    fontWeight: 500,
-  },
-  timestamp: {
-    fontSize: 11,
-    color: '#999',
-    marginTop: 4,
-  },
-  restoreBtn: {
+    background: '#f5f5f5',
+    borderRadius: 8,
     padding: '6px 10px',
-    borderRadius: 4,
-    border: '1px solid #2d6a4f',
-    background: '#e8f5e9',
-    color: '#2d6a4f',
-    cursor: 'pointer',
-    fontSize: 11,
-    fontWeight: 600,
-    transition: 'all 0.2s',
+    minWidth: 80,
+    fontSize: 12,
+    color: '#333',
+    textAlign: 'center',
   },
-  empty: {
-    fontSize: 14,
-    color: '#999',
-    fontStyle: 'italic',
+  compareBtn: {
+    background: '#2d6a4f',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    padding: '8px 16px',
+    cursor: 'pointer',
+    fontWeight: 600,
+    fontSize: 13,
+    whiteSpace: 'nowrap',
+  },
+  closeBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: 18,
+    color: '#888',
+    lineHeight: 1,
+    padding: '0 4px',
   },
 };
 
 export default function RecentlyCompared() {
   const navigate = useNavigate();
-  const { history, clearHistory, saveToHistory } = useCompare();
+  const { history, products: compareProducts, addProduct } = useCompare();
+  const [dismissed, setDismissed] = useState(
+    () => !!sessionStorage.getItem(SESSION_KEY)
+  );
   const [productNames, setProductNames] = useState({});
 
-  // Fetch product names for history entries
+  const latest = history[0];
+
   useEffect(() => {
-    const fetchNames = async () => {
+    if (!latest) return;
+    const missing = latest.productIds.filter(id => !productNames[id]);
+    if (!missing.length) return;
+    Promise.all(
+      missing.map(id =>
+        fetch(`/api/products/${id}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => ({ id, name: data?.data?.name || `Product ${id}` }))
+          .catch(() => ({ id, name: `Product ${id}` }))
+      )
+    ).then(results => {
       const names = {};
-      for (const entry of history) {
-        for (const productId of entry.productIds) {
-          if (!names[productId]) {
-            try {
-              const res = await fetch(`/api/products/${productId}`);
-              if (res.ok) {
-                const data = await res.json();
-                names[productId] = data.data?.name || `Product ${productId}`;
-              }
-            } catch (e) {
-              names[productId] = `Product ${productId}`;
-            }
-          }
-        }
-      }
-      setProductNames(names);
-    };
+      results.forEach(({ id, name }) => { names[id] = name; });
+      setProductNames(prev => ({ ...prev, ...names }));
+    });
+  }, [latest]);
 
-    if (history.length > 0) {
-      fetchNames();
-    }
-  }, [history]);
+  if (!latest || dismissed) return null;
 
-  if (history.length === 0) {
-    return null;
+  const visible = latest.productIds.slice(0, MAX_VISIBLE);
+
+  function handleCompareNow() {
+    const ids = latest.productIds.join(',');
+    navigate(`/compare?products=${ids}`);
   }
 
-  const handleRestore = (entry) => {
-    // Navigate to compare page with product IDs
-    const ids = entry.productIds.join(',');
-    navigate(`/compare?products=${ids}`);
-  };
-
-  const formatDate = (timestamp) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
-  };
+  function handleDismiss() {
+    sessionStorage.setItem(SESSION_KEY, '1');
+    setDismissed(true);
+  }
 
   return (
-    <div style={s.container}>
-      <div style={s.header}>
-        <h3 style={s.title}>📊 Recently Compared</h3>
-        <button
-          style={s.clearBtn}
-          onClick={clearHistory}
-          onMouseEnter={(e) => (e.target.style.background = '#fee')}
-          onMouseLeave={(e) => (e.target.style.background = '#fff')}
-        >
-          Clear History
-        </button>
+    <div style={s.strip} role="region" aria-label="Recently compared products">
+      <span style={s.label}>📊 Recently Compared</span>
+      <div style={s.items}>
+        {visible.map(id => (
+          <div key={id} style={s.thumb}>
+            <span style={{ fontSize: 20 }}>🥬</span>
+            <span style={{ marginTop: 4 }}>{productNames[id] || `#${id}`}</span>
+          </div>
+        ))}
+        {latest.productIds.length > MAX_VISIBLE && (
+          <div style={{ ...s.thumb, justifyContent: 'center' }}>
+            +{latest.productIds.length - MAX_VISIBLE} more
+          </div>
+        )}
       </div>
-
-      {history.length === 0 ? (
-        <div style={s.empty}>No comparison history yet</div>
-      ) : (
-        <div style={s.list}>
-          {history.map((entry) => (
-            <div
-              key={entry.id}
-              style={s.item}
-              onMouseEnter={(e) => Object.assign(e.currentTarget.style, s.itemHover)}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '';
-                e.currentTarget.style.borderColor = '#ddd';
-              }}
-            >
-              <div style={{ flex: 1 }}>
-                <div style={s.productNames}>
-                  {entry.productIds
-                    .map((id) => productNames[id] || `Product ${id}`)
-                    .join(', ')}
-                </div>
-                <div style={s.timestamp}>{formatDate(entry.timestamp)}</div>
-              </div>
-              <button
-                style={s.restoreBtn}
-                onClick={() => handleRestore(entry)}
-                onMouseEnter={(e) => (e.target.style.background = '#2d6a4f')}
-                onMouseLeave={(e) => (e.target.style.background = '#e8f5e9')}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#2d6a4f';
-                  e.target.style.color = '#fff';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#e8f5e9';
-                  e.target.style.color = '#2d6a4f';
-                }}
-              >
-                Restore
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      <button style={s.compareBtn} onClick={handleCompareNow}>Compare now</button>
+      <button style={s.closeBtn} onClick={handleDismiss} aria-label="Dismiss">✕</button>
     </div>
   );
 }

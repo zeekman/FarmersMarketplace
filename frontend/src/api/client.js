@@ -304,6 +304,8 @@ export const api = {
   getAuction: (id) => request(`/auctions/${id}`),
   createAuction: (body) => request('/auctions', { method: 'POST', body }),
   placeBid: (id, body) => request(`/auctions/${id}/bid`, { method: 'POST', body }),
+  getAuctionBids: (id) => request(`/auctions/${id}/bids`),
+  endAuction: (id) => request(`/auctions/${id}/end`, { method: 'PATCH' }),
 
   setFlashSale: (id, body) => request(`/products/${id}/flash-sale`, { method: 'PATCH', body }),
   cancelFlashSale: (id) => request(`/products/${id}/flash-sale`, { method: 'DELETE' }),
@@ -372,4 +374,9 @@ export const api = {
   adminCreateAnnouncement: (body) => request('/announcements/admin', { method: 'POST', body }),
   adminUpdateAnnouncement: (id, body) => request(`/announcements/admin/${id}`, { method: 'PATCH', body }),
   adminDeleteAnnouncement: (id) => request(`/announcements/admin/${id}`, { method: 'DELETE' }),
+  // 2FA
+  get2faStatus: () => request('/auth/2fa/status'),
+  setup2fa: () => request('/auth/2fa/setup', { method: 'POST' }),
+  verify2fa: (token) => request('/auth/2fa/verify', { method: 'POST', body: { token } }),
+  disable2fa: (password) => request('/auth/2fa/disable', { method: 'POST', body: { password } }),
 };

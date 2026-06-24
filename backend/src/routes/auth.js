@@ -2,6 +2,7 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const QRCode = require('qrcode');
 const db = require('../db/schema');
 const {
   createWalletFromMnemonic,
@@ -488,6 +489,108 @@ router.post('/recover', validate.recover, async (req, res) => {
       publicKey: user.stellar_public_key,
     },
   });
+});
+
+// ── TOTP helpers (no external TOTP lib needed) ──────────────────────────────
+function base32Encode(buf) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0, val = 0, out = '';
+  for (const byte of buf) { val = (val << 8) | byte; bits += 8; while (bits >= 5) { out += alphabet[(val >>> (bits - 5)) & 31]; bits -= 5; } }
+  if (bits > 0) out += alphabet[(val << (5 - bits)) & 31];
+  return out;
+}
+
+function base32Decode(str) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const s = str.toUpperCase().replace(/=+$/, '');
+  let bits = 0, val = 0;
+  const out = [];
+  for (const c of s) { val = (val << 5) | alphabet.indexOf(c); bits += 5; if (bits >= 8) { out.push((val >>> (bits - 8)) & 255); bits -= 8; } }
+  return Buffer.from(out);
+}
+
+function totp(secret) {
+  const counter = Math.floor(Date.now() / 1000 / 30);
+  const key = base32Decode(secret);
+  const buf = Buffer.alloc(8);
+  buf.writeBigInt64BE(BigInt(counter));
+  const hmac = crypto.createHmac('sha1', key).update(buf).digest();
+  const offset = hmac[19] & 0xf;
+  const code = (((hmac[offset] & 0x7f) << 24) | (hmac[offset+1] << 16) | (hmac[offset+2] << 8) | hmac[offset+3]) % 1000000;
+  return String(code).padStart(6, '0');
+}
+
+function verifyTotp(secret, token) {
+  for (const d of [-1, 0, 1]) {
+    const counter = Math.floor(Date.now() / 1000 / 30) + d;
+    const key = base32Decode(secret);
+    const buf = Buffer.alloc(8);
+    buf.writeBigInt64BE(BigInt(counter));
+    const hmac = crypto.createHmac('sha1', key).update(buf).digest();
+    const offset = hmac[19] & 0xf;
+    const code = (((hmac[offset] & 0x7f) << 24) | (hmac[offset+1] << 16) | (hmac[offset+2] << 8) | hmac[offset+3]) % 1000000;
+    if (String(code).padStart(6, '0') === String(token).padStart(6, '0')) return true;
+  }
+  return false;
+}
+
+/**
+ * POST /api/auth/2fa/setup
+ * Generates a TOTP secret and returns otpauth URL + QR code data URL
+ */
+router.post('/2fa/setup', auth, async (req, res) => {
+  const secret = base32Encode(crypto.randomBytes(20));
+  const { rows } = await db.query('SELECT email FROM users WHERE id = $1', [req.user.id]);
+  const email = rows[0]?.email || 'user';
+  const otpauth = `otpauth://totp/FarmersMarket:${encodeURIComponent(email)}?secret=${secret}&issuer=FarmersMarket`;
+  const qrDataUrl = await QRCode.toDataURL(otpauth);
+
+  // Store pending secret (not yet confirmed)
+  await db.query('UPDATE users SET totp_pending = $1 WHERE id = $2', [secret, req.user.id]);
+
+  res.json({ success: true, otpauth, qrDataUrl, secret });
+});
+
+/**
+ * POST /api/auth/2fa/verify
+ * Confirms setup: verifies token and activates 2FA
+ */
+router.post('/2fa/verify', auth, async (req, res) => {
+  const { token } = req.body;
+  const { rows } = await db.query('SELECT totp_pending FROM users WHERE id = $1', [req.user.id]);
+  const secret = rows[0]?.totp_pending;
+  if (!secret) return err(res, 400, '2FA setup not initiated', 'no_pending_setup');
+  if (!verifyTotp(secret, token)) return err(res, 401, 'Invalid code', 'invalid_totp');
+
+  // Generate backup codes
+  const backupCodes = Array.from({ length: 8 }, () => crypto.randomBytes(4).toString('hex'));
+  await db.query(
+    'UPDATE users SET totp_secret = $1, totp_enabled = true, totp_pending = NULL, totp_backup_codes = $2 WHERE id = $3',
+    [secret, JSON.stringify(backupCodes), req.user.id]
+  );
+  res.json({ success: true, backupCodes });
+});
+
+/**
+ * POST /api/auth/2fa/disable
+ * Disables 2FA after confirming current password
+ */
+router.post('/2fa/disable', auth, async (req, res) => {
+  const { password } = req.body;
+  if (!password) return err(res, 400, 'Password required', 'missing_password');
+  const { rows } = await db.query('SELECT password FROM users WHERE id = $1', [req.user.id]);
+  const valid = await bcrypt.compare(password, rows[0]?.password || '');
+  if (!valid) return err(res, 401, 'Incorrect password', 'invalid_credentials');
+  await db.query('UPDATE users SET totp_secret = NULL, totp_enabled = false, totp_pending = NULL, totp_backup_codes = NULL WHERE id = $1', [req.user.id]);
+  res.json({ success: true });
+});
+
+/**
+ * GET /api/auth/2fa/status
+ */
+router.get('/2fa/status', auth, async (req, res) => {
+  const { rows } = await db.query('SELECT totp_enabled FROM users WHERE id = $1', [req.user.id]);
+  res.json({ success: true, enabled: !!rows[0]?.totp_enabled });
 });
 
 module.exports = router;
