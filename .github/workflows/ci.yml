@@ -32,12 +32,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: backend/node_modules
-          key: ${{ runner.os }}-backend-${{ hashFiles('backend/package-lock.json') }}
+          key: ${{ runner.os }}-backend-${{ hashFiles('backend/package.json') }}
           restore-keys: |
             ${{ runner.os }}-backend-
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run tests with coverage
         run: npm run test:coverage
@@ -65,7 +65,7 @@ jobs:
             ${{ runner.os }}-frontend-
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Run lint
         run: npm run lint
