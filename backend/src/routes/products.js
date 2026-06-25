@@ -345,7 +345,7 @@ router.patch('/:id', auth, async (req, res) => {
     'name', 'description', 'price', 'quantity', 'unit', 'category',
     'low_stock_threshold', 'nutrition', 'pricing_type', 'min_weight', 'max_weight',
     'batch_id', 'is_preorder', 'preorder_delivery_date', 'allergens', 'allowed_regions',
-    'grade', 'carbon_kg_per_unit', 'available_from', 'available_until',
+    'grade', 'carbon_kg_per_unit', 'available_from', 'available_until', 'best_before',
   ];
   const updates = {};
   for (const key of allowed) {
@@ -385,6 +385,16 @@ router.patch('/:id', auth, async (req, res) => {
   if (updates.grade !== undefined) {
     const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];
     if (!VALID_GRADES.includes(updates.grade)) return err(res, 400, 'grade must be A, B, C, or Ungraded', 'validation_error');
+  }
+  if (updates.best_before !== undefined) {
+    if (updates.best_before !== null && !/^\d{4}-\d{2}-\d{2}$/.test(updates.best_before)) {
+      return err(res, 400, 'best_before must be YYYY-MM-DD or null', 'validation_error');
+    }
+    const currentBestBefore = product.best_before ? String(product.best_before).split('T')[0] : null;
+    const today = new Date().toISOString().split('T')[0];
+    if (updates.best_before !== currentBestBefore && updates.best_before && updates.best_before > today) {
+      updates.expiry_notified_at = null;
+    }
   }
   if (updates.batch_id !== undefined) {
     if (updates.batch_id === null || updates.batch_id === '') {
