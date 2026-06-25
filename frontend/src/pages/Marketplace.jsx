@@ -729,7 +729,6 @@ export default function Marketplace() {
         </div>
       )}
 
-      <RecentlyCompared />
       <div style={s.filters}>
         <input
           style={s.input}
@@ -1273,5 +1272,6 @@ export default function Marketplace() {
         </div>
       )}
     </div>
+      <RecentlyCompared />
   );
 }
