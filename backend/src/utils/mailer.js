@@ -129,6 +129,46 @@ async function sendContractAlert({ to, alert }) {
   });
 }
 
+async function sendSubscriptionPaymentFailedEmail({ buyer, subscription }) {
+  if (!SMTP_CONFIGURED) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: buyer.email,
+    subject: `⚠️ Subscription Payment Failed – ${subscription.product_name}`,
+    text: `Hi ${buyer.name},\n\nWe were unable to process the payment for your subscription to "${subscription.product_name}" after multiple attempts.\n\nYour subscription has been paused. Please update your payment details or contact support.\n\nFarmers Marketplace`,
+  });
+}
+
+async function sendAuctionWinnerEmail({ winner, auction, txHash }) {
+  if (!SMTP_CONFIGURED) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: winner.buyer_email,
+    subject: `🏆 You won Auction #${auction.id}!`,
+    text: `Hi ${winner.buyer_name},\n\nCongratulations! You won the auction for ${auction.product_name || 'the product'}.\n\nWinning Bid: ${winner.amount} XLM\nTX Hash: ${txHash}\n\nFarmers Marketplace`,
+  });
+}
+
+async function sendAuctionSaleEmail({ farmer, winner, txHash }) {
+  if (!SMTP_CONFIGURED) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: farmer.farmer_email,
+    subject: `💰 Auction #${farmer.id} sold!`,
+    text: `Hi ${farmer.farmer_name},\n\nYour auction has ended with a winning bid of ${winner.amount} XLM.\n\nTX Hash: ${txHash}\n\nFarmers Marketplace`,
+  });
+}
+
+async function sendAuctionNoSaleEmail({ bidder, auction }) {
+  if (!SMTP_CONFIGURED) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: bidder.email,
+    subject: `Auction #${auction.id} ended — reserve not met`,
+    text: `Hi ${bidder.name},\n\nAuction #${auction.id} has ended without a sale because the reserve price was not met.\n\nFarmers Marketplace`,
+  });
+}
+
 module.exports = {
   transporter,
   sendOrderEmails,
@@ -142,4 +182,8 @@ module.exports = {
   },
   sendReturnEmail,
   sendContractAlert,
+  sendAuctionWinnerEmail,
+  sendAuctionSaleEmail,
+  sendAuctionNoSaleEmail,
+  sendSubscriptionPaymentFailedEmail,
 };

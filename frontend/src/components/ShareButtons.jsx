@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from "react";
+import { api } from "../api/client";
 
 const s = {
   wrap: { marginTop: 16 },
@@ -31,7 +32,7 @@ const s = {
   toastError: { background: "#dc2626" },
 };
 
-export default function ShareButtons({ title, url, onShare }) {
+export default function ShareButtons({ productId, title, url, onShare }) {
   const [toast, setToast] = useState(null);
   const encodedUrl = encodeURIComponent(url);
   const encodedText = encodeURIComponent(`${title} ${url}`);
@@ -39,49 +40,39 @@ export default function ShareButtons({ title, url, onShare }) {
 
   const showToast = useCallback((message, type) => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 2500);
+    setTimeout(() => setToast(null), 2000);
   }, []);
 
-  function track(platform) {
+  async function recordShare(platform) {
     if (typeof onShare === "function") onShare(platform);
+    if (productId) {
+      try {
+        await api.trackShareEvent(productId, platform);
+      } catch { /* non-critical */ }
+    }
   }
 
   async function shareNative() {
     try {
       await navigator.share({ title, url, text: title });
-      track("native_share");
+      await recordShare("native_share");
     } catch (e) {
       if (e.name !== "AbortError") showToast("Share failed", "error");
     }
   }
 
   function shareWhatsApp() {
-    track("whatsapp");
-    window.open(
-      `https://wa.me/?text=${encodedText}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    window.open(`https://wa.me/?text=${encodedText}`, "_blank", "noopener,noreferrer");
+    recordShare("whatsapp");
   }
 
   function shareTwitter() {
-    track("twitter");
     window.open(
-      `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-        title,
-      )}&url=${encodedUrl}`,
+      `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodedUrl}`,
       "_blank",
       "noopener,noreferrer",
     );
-  }
-
-  function shareFacebook() {
-    track("facebook");
-    window.open(
-      `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    recordShare("twitter");
   }
 
   async function copyLink() {
@@ -89,7 +80,6 @@ export default function ShareButtons({ title, url, onShare }) {
       if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
         await navigator.clipboard.writeText(url);
       } else {
-        // Fallback for older browsers
         const textarea = document.createElement("textarea");
         textarea.value = url;
         textarea.style.position = "fixed";
@@ -99,7 +89,7 @@ export default function ShareButtons({ title, url, onShare }) {
         document.execCommand("copy");
         document.body.removeChild(textarea);
       }
-      track("copy_link");
+      await recordShare("copy_link");
       showToast("Copied!", "success");
     } catch {
       showToast("Failed to copy link", "error");
@@ -110,23 +100,23 @@ export default function ShareButtons({ title, url, onShare }) {
     <div style={s.wrap}>
       <div style={s.title}>Share this product</div>
       <div style={s.row}>
-        {canNativeShare && (
+        {canNativeShare ? (
           <button type="button" style={s.btn} onClick={shareNative}>
             Share
           </button>
+        ) : (
+          <>
+            <button type="button" style={s.btn} onClick={shareTwitter}>
+              Twitter/X
+            </button>
+            <button type="button" style={s.btn} onClick={shareWhatsApp}>
+              WhatsApp
+            </button>
+            <button type="button" style={s.btn} onClick={copyLink}>
+              Copy link
+            </button>
+          </>
         )}
-        <button type="button" style={s.btn} onClick={shareWhatsApp}>
-          WhatsApp
-        </button>
-        <button type="button" style={s.btn} onClick={shareTwitter}>
-          Twitter/X
-        </button>
-        <button type="button" style={s.btn} onClick={shareFacebook}>
-          Facebook
-        </button>
-        <button type="button" style={s.btn} onClick={copyLink}>
-          Copy link
-        </button>
       </div>
       {toast && (
         <div

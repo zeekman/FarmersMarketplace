@@ -172,6 +172,8 @@ export default function AdminDashboard() {
   const [deactivateTarget, setDeactivateTarget] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [verifiedFilter, setVerifiedFilter] = useState('');
+  const [bannedFilter, setBannedFilter] = useState('');
   const [banModalData, setBanModalData] = useState(null);
   const [banBusy, setBanBusy] = useState(false);
   const [contracts, setContracts] = useState([]);
@@ -281,7 +283,7 @@ export default function AdminDashboard() {
 
   async function loadUsers(page = 1) {
     try {
-      const res = await api.adminGetUsers(page, { search: searchQuery, role: roleFilter });
+      const res = await api.adminGetUsers(page, { search: searchQuery, role: roleFilter, verified: verifiedFilter, banned: bannedFilter });
       setUsers(res.data);
       setPagination(res.pagination);
       setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('usersPage', page); return p; });
@@ -405,22 +407,31 @@ export default function AdminDashboard() {
   }
 
   async function confirmBan(reason) {
+    const { id } = banModalData;
+    // Optimistic update
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, banned_at: new Date().toISOString() } : u));
     setBanBusy(true);
     try {
-      await api.adminBanUser(banModalData.id, reason);
+      await api.adminBanUser(id, reason);
       setBanModalData(null);
-      loadUsers(pagination.page);
     } catch (e) {
+      // Revert on error
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, banned_at: null } : u));
       setError(e.message);
-      setBanBusy(false);
     }
+    setBanBusy(false);
   }
 
   async function confirmUnban(id) {
+    // Optimistic update
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, banned_at: null } : u));
     try {
       await api.adminUnbanUser(id);
+    } catch (e) {
+      // Revert on error
       loadUsers(pagination.page);
-    } catch (e) { setError(e.message); }
+      setError(e.message);
+    }
   }
 
   async function loadContractState(e) {
@@ -623,6 +634,24 @@ export default function AdminDashboard() {
             <option value="farmer">Farmer</option>
             <option value="buyer">Buyer</option>
           </select>
+          <select
+            value={verifiedFilter}
+            onChange={e => setVerifiedFilter(e.target.value)}
+            style={{ flex: '0 1 120px', ...s.input }}
+          >
+            <option value="">All Verified</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+          <select
+            value={bannedFilter}
+            onChange={e => setBannedFilter(e.target.value)}
+            style={{ flex: '0 1 120px', ...s.input }}
+          >
+            <option value="">All Banned</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
           <button onClick={() => loadUsers(1)} style={{ ...s.btn(false), flex: '0 1 auto' }}>Search</button>
         </div>
         <table style={s.table}>
@@ -632,6 +661,8 @@ export default function AdminDashboard() {
               <th style={s.th}>Name</th>
               <th style={s.th}>Email</th>
               <th style={s.th}>Role</th>
+              <th style={s.th}>Verified</th>
+              <th style={s.th}>Banned At</th>
               <th style={s.th}>Joined</th>
               <th style={s.th}>Status</th>
               <th style={s.th}>Action</th>
@@ -644,6 +675,8 @@ export default function AdminDashboard() {
                 <td style={s.td}>{u.name}</td>
                 <td style={s.td}>{u.email}</td>
                 <td style={s.td}><span style={s.badge(u.role)}>{u.role}</span></td>
+                <td style={s.td}>{u.verified ? '✓' : '—'}</td>
+                <td style={s.td}>{u.banned_at ? new Date(u.banned_at).toLocaleDateString() : '—'}</td>
                 <td style={s.td}>{new Date(u.created_at).toLocaleDateString()}</td>
                 <td style={s.td}>
                   {u.banned_at

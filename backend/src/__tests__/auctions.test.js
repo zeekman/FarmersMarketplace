@@ -374,3 +374,113 @@ describe('POST /api/auctions/:id/bid', () => {
     expect(res.body.code).toBe('forbidden');
   });
 });
+
+// ─── closeExpiredAuctions (cron job) ─────────────────────────────────────────
+
+jest.mock('../utils/mailer', () => ({
+  sendAuctionWinnerEmail: jest.fn().mockResolvedValue(undefined),
+  sendAuctionSaleEmail: jest.fn().mockResolvedValue(undefined),
+  sendAuctionNoSaleEmail: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../utils/stellar', () => ({
+  sendPayment: jest.fn(),
+}));
+
+describe('closeExpiredAuctions', () => {
+  const { closeExpiredAuctions } = require('../jobs/auctionCron');
+  const mailer = require('../utils/mailer');
+  const { sendPayment } = require('../utils/stellar');
+
+  const expiredAuction = {
+    id: 1,
+    product_id: 10,
+    farmer_id: 5,
+    reserve_price: null,
+    farmer_wallet: 'GFARMER',
+    farmer_email: 'farmer@example.com',
+    farmer_name: 'Farmer Joe',
+  };
+
+  const winnerRow = {
+    buyer_id: 2,
+    amount: 50,
+    buyer_wallet: 'GBUYER',
+    buyer_secret: 'SBUYER',
+    buyer_email: 'buyer@example.com',
+    buyer_name: 'Buyer Bob',
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDb.isPostgres = false;
+  });
+
+  it('creates an order and notifies winner when reserve is met', async () => {
+    sendPayment.mockResolvedValue('TXHASH123');
+
+    mockDb.prepare
+      .mockReturnValueOnce({ all: jest.fn().mockReturnValue([expiredAuction]) }) // expired auctions
+      .mockReturnValueOnce({ get: jest.fn().mockReturnValue(winnerRow) })         // winner bid
+      .mockReturnValueOnce({ run: jest.fn() })                                    // UPDATE auction
+      .mockReturnValueOnce({ run: jest.fn() });                                   // INSERT order
+
+    await closeExpiredAuctions();
+
+    expect(sendPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 50, memo: 'Auction#1' })
+    );
+    expect(mailer.sendAuctionWinnerEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ txHash: 'TXHASH123' })
+    );
+    expect(mailer.sendAuctionSaleEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ txHash: 'TXHASH123' })
+    );
+  });
+
+  it('marks ended_no_sale and notifies bidders when reserve is not met', async () => {
+    const auctionWithReserve = { ...expiredAuction, reserve_price: 100 };
+    const lowBidWinner = { ...winnerRow, amount: 30 }; // below reserve of 100
+    const bidderList = [{ email: 'buyer@example.com', name: 'Buyer Bob' }];
+
+    mockDb.prepare
+      .mockReturnValueOnce({ all: jest.fn().mockReturnValue([auctionWithReserve]) }) // expired auctions
+      .mockReturnValueOnce({ get: jest.fn().mockReturnValue(lowBidWinner) })          // winner bid
+      .mockReturnValueOnce({ run: jest.fn() })                                        // UPDATE ended_no_sale
+      .mockReturnValueOnce({ all: jest.fn().mockReturnValue(bidderList) });           // bidders list
+
+    await closeExpiredAuctions();
+
+    expect(sendPayment).not.toHaveBeenCalled();
+    expect(mailer.sendAuctionNoSaleEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ bidder: bidderList[0] })
+    );
+  });
+
+  it('cancels auction when there are no bids', async () => {
+    mockDb.prepare
+      .mockReturnValueOnce({ all: jest.fn().mockReturnValue([expiredAuction]) }) // expired auctions
+      .mockReturnValueOnce({ get: jest.fn().mockReturnValue(undefined) })         // no winner
+      .mockReturnValueOnce({ run: jest.fn() });                                   // UPDATE cancelled
+
+    await closeExpiredAuctions();
+
+    expect(sendPayment).not.toHaveBeenCalled();
+    expect(mailer.sendAuctionWinnerEmail).not.toHaveBeenCalled();
+  });
+
+  it('proceeds when reserve_price is null (no reserve)', async () => {
+    sendPayment.mockResolvedValue('TX_NO_RESERVE');
+
+    mockDb.prepare
+      .mockReturnValueOnce({ all: jest.fn().mockReturnValue([{ ...expiredAuction, reserve_price: null }]) })
+      .mockReturnValueOnce({ get: jest.fn().mockReturnValue(winnerRow) })
+      .mockReturnValueOnce({ run: jest.fn() })
+      .mockReturnValueOnce({ run: jest.fn() });
+
+    await closeExpiredAuctions();
+
+    expect(sendPayment).toHaveBeenCalled();
+    expect(mailer.sendAuctionWinnerEmail).toHaveBeenCalled();
+  });
+});

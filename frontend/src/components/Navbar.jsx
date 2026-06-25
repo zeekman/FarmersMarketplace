@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -21,7 +22,7 @@ function navLinkStyle({ isActive }) {
 
 export default function Navbar() {
   const { user, logout } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, useSystemTheme, isUsingSystemTheme } = useTheme();
   const { i18n } = useTranslation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -106,6 +107,10 @@ export default function Navbar() {
       >
         🌿 FarmersMarket
       </NavLink>
+    <nav style={s.nav} ref={navRef}>
+      <NavLink to="/" end style={({ isActive }) => (isActive ? s.activeLink : s.brand)}>🌿 FarmersMarket</NavLink>
+    <nav ref={navRef} style={s.nav}>
+      <Link to="/" style={s.brand}>🌿 FarmersMarket</Link>
       {network && (
         <span style={{
           background: network === 'mainnet' ? '#c0392b' : '#2d6a4f',
@@ -158,6 +163,9 @@ export default function Navbar() {
             <NavLink to="/settings" style={navLinkStyle} onClick={closeDrawer}>Settings</NavLink>
             <span style={{ color: '#d8f3dc', fontSize: 13 }}>{user.name} ({user.role})</span>
             <button style={s.toggleBtn} onClick={toggleTheme} aria-label="Toggle dark mode">{theme === 'light' ? '🌙' : '☀️'}</button>
+            <button style={{ ...s.toggleBtn, fontSize: 12, minWidth: 120, color: '#fff' }} onClick={useSystemTheme} aria-label="Use system theme">
+              {isUsingSystemTheme ? 'System' : 'Use system'}
+            </button>
             <button style={s.btn} onClick={handleLogout}>Logout</button>
           </>
         ) : (

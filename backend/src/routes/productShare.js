@@ -47,7 +47,7 @@ router.post('/:id/share', async (req, res) => {
   const platform = String(req.body.platform || '')
     .trim()
     .toLowerCase();
-  const allowed = new Set(['whatsapp', 'twitter', 'facebook', 'copy_link']);
+  const allowed = new Set(['whatsapp', 'twitter', 'facebook', 'copy_link', 'native_share']);
   if (!allowed.has(platform)) {
     return err(res, 400, 'Invalid platform', 'validation_error');
   }

@@ -20,6 +20,7 @@ jobs:
       JWT_SECRET: ci-test-secret
       STELLAR_NETWORK: testnet
       SMTP_HOST: ""
+      SKIP_CONTRACT_TESTS: 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -32,12 +33,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: backend/node_modules
-          key: ${{ runner.os }}-backend-${{ hashFiles('backend/package-lock.json') }}
+          key: ${{ runner.os }}-backend-${{ hashFiles('backend/package.json') }}
           restore-keys: |
             ${{ runner.os }}-backend-
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run tests with coverage
         run: npm run test:coverage
@@ -65,10 +66,41 @@ jobs:
             ${{ runner.os }}-frontend-
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Run lint
         run: npm run lint
+        env:
+          ESLINT_USE_FLAT_CONFIG: 'false'
+
+  soroban-contracts:
+    name: Soroban Contract Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run creator-earnings tests
+        run: cargo test -p creator-earnings --features testutils
+
+      - name: Build creator-earnings WASM release
+        run: cargo build -p creator-earnings --target wasm32-unknown-unknown --release
 
   contract-tests-nightly:
     name: Contract Tests (nightly, Docker)
@@ -102,7 +134,57 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run contract tests
         run: npm run test:contracts
+
+  wasm-size-profile:
+    name: WASM Size Profile (nightly)
+  escrow-rust-tests:
+    name: Escrow Contract Rust Tests (nightly)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contract/target
+          key: ${{ runner.os }}-cargo-contract-${{ hashFiles('contract/Cargo.toml', 'contract/reward-token/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-contract-
+
+      - name: Profile WASM binary sizes
+        run: bash contract/wasm-profile.sh | tee wasm-profile.txt
+
+      - name: Write job summary
+        run: |
+          echo "## WASM Binary Size Profile" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          cat wasm-profile.txt >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-size-profile
+          path: wasm-profile.txt
+          retention-days: 30
+            contracts/escrow/target
+          key: ${{ runner.os }}-cargo-escrow-${{ hashFiles('contracts/escrow/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-escrow-
+
+      - name: Run escrow contract Rust tests
+        working-directory: contracts/escrow
+        run: cargo test

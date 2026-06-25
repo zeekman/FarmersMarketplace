@@ -78,6 +78,7 @@ async function request(path, options = {}, retry = true) {
       credentials: 'include',
       headers,
       body: isFormData ? options.body : options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
     });
 
     if (res.status === 401 && retry) {
@@ -125,6 +126,7 @@ export const api = {
   createProduct: (body) => request('/products', { method: 'POST', body }),
   getMyProducts: () => request('/products/mine/list'),
   getHarvestBatches: () => request('/batches'),
+  getBatchesByFarmer: (farmerId) => request(`/batches?farmer_id=${farmerId}`),
   createHarvestBatch: (body) => request('/batches', { method: 'POST', body }),
   restockProduct: (id, quantity) => request(`/products/${id}/restock`, { method: 'PATCH', body: { quantity } }),
   deleteProduct: (id) => request(`/products/${id}`, { method: 'DELETE' }),
@@ -139,7 +141,7 @@ export const api = {
 
   // Price tiers
   getProductTiers: (id) => request(`/products/${id}/tiers`),
-  getPriceHistory: (id) => request(`/products/${id}/price-history`),
+  getPriceHistory: (id, range) => request(`/products/${id}/price-history${range ? `?range=${range}` : ''}`),
   updateProductTiers: (id, tiers) => request(`/products/${id}/tiers`, { method: 'POST', body: { tiers } }),
 
   uploadProductImage: (file) => {
@@ -169,7 +171,7 @@ export const api = {
   deleteProductImage: (productId, imageId) => request(`/products/${productId}/images/${imageId}`, { method: 'DELETE' }),
   reorderProductImages: (productId, order) => request(`/products/${productId}/images/reorder`, { method: 'PATCH', body: { order } }),
 
-  bulkUploadProducts: (file) => {
+  uploadProductsCsv: (file) => {
     const form = new FormData();
     form.append('file', file);
     return request('/products/bulk', { method: 'POST', body: form });
@@ -267,6 +269,8 @@ export const api = {
     const qs = new URLSearchParams({ page });
     if (filters.search) qs.append('search', filters.search);
     if (filters.role) qs.append('role', filters.role);
+    if (filters.verified) qs.append('verified', filters.verified);
+    if (filters.banned) qs.append('banned', filters.banned);
     return request(`/admin/users?${qs}`);
   },
   adminGetOrders: (page = 1) => request(`/admin/orders?page=${page}`),
@@ -350,6 +354,8 @@ export const api = {
   getAuction: (id) => request(`/auctions/${id}`),
   createAuction: (body) => request('/auctions', { method: 'POST', body }),
   placeBid: (id, body) => request(`/auctions/${id}/bid`, { method: 'POST', body }),
+  getAuctionBids: (id) => request(`/auctions/${id}/bids`),
+  endAuction: (id) => request(`/auctions/${id}/end`, { method: 'PATCH' }),
 
   setFlashSale: (id, body) => request(`/products/${id}/flash-sale`, { method: 'PATCH', body }),
   cancelFlashSale: (id) => request(`/products/${id}/flash-sale`, { method: 'DELETE' }),
@@ -402,6 +408,7 @@ export const api = {
   // Cooperatives & multi-sig
   createCooperative: (body) => request('/cooperatives', { method: 'POST', body }),
   getCooperatives: () => request('/cooperatives'),
+  getFarmerCooperatives: (farmerId) => request(`/cooperatives?farmer_id=${encodeURIComponent(farmerId)}`),
   setupMultisig: (id, body) => request(`/cooperatives/${id}/multisig-setup`, { method: 'POST', body }),
   initiateCoopTx: (id, body) => request(`/cooperatives/${id}/transactions`, { method: 'POST', body }),
   signPendingTx: (txId) => request(`/cooperatives/transactions/${txId}/sign`, { method: 'POST' }),
@@ -421,6 +428,10 @@ export const api = {
   adminCreateAnnouncement: (body) => request('/announcements/admin', { method: 'POST', body }),
   adminUpdateAnnouncement: (id, body) => request(`/announcements/admin/${id}`, { method: 'PATCH', body }),
   adminDeleteAnnouncement: (id) => request(`/announcements/admin/${id}`, { method: 'DELETE' }),
+
+  // Claimable balances
+  getClaimableBalances: () => request('/wallet/claimable-balances'),
+  claimBalance: (balance_id) => request('/wallet/claim', { method: 'POST', body: { balance_id } }),
 
   // Two-Factor Authentication
   setup2FA: () => request('/auth/2fa/setup', { method: 'POST' }),

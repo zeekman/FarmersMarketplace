@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
+const logger = require('../logger');
 
 // Get the best matching tier price for a quantity, or base price if no tiers
 async function getTierPrice(productId, quantity) {
@@ -13,6 +14,7 @@ async function getTierPrice(productId, quantity) {
   // Find the highest min_quantity that is <= quantity
   for (const tier of tiers) {
     if (quantity >= tier.min_quantity) {
+      logger.debug('[getTierPrice] Matched tier', { productId, quantity, min_quantity: tier.min_quantity, price_per_unit: tier.price_per_unit });
       return tier.price_per_unit;
     }
   }
@@ -21,6 +23,7 @@ async function getTierPrice(productId, quantity) {
   const { rows: productRows } = await db.query('SELECT price FROM products WHERE id = $1', [
     productId,
   ]);
+  logger.debug('[getTierPrice] No tier matched, using base price', { productId, quantity, base_price: productRows[0].price });
   return productRows[0].price;
 }
 

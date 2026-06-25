@@ -4,6 +4,8 @@ const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { err } = require('../middleware/error');
 const { sanitizeText } = require('../utils/sanitize');
+const crypto = require('crypto');
+const { webhookMiddleware } = require('../services/webhookVerify');
 
 const PUBLIC_FIELDS =
   'u.id, u.name, u.bio, u.location, u.avatar_url, u.created_at, u.latitude, u.longitude, u.farm_address, u.verified';
@@ -122,5 +124,30 @@ router.post('/verify', auth, async (req, res) => {
 
   res.json({ success: true, message: 'Verification submitted for review' });
 });
+
+// POST /api/farmers/webhook-secret/rotate — generate a new webhook secret
+router.post('/webhook-secret/rotate', auth, async (req, res) => {
+  if (req.user.role !== 'farmer')
+    return err(res, 403, 'Only farmers can rotate webhook secrets', 'forbidden');
+
+  const secret = crypto.randomBytes(32).toString('hex');
+  await db.query('UPDATE users SET webhook_secret = $1 WHERE id = $2', [secret, req.user.id]);
+  res.json({ success: true, webhook_secret: secret });
+});
+
+// POST /api/farmers/:farmerId/webhook — receive an incoming webhook (HMAC-verified)
+router.post(
+  '/:farmerId/webhook',
+  webhookMiddleware(async (req) => {
+    const { rows } = await db.query(
+      'SELECT webhook_secret FROM users WHERE id = $1 AND role = $2',
+      [req.params.farmerId, 'farmer']
+    );
+    return rows[0]?.webhook_secret || null;
+  }),
+  (req, res) => {
+    res.json({ success: true, received: true });
+  }
+);
 
 module.exports = router;

@@ -90,4 +90,59 @@ describe('#420 ProductDetail image gallery', () => {
     expect(screen.getByLabelText(/previous image/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/next image/i)).toBeInTheDocument();
   });
+
+  it('keyboard ArrowRight navigates to next image', async () => {
+    mockImages = [
+      { id: 1, url: 'http://example.com/img1.jpg' },
+      { id: 2, url: 'http://example.com/img2.jpg' },
+      { id: 3, url: 'http://example.com/img3.jpg' },
+    ];
+    renderProductDetail();
+    await waitFor(() => expect(screen.getByText('Tomatoes')).toBeInTheDocument());
+    const gallery = document.querySelector('[role="region"][aria-label]');
+    gallery.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(document.querySelector('img[src="http://example.com/img2.jpg"][alt*="photo 2"]')).not.toBeNull();
+  });
+
+  it('keyboard ArrowLeft wraps around to last image', async () => {
+    mockImages = [
+      { id: 1, url: 'http://example.com/img1.jpg' },
+      { id: 2, url: 'http://example.com/img2.jpg' },
+      { id: 3, url: 'http://example.com/img3.jpg' },
+    ];
+    renderProductDetail();
+    await waitFor(() => expect(screen.getByText('Tomatoes')).toBeInTheDocument());
+    const gallery = document.querySelector('[role="region"][aria-label]');
+    gallery.focus();
+    await userEvent.keyboard('{ArrowLeft}');
+    // wrap-around: from index 0 → index 2
+    expect(document.querySelector('img[alt*="photo 3"]')).not.toBeNull();
+  });
+
+  it('thumbnail images are lazy-loaded', async () => {
+    mockImages = [
+      { id: 1, url: 'http://example.com/img1.jpg' },
+      { id: 2, url: 'http://example.com/img2.jpg' },
+    ];
+    renderProductDetail();
+    await waitFor(() => expect(screen.getByText('Tomatoes')).toBeInTheDocument());
+    const thumbs = document.querySelectorAll('img[loading="lazy"]');
+    expect(thumbs.length).toBeGreaterThan(0);
+  });
+
+  it('shows dot indicators equal to number of images', async () => {
+    mockImages = [
+      { id: 1, url: 'http://example.com/img1.jpg' },
+      { id: 2, url: 'http://example.com/img2.jpg' },
+      { id: 3, url: 'http://example.com/img3.jpg' },
+    ];
+    renderProductDetail();
+    await waitFor(() => expect(screen.getByText('Tomatoes')).toBeInTheDocument());
+    // dot row is aria-hidden; query by tabIndex=-1 buttons inside the dot row
+    const dotRow = document.querySelector('[aria-hidden="true"]');
+    expect(dotRow).not.toBeNull();
+    const dots = dotRow.querySelectorAll('button');
+    expect(dots.length).toBe(3);
+  });
 });

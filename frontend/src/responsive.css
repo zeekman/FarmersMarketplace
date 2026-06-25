@@ -75,3 +75,19 @@
   /* Restock row in dashboard listings */
   .product-actions { flex-wrap: wrap; gap: 6px !important; }
 }
+
+/* ── Print layout (Compare page) ── */
+@media print {
+  nav, .compare-actions, .btn-touch {
+    display: none !important;
+  }
+
+  .compare-table-wrapper {
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  .compare-table {
+    width: 100% !important;
+  }
+}

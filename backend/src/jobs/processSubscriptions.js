@@ -5,6 +5,7 @@ const logger = require('../logger');
 const db = require('../db/schema');
 const { sendPayment } = require('../utils/stellar');
 const { nextOrderDate } = require('../routes/subscriptions');
+const mailer = require('../utils/mailer');
 
 const MAX_RETRIES = parseInt(process.env.SUBSCRIPTION_MAX_RETRIES || '3', 10);
 const RETRY_DELAY_MINUTES = parseInt(process.env.SUBSCRIPTION_RETRY_DELAY_MINUTES || '60', 10);
@@ -181,8 +182,22 @@ async function processSubscriptions() {
 
       if (isPermanentError(e) || retryCount > MAX_RETRIES) {
         db.prepare(
-          "UPDATE subscriptions SET status = 'failed', active = 0, retry_count = ? WHERE id = ?"
+          "UPDATE subscriptions SET status = 'payment_failed', active = 0, retry_count = ? WHERE id = ?"
         ).run(retryCount, sub.id);
+
+        // Notify buyer that subscription payment has permanently failed
+        try {
+          const buyerRow = db.prepare('SELECT email, name FROM users WHERE id = ?').get(sub.buyer_id);
+          if (buyerRow) {
+            await mailer.sendSubscriptionPaymentFailedEmail({
+              buyer: buyerRow,
+              subscription: sub,
+            });
+          }
+        } catch (mailErr) {
+          logger.warn('[subscriptions] Failed to send payment_failed email', { subscriptionId: sub.id });
+        }
+
         logger.error(`[subscriptions] Sub ${sub.id} permanently failed`, {
           subscriptionId: sub.id,
           reason: isPermanentError(e) ? 'permanent_error' : 'retry_exhausted',

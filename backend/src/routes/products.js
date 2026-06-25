@@ -9,6 +9,7 @@ const { sanitizeText } = require('../utils/sanitize');
 const { rewriteImageUrl } = require('../utils/cdn');
 const { sendBackInStockEmail } = require('../utils/mailer');
 const AutomaticOrderProcessor = require('../services/AutomaticOrderProcessor');
+const logger = require('../logger');
 
 
 const VALID_ALLERGENS = ['gluten', 'nuts', 'dairy', 'eggs', 'soy', 'shellfish'];
@@ -701,12 +702,14 @@ router.post('/:id/tiers', auth, async (req, res) => {
   const { tiers } = req.body;
   if (!Array.isArray(tiers)) return err(res, 400, 'tiers must be an array', 'validation_error');
 
-  const sortedTiers = tiers.sort((a, b) => a.min_quantity - b.min_quantity);
+  const sortedTiers = [...tiers].sort((a, b) => a.min_quantity - b.min_quantity);
   for (let i = 0; i < sortedTiers.length; i++) {
     const tier = sortedTiers[i];
     if (!tier.min_quantity || tier.min_quantity < 1 || !Number.isInteger(tier.min_quantity)) return err(res, 400, 'min_quantity must be a positive integer', 'validation_error');
     if (!tier.price_per_unit || tier.price_per_unit <= 0) return err(res, 400, 'price_per_unit must be a positive number', 'validation_error');
-    if (i > 0 && tier.min_quantity <= sortedTiers[i - 1].min_quantity) return err(res, 400, 'min_quantity values must be increasing', 'validation_error');
+    if (i > 0 && tier.min_quantity <= sortedTiers[i - 1].min_quantity) return err(res, 409, 'Overlapping tier ranges detected', 'tier_overlap');
+    // Volume discount: each successive tier must have a lower or equal price
+    if (i > 0 && tier.price_per_unit > sortedTiers[i - 1].price_per_unit) return err(res, 400, 'price_per_unit must be <= the price of the previous tier (volume discount required)', 'validation_error');
   }
 
   await db.query('DELETE FROM price_tiers WHERE product_id = $1', [req.params.id]);
@@ -719,6 +722,35 @@ router.post('/:id/tiers', auth, async (req, res) => {
     [req.params.id]
   );
   res.json({ success: true, data: newTiers });
+});
+
+// DELETE /api/products/:id/tiers/:tierId
+router.delete('/:id/tiers/:tierId', auth, async (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can manage price tiers', 'forbidden');
+  const { rows: prodRows } = await db.query('SELECT * FROM products WHERE id = $1 AND farmer_id = $2', [req.params.id, req.user.id]);
+  if (!prodRows[0]) return err(res, 404, 'Product not found or not yours', 'not_found');
+
+  const { rows: tierRows } = await db.query('SELECT * FROM price_tiers WHERE id = $1 AND product_id = $2', [req.params.tierId, req.params.id]);
+  if (!tierRows[0]) return err(res, 404, 'Tier not found', 'not_found');
+
+  const deletedTier = tierRows[0];
+  await db.query('DELETE FROM price_tiers WHERE id = $1', [req.params.tierId]);
+
+  // Recalculate active subscriptions that used this tier's quantity bracket
+  // Set their next price to be recalculated at next order time by clearing any cached price
+  // (subscriptions use live getTierPrice at order time, so deleting the tier is sufficient;
+  //  but we log affected subscriptions for visibility)
+  const { rows: affected } = await db.query(
+    'SELECT id FROM subscriptions WHERE product_id = $1 AND quantity >= $2 AND active = 1',
+    [req.params.id, deletedTier.min_quantity]
+  );
+  if (affected.length > 0) {
+    logger.info('[tiers] Deleted tier may affect subscriptions; prices will recalculate at next order', {
+      tierId: req.params.tierId, productId: req.params.id, affectedSubscriptions: affected.length,
+    });
+  }
+
+  res.json({ success: true });
 });
 
 // GET /api/products/:id/price-history

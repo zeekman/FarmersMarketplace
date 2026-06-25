@@ -30,7 +30,13 @@ export function showToast(message, type = 'info', duration = TOAST_DURATION_MS) 
   const container = getOrCreateContainer();
   const toastEl = document.createElement('div');
 
-  const bgColor = type === 'error' ? '#c0392b' : type === 'success' ? '#2d6a4f' : '#333';
+  const bgColor = type === 'error'
+    ? '#c0392b'
+    : type === 'success'
+      ? '#2d6a4f'
+      : type === 'warning'
+        ? '#f5a623'
+        : '#333';
   const textColor = '#fff';
 
   toastEl.style.cssText = `

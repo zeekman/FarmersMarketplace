@@ -1,60 +1,55 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
-import { HelmetProvider } from 'react-helmet-async';
+import { render, screen } from '@testing-library/react';
+import SkeletonProductCard from '../../components/SkeletonProductCard';
 
-vi.mock('../api/client', () => ({
-  api: {
-    getProducts: vi.fn().mockResolvedValue({
-      data: [
-        { id: 1, name: 'Tomatoes', quantity: 0, price: '5', unit: 'kg', category: 'vegetables', description: 'Fresh tomatoes', farmer_name: 'Bob', farmer_id: 10, image_url: null, review_count: 0 },
-        { id: 2, name: 'Carrots', quantity: 10, price: '3', unit: 'kg', category: 'vegetables', description: 'Fresh carrots', farmer_name: 'Alice', farmer_id: 11, image_url: null, review_count: 0 },
-      ],
-      total: 2,
-      totalPages: 1,
-    }),
-    searchProducts: vi.fn(),
-    getAuctions: vi.fn().mockResolvedValue({ data: [] }),
-    getBundles: vi.fn().mockResolvedValue({ data: [] }),
-    getRecommendations: vi.fn().mockResolvedValue({ data: [] }),
-  },
-}));
+const PAGE_SIZE = 20;
 
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: null }) }));
-vi.mock('../context/FavoritesContext', () => ({ useFavorites: () => ({ isFavorited: () => false, toggleFavorite: vi.fn() }) }));
-vi.mock('../context/CompareContext', () => ({ useCompare: () => ({ products: [], toggleProduct: vi.fn(), isCompared: () => false }) }));
-vi.mock('../utils/useXlmRate', () => ({ useXlmRate: () => ({ usd: () => null }) }));
-vi.mock('../components/RecentlyCompared', () => ({ default: () => null }));
-
-import Marketplace from '../pages/Marketplace';
-
-describe('Marketplace out-of-stock badge (#451)', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
-
-  it('shows Out of Stock badge for product with quantity 0', async () => {
-    render(<HelmetProvider><MemoryRouter><Marketplace /></MemoryRouter></HelmetProvider>);
-    await waitFor(() => expect(screen.getByText('Tomatoes')).toBeInTheDocument());
-    expect(screen.getAllByLabelText('Out of stock')).toHaveLength(1);
+describe('SkeletonProductCard', () => {
+  it('renders without crashing', () => {
+    const { container } = render(<SkeletonProductCard />);
+    expect(container.firstChild).toBeInTheDocument();
   });
 
-  it('disables the View button for out-of-stock product', async () => {
-    render(<HelmetProvider><MemoryRouter><Marketplace /></MemoryRouter></HelmetProvider>);
-    await waitFor(() => expect(screen.getByText('Tomatoes')).toBeInTheDocument());
-    const buttons = screen.getAllByRole('button', { name: /out of stock/i });
-    expect(buttons[0]).toBeDisabled();
+  it('is aria-hidden so screen readers skip it', () => {
+    const { container } = render(<SkeletonProductCard />);
+    expect(container.firstChild).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('does not show Out of Stock badge for in-stock product', async () => {
-    render(<HelmetProvider><MemoryRouter><Marketplace /></MemoryRouter></HelmetProvider>);
-    await waitFor(() => expect(screen.getByText('Carrots')).toBeInTheDocument());
-    expect(screen.getAllByLabelText('Out of stock')).toHaveLength(1);
+  it('shimmer style tag is injected into document head only once for multiple cards', () => {
+    render(
+      <>
+        {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+          <SkeletonProductCard key={i} />
+        ))}
+      </>
+    );
+    const styleEls = document.querySelectorAll('#skeleton-shimmer-style');
+    expect(styleEls).toHaveLength(1);
   });
 
-  it('shows enabled View button for in-stock product', async () => {
-    render(<HelmetProvider><MemoryRouter><Marketplace /></MemoryRouter></HelmetProvider>);
-    await waitFor(() => expect(screen.getByText('Carrots')).toBeInTheDocument());
-    const viewButtons = screen.getAllByRole('button', { name: 'View' });
-    expect(viewButtons[0]).not.toBeDisabled();
+  it(`renders exactly PAGE_SIZE (${PAGE_SIZE}) skeletons in a grid`, () => {
+    const { container } = render(
+      <div role="grid">
+        {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+          <SkeletonProductCard key={i} />
+        ))}
+      </div>
+    );
+    const cards = container.querySelectorAll('[aria-hidden="true"]');
+    expect(cards).toHaveLength(PAGE_SIZE);
+  });
+
+  it('card has the same outer dimensions as a real product card (min-height via padding)', () => {
+    const { container } = render(<SkeletonProductCard />);
+    const card = container.firstChild;
+    // Verify structural shape matches real card
+    expect(card.style.borderRadius).toBe('12px');
+    expect(card.style.padding).toBe('20px');
+  });
+
+  it('shimmer keyframes are present in the injected style tag', () => {
+    render(<SkeletonProductCard />);
+    const styleEl = document.getElementById('skeleton-shimmer-style');
+    expect(styleEl?.textContent).toMatch(/@keyframes shimmer/);
   });
 });

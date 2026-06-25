@@ -10,12 +10,16 @@ const COLORS = {
 const STORAGE_KEY = 'dismissed_announcements';
 
 function getDismissed() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+  try { return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
 }
 
 function dismiss(id) {
-  const list = getDismissed();
-  if (!list.includes(id)) localStorage.setItem(STORAGE_KEY, JSON.stringify([...list, id]));
+  try {
+    const list = getDismissed();
+    if (!list.includes(id)) sessionStorage.setItem(STORAGE_KEY, JSON.stringify([...list, id]));
+  } catch {
+    // sessionStorage unavailable (e.g. private browsing restriction) — silently skip
+  }
 }
 
 // Minimal markdown: bold (**text**), italic (*text*), links ([text](url))

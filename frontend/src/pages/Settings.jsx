@@ -656,6 +656,11 @@ export default function Settings() {
           <PasswordChangeForm />
           <TwoFactorAuth />
           <SeedPhraseBackup />
+          <div style={s.card}>
+            <div style={s.section}>Security</div>
+            <div style={s.desc}>Protect your account with two-factor authentication.</div>
+            <TwoFactorAuth />
+          </div>
         </>
       ) : (
         <AccountRecovery />

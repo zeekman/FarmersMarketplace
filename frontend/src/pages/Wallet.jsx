@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { useXlmRate } from '../utils/useXlmRate';
 
 const DISCLAIMER_KEY = 'testnet_disclaimer_dismissed';
-const RECONNECT_BASE_MS = 1000;
+const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 30000;
 
 const COMMON_ASSETS = [
@@ -54,7 +54,7 @@ const s = {
 if (typeof document !== 'undefined' && !document.getElementById('wallet-toast-style')) {
   const style = document.createElement('style');
   style.id = 'wallet-toast-style';
-  style.textContent = '@keyframes slideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }';
+  style.textContent = '@keyframes slideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } } @keyframes spin { to { transform: rotate(360deg); } }';
   document.head.appendChild(style);
 }
 
@@ -103,6 +103,12 @@ export default function Wallet() {
   const [removingAsset, setRemovingAsset] = useState(null);
 
   const [reconnecting, setReconnecting] = useState(false);
+  const [sseConnected, setSseConnected] = useState(false);
+
+  // Claimable balances state
+  const [claimableBalances, setClaimableBalances] = useState([]);
+  const [claimableLoading, setClaimableLoading] = useState(true); // true initially so section shows while loading
+  const [claimingId, setClaimingId] = useState(null); // balance_id currently being claimed
 
   const esRef = useRef(null);
   const reconnectTimer = useRef(null);
@@ -138,6 +144,12 @@ export default function Wallet() {
       setAlerts(res.data ?? []);
       setUnreadCount(res.unreadCount ?? 0);
     }).catch(() => {});
+    // Load claimable balances — non-blocking, failure is silent
+    setClaimableLoading(true);
+    api.getClaimableBalances()
+      .then(res => setClaimableBalances(res.data ?? []))
+      .catch(() => setClaimableBalances([]))
+      .finally(() => setClaimableLoading(false));
   }, []);
 
   const connectStream = useCallback(() => {
@@ -168,13 +180,14 @@ export default function Wallet() {
       es.close();
       esRef.current = null;
       if (unmounted.current) return;
+      setSseConnected(false);
       reconnectDelay.current = Math.min(reconnectDelay.current * 2, RECONNECT_MAX_MS);
       setReconnecting(true);
       reconnectTimer.current = setTimeout(() => {
         connectStream();
       }, reconnectDelay.current);
     });
-    es.onopen = () => { reconnectDelay.current = RECONNECT_BASE_MS; setReconnecting(false); };
+    es.onopen = () => { reconnectDelay.current = RECONNECT_BASE_MS; setReconnecting(false); setSseConnected(true); };
   }, [load]);
 
   useEffect(() => {
@@ -290,7 +303,45 @@ export default function Wallet() {
     }
   }
 
+  async function handleClaim(balanceId) {
+    setClaimingId(balanceId);
+    try {
+      const res = await api.claimBalance(balanceId);
+      showToast('Balance claimed successfully!', 'success');
+      // Update wallet balance immediately with the returned value
+      if (res.balance != null) {
+        setWallet(prev => prev ? { ...prev, balance: res.balance } : prev);
+      }
+      // Remove the claimed balance from the list
+      setClaimableBalances(prev => prev.filter(b => b.id !== balanceId));
+    } catch (e) {
+      const msg = getErrorMessage(e);
+      showToast(msg, 'error');
+    } finally {
+      setClaimingId(null);
+    }
+  }
+
   const customBalances = (wallet?.balances ?? []).filter(b => b.asset_type !== 'native');
+
+  /** Returns a human-readable description of a Stellar claimant predicate */
+  function describeCondition(predicate) {
+    if (!predicate || predicate.unconditional) return 'Claimable now';
+    if (predicate.not) {
+      const inner = predicate.not;
+      if (inner.abs_before) {
+        return `Claimable after ${new Date(inner.abs_before).toLocaleString()}`;
+      }
+      if (inner.rel_before) {
+        const days = Math.round(inner.rel_before / 86400);
+        return `Claimable after ~${days} day${days !== 1 ? 's' : ''}`;
+      }
+    }
+    if (predicate.abs_before) {
+      return `Claimable until ${new Date(predicate.abs_before).toLocaleString()}`;
+    }
+    return 'Conditional';
+  }
 
   return (
     <div style={s.page}>
@@ -306,6 +357,27 @@ export default function Wallet() {
           ⟳ Reconnecting to live updates…
         </div>
       )}
+
+      {/* SSE connection indicator */}
+      <div
+        role="status"
+        aria-label={sseConnected ? 'Live updates connected' : 'Live updates disconnected'}
+        title={sseConnected ? 'Live updates connected' : 'Live updates disconnected'}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, fontSize: 12, color: sseConnected ? '#2d6a4f' : '#999' }}
+      >
+        <span
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: '50%',
+            background: sseConnected ? '#40c074' : '#bbb',
+            display: 'inline-block',
+            boxShadow: sseConnected ? '0 0 0 3px #d8f3dc' : 'none',
+            transition: 'background 0.3s, box-shadow 0.3s',
+          }}
+        />
+        {sseConnected ? 'Live' : 'Offline'}
+      </div>
 
       {disclaimerVisible && network !== 'mainnet' && (
         <div role="dialog" aria-modal="true" aria-labelledby="disclaimer-modal-title" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -376,10 +448,98 @@ export default function Wallet() {
             )}
           </div>
 
+          {/* Pending Claims section — claimable balances from pre-orders / escrow refunds */}
+          {(claimableLoading || claimableBalances.length > 0) && (            <div style={s.card} data-testid="pending-claims-section">
+              <h3 style={{ marginBottom: 4, color: '#333' }}>⏳ Pending Claims</h3>
+              <p style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>
+                Funds locked in Stellar claimable balances (e.g. pre-order refunds) waiting to be claimed.
+              </p>
+              {claimableLoading ? (
+                <p style={{ color: '#aaa', fontSize: 14 }}>Loading...</p>
+              ) : claimableBalances.length === 0 ? (
+                <p style={{ color: '#aaa', fontSize: 14 }}>No pending claims.</p>
+              ) : (
+                <div>
+                  {claimableBalances.map(b => {
+                    const isClaiming = claimingId === b.id;
+                    const shortId = b.id.length > 16
+                      ? `${b.id.slice(0, 8)}…${b.id.slice(-6)}`
+                      : b.id;
+                    const condition = describeCondition(b.claimant_condition);
+                    return (
+                      <div
+                        key={b.id}
+                        data-testid="claimable-balance-row"
+                        style={{
+                          borderBottom: '1px solid #eee',
+                          padding: '12px 0',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 12,
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#888', marginBottom: 3, wordBreak: 'break-all' }}>
+                            ID: {shortId}
+                          </div>
+                          <div style={{ fontWeight: 700, fontSize: 16, color: '#2d6a4f' }}>
+                            {parseFloat(b.amount).toFixed(2)} XLM
+                          </div>
+                          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                            {condition}
+                          </div>
+                        </div>
+                        <button
+                          data-testid={`claim-btn-${b.id}`}
+                          style={{
+                            background: isClaiming ? '#888' : '#2d6a4f',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 8,
+                            padding: '9px 20px',
+                            cursor: isClaiming ? 'not-allowed' : 'pointer',
+                            fontWeight: 600,
+                            fontSize: 14,
+                            minHeight: 44,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            flexShrink: 0,
+                          }}
+                          onClick={() => handleClaim(b.id)}
+                          disabled={isClaiming}
+                          aria-busy={isClaiming}
+                          aria-label={`Claim ${parseFloat(b.amount).toFixed(2)} XLM`}
+                        >
+                          {isClaiming && (
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                width: 14,
+                                height: 14,
+                                border: '2px solid rgba(255,255,255,0.35)',
+                                borderTopColor: '#fff',
+                                borderRadius: '50%',
+                                animation: 'spin 0.6s linear infinite',
+                              }}
+                              aria-hidden="true"
+                            />
+                          )}
+                          {isClaiming ? 'Claiming…' : 'Claim'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {user?.role === 'buyer' && (
             <div style={s.card}>
-              <h3 style={{ marginBottom: 12, color: '#333' }}>Monthly Budget</h3>
-              <form onSubmit={handleSaveBudget}>
+              <h3 style={{ marginBottom: 12, color: '#333' }}>Monthly Budget</h3>              <form onSubmit={handleSaveBudget}>
                 <label style={s.label}>Budget limit (XLM)</label>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input

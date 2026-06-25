@@ -59,6 +59,12 @@
     "bulkUploadDesc": "Pakia bidhaa nyingi kwa wakati mmoja ukitumia faili ya CSV. Upeo wa safu 500 kwa kila upakiaji.",
     "uploadCsv": "📁 Pakia CSV",
     "downloadTemplate": "📥 Pakua Kiolezo",
+    "csvRow": "Safu",
+    "csvStatus": "Hali",
+    "csvDetail": "Maelezo",
+    "csvCreated": "Imeundwa",
+    "csvError": "Kosa",
+    "downloadErrorReport": "⬇ Pakua ripoti ya makosa",
     "myProfile": "Wasifu Wangu wa Mkulima",
     "avatar": "Picha ya Wasifu",
     "changeAvatar": "Badilisha Picha",
@@ -155,7 +161,10 @@
     "previousImage": "Picha iliyotangulia",
     "nextImage": "Picha inayofuata",
     "thumbnail": "Kijipicha {{n}}",
-    "default": "(Chaguo-msingi)"
+    "default": "(Chaguo-msingi)",
+    "flashSaleTitle": "Ofa ya Haraka",
+    "flashSaleBanner": "Tangazo la ofa ya haraka",
+    "flashSaleSavings": "Okoa {{pct}}%"
   },
   "wallet": {
     "title": "💳 Mkoba Wangu",
