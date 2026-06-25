@@ -325,3 +325,17 @@ Missing Swahili translations will fall back to the English key string, showing r
 - All payments use **XLM on Stellar Testnet** — no real money involved
 - SQLite database file (`market.db`) is created automatically on first run (when `DATABASE_URL` is not set)
 - To reset SQLite: delete `backend/market.db`
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for full guidance on:
+
+- Local dev environment setup (Rust toolchain, Stellar CLI)
+- Build and test commands
+- Lint requirements (`cargo fmt`, `cargo clippy`, `cargo audit`)
+- Branch naming and Conventional Commit format
+- PR requirements and review process
+- Issue workflow and label guide
+
+For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md) instead of opening a public issue.
+
