@@ -337,6 +337,7 @@ export default function Marketplace() {
   const [recsLoading, setRecsLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid"); // 'grid' | 'map'
   const [geoLoading, setGeoLoading] = useState(false);
+  const [geoError, setGeoError] = useState('');
   const [recentlyViewed, setRecentlyViewed] = useState([]);
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -344,6 +345,9 @@ export default function Marketplace() {
   const { products: compareProducts, toggleProduct, isCompared, clearProducts } = useCompare();
   const { usd } = useXlmRate();
 
+  const debouncedSearch = useDebounce(filters.search, 300);
+  const debouncedSeller = useDebounce(filters.seller, 300);
+  const debouncedRadius = useDebounce(filters.radius, 400);
   const debouncedSearch = useDebounce(filters.search, 400);
   const debouncedSeller = useDebounce(filters.seller, 400);
 
@@ -489,7 +493,7 @@ export default function Marketplace() {
   useEffect(() => {
     sessionStorage.removeItem(SCROLL_KEY);
     sessionStorage.removeItem(SCROLL_KEY + '_y');
-    const f = { ...filters, search: debouncedSearch, seller: debouncedSeller };
+    const f = { ...filters, search: debouncedSearch, seller: debouncedSeller, radius: debouncedRadius };
     load(f);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -501,6 +505,9 @@ export default function Marketplace() {
     filters.available,
     filters.excludeAllergens,
     filters.sort,
+    filters.lat,
+    filters.lng,
+    debouncedRadius,
   ]);
 
   useEffect(() => {
@@ -561,28 +568,45 @@ export default function Marketplace() {
 
   function reset() {
     setFilters(EMPTY_FILTERS);
+    setGeoError('');
     sessionStorage.removeItem(SCROLL_KEY);
     sessionStorage.removeItem(SCROLL_KEY + '_y');
     load(EMPTY_FILTERS);
   }
 
-  function useNearMe() {
-    if (!navigator.geolocation) return;
+  function toggleNearMe() {
+    // If already active, turn it off
+    if (filters.lat && filters.lng) {
+      setFilters(f => ({ ...f, lat: '', lng: '', radius: '' }));
+      setGeoError('');
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      setGeoError('Geolocation is not supported by your browser.');
+      return;
+    }
+
     setGeoLoading(true);
+    setGeoError('');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const newFilters = {
-          ...filters,
+        setFilters(f => ({
+          ...f,
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
-          radius: filters.radius || 50,
-        };
-        setFilters(newFilters);
-        sessionStorage.removeItem(SCROLL_KEY);
-        load(newFilters);
+          radius: f.radius || 50,
+        }));
         setGeoLoading(false);
       },
-      () => setGeoLoading(false),
+      (err) => {
+        const msg = err.code === 1
+          ? 'Location access denied. Please allow location in your browser and try again.'
+          : 'Unable to retrieve your location. Please try again.';
+        setGeoError(msg);
+        setGeoLoading(false);
+      },
+      { timeout: 8000 }
     );
   }
 
@@ -821,36 +845,53 @@ export default function Marketplace() {
           }}
         >
           <button
-            style={{ ...s.resetBtn, background: "#e8f5e9", color: "#2d6a4f" }}
-            onClick={useNearMe}
+            style={{
+              ...s.resetBtn,
+              background: filters.lat && filters.lng ? "#2d6a4f" : "#e8f5e9",
+              color: filters.lat && filters.lng ? "#fff" : "#2d6a4f",
+              fontWeight: 600,
+              border: filters.lat && filters.lng ? "1px solid #2d6a4f" : "1px solid #ddd",
+            }}
+            onClick={toggleNearMe}
             disabled={geoLoading}
+            aria-pressed={!!(filters.lat && filters.lng)}
           >
-            {geoLoading ? "..." : "📍 Near Me"}
+            {geoLoading ? "⌛ Locating…" : filters.lat && filters.lng ? "📍 Near Me ✓" : "📍 Near Me"}
           </button>
           {filters.lat && filters.lng && (
             <>
               <input
-                style={{ ...s.input, width: 80 }}
-                type="number"
-                min="1"
-                max="500"
-                placeholder="km"
-                value={filters.radius}
-                onChange={(e) => set("radius", e.target.value)}
-                aria-label="Radius in km"
+                type="range"
+                min="5"
+                max="200"
+                step="5"
+                value={filters.radius || 50}
+                onChange={(e) => set("radius", Number(e.target.value))}
+                aria-label="Search radius in km"
+                style={{ width: 120, accentColor: "#2d6a4f" }}
               />
-              <span style={{ fontSize: 12, color: "#888" }}>km radius</span>
+              <span style={{ fontSize: 13, color: "#444", minWidth: 60 }}>
+                {filters.radius || 50} km
+              </span>
               <button
                 style={s.resetBtn}
                 onClick={() => {
-                  set("lat", "");
-                  set("lng", "");
-                  set("radius", "");
+                  setFilters(f => ({ ...f, lat: "", lng: "", radius: "" }));
+                  setGeoError("");
                 }}
+                aria-label="Clear location filter"
               >
                 ✕
               </button>
             </>
+          )}
+          {geoError && (
+            <span
+              style={{ fontSize: 12, color: "#c0392b", display: "flex", alignItems: "center", gap: 4 }}
+              role="alert"
+            >
+              ⚠️ {geoError}
+            </span>
           )}
         </div>
 
@@ -909,6 +950,9 @@ export default function Marketplace() {
               }
               setViewMode("grid");
             }}
+            userLat={filters.lat || undefined}
+            userLng={filters.lng || undefined}
+            radius={filters.radius || undefined}
           />
         </Suspense>
       ) : products.length === 0 ? (

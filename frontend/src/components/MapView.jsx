@@ -30,6 +30,14 @@ const s = {
     background: '#333', color: '#fff', padding: '8px 16px', borderRadius: 8,
     fontSize: 13, zIndex: 1000, pointerEvents: 'none',
   },
+  userMarkerIcon: {
+    background: '#2d6a4f',
+    border: '3px solid #fff',
+    borderRadius: '50%',
+    width: 16,
+    height: 16,
+    boxShadow: '0 0 0 3px rgba(45,106,79,0.4)',
+  },
 };
 
 function groupByFarmer(products) {
@@ -43,34 +51,45 @@ function groupByFarmer(products) {
   return Array.from(map.values());
 }
 
-// Calculate distance between two coordinates in km
-function calculateDistance(lat1, lng1, lat2, lng2) {
-  const R = 6371; // Earth's radius in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
 function RecenterMap({ center }) {
   const map = useMap();
   useEffect(() => { map.setView(center, map.getZoom()); }, [center, map]);
   return null;
 }
 
-export default function MapView({ products = [], buyerLat, buyerLng, onBuy }) {
-export default function MapView({ products = [], lat, lng, farmerName, onFarmerClick }) {
+// Custom icon for the user's current location marker
+const userIcon = L.divIcon({
+  className: '',
+  html: '<div style="background:#2d6a4f;border:3px solid #fff;border-radius:50%;width:16px;height:16px;box-shadow:0 0 0 3px rgba(45,106,79,0.4)"></div>',
+  iconSize: [16, 16],
+  iconAnchor: [8, 8],
+});
+
+/**
+ * MapView renders product pins on a Leaflet map.
+ *
+ * Props:
+ *  products     - array of product objects with farmer_lat/farmer_lng
+ *  onFarmerClick - callback(farmerName) when a pin is clicked
+ *  userLat      - buyer's latitude (from "Near me" geolocation)
+ *  userLng      - buyer's longitude
+ *  radius       - search radius in km; renders a shaded circle when userLat/userLng are set
+ */
+export default function MapView({ products = [], onFarmerClick, userLat, userLng, radius }) {
   const navigate = useNavigate();
-  const hasSingleLocation = lat != null && lng != null;
-  const groups = hasSingleLocation
-    ? [{ lat, lng, farmerName, products: [] }]
-    : groupByFarmer(products);
+  const groups = groupByFarmer(products);
   const [center, setCenter] = useState(null);
   const [toast, setToast] = useState('');
 
+  const hasUserLocation = userLat != null && userLng != null;
+
   useEffect(() => {
+    // If the parent already has the user's location, use it directly
+    if (hasUserLocation) {
+      setCenter([userLat, userLng]);
+      return;
+    }
+
     if (!navigator.geolocation) {
       setCenter(DEFAULT_CENTER);
       return;
@@ -85,9 +104,9 @@ export default function MapView({ products = [], lat, lng, farmerName, onFarmerC
         setCenter(DEFAULT_CENTER);
       }
     );
-  }, []);
+  }, [hasUserLocation, userLat, userLng]);
 
-  if (groups.length === 0) {
+  if (groups.length === 0 && !hasUserLocation) {
     return (
       <div style={{ textAlign: 'center', padding: '60px 0', color: '#888' }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>🗺️</div>
@@ -97,8 +116,12 @@ export default function MapView({ products = [], lat, lng, farmerName, onFarmerC
     );
   }
 
-  const avgLat = groups.reduce((sum, g) => sum + g.lat, 0) / groups.length;
-  const avgLng = groups.reduce((sum, g) => sum + g.lng, 0) / groups.length;
+  const avgLat = groups.length > 0
+    ? groups.reduce((sum, g) => sum + g.lat, 0) / groups.length
+    : (userLat ?? 0);
+  const avgLng = groups.length > 0
+    ? groups.reduce((sum, g) => sum + g.lng, 0) / groups.length
+    : (userLng ?? 0);
   const mapCenter = center ?? [avgLat, avgLng];
 
   return (
@@ -114,13 +137,38 @@ export default function MapView({ products = [], lat, lng, farmerName, onFarmerC
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         {center && <RecenterMap center={mapCenter} />}
-        {groups.map((group, i) => (
-          <React.Fragment key={i}>
-            <Marker position={[group.lat, group.lng]}>
+
+        {/* User location marker + radius circle */}
+        {hasUserLocation && (
+          <>
+            <Marker position={[userLat, userLng]} icon={userIcon}>
               <Popup>
                 <div style={s.popup}>
-                  {group.products.map(p => (
-                    <div key={p.id} style={{ marginBottom: group.products.length > 1 ? 12 : 0, paddingBottom: group.products.length > 1 ? 12 : 0, borderBottom: group.products.length > 1 ? '1px solid #eee' : 'none' }}>
+                  <div style={{ ...s.name, color: '#2d6a4f' }}>📍 Your location</div>
+                  {radius && (
+                    <div style={{ fontSize: 12, color: '#888' }}>Showing farms within {radius} km</div>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+            {radius && Number(radius) > 0 && (
+              <Circle
+                center={[userLat, userLng]}
+                radius={Number(radius) * 1000}
+                pathOptions={{
+                  color: '#2d6a4f',
+                  weight: 2,
+                  opacity: 0.6,
+                  fillColor: '#d8f3dc',
+                  fillOpacity: 0.15,
+                }}
+              />
+            )}
+          </>
+        )}
+
+        {/* Farm product pins */}
+        {groups.map((group, i) => (
           <Marker
             key={i}
             position={[group.lat, group.lng]}
@@ -144,28 +192,6 @@ export default function MapView({ products = [], lat, lng, farmerName, onFarmerC
                       <div style={s.price}>{p.price} XLM / {p.unit}</div>
                       <div style={s.farmer}>🌾 {p.farmer_name}</div>
                       {p.farmer_farm_address && <div style={s.address}>📍 {p.farmer_farm_address}</div>}
-                      <button style={s.btn} onClick={() => navigate(`/products/${p.id}`)}>View &amp; Buy</button>
-                    </div>
-                  ))}
-                </div>
-              </Popup>
-            </Marker>
-            {group.products.some(p => p.delivery_radius && p.origin_lat != null && p.origin_lng != null) && (
-              group.products.map(p => {
-                if (!p.delivery_radius || p.origin_lat == null || p.origin_lng == null) return null;
-                // Convert delivery_radius from meters to km if needed
-                const radiusKm = p.delivery_radius > 1000 ? p.delivery_radius / 1000 : p.delivery_radius;
-                return (
-                  <Circle
-                    key={`geo-${p.id}`}
-                    center={[p.origin_lat, p.origin_lng]}
-                    radius={radiusKm * 1000}
-                    pathOptions={{ color: '#2d6a4f', weight: 2, opacity: 0.5, fillColor: '#d8f3dc', fillOpacity: 0.1 }}
-                  />
-                );
-              })
-            )}
-          </React.Fragment>
                       <button style={s.btn} onClick={() => navigate(`/product/${p.id}`)}>View &amp; Buy</button>
                     </div>
                   ))
@@ -179,6 +205,23 @@ export default function MapView({ products = [], lat, lng, farmerName, onFarmerC
             </Popup>
           </Marker>
         ))}
+
+        {/* Delivery radius circles for products that have one */}
+        {groups.flatMap((group) =>
+          group.products
+            .filter(p => p.delivery_radius && p.origin_lat != null && p.origin_lng != null)
+            .map(p => {
+              const radiusKm = p.delivery_radius > 1000 ? p.delivery_radius / 1000 : p.delivery_radius;
+              return (
+                <Circle
+                  key={`delivery-${p.id}`}
+                  center={[p.origin_lat, p.origin_lng]}
+                  radius={radiusKm * 1000}
+                  pathOptions={{ color: '#2d6a4f', weight: 2, opacity: 0.5, fillColor: '#d8f3dc', fillOpacity: 0.1 }}
+                />
+              );
+            })
+        )}
       </MapContainer>
     </div>
   );
