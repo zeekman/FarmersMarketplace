@@ -5,6 +5,12 @@ const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const requireEmailVerified = require('../middleware/requireEmailVerified');
+const createPerUserRateLimiter = require('../middleware/rateLimitPerUser');
+
+const orderRateLimit = createPerUserRateLimiter(
+  parseInt(process.env.RATE_LIMIT_ORDER_USER_MAX || '10', 10),
+  60 * 1000,
+);
 const QRCode = require('qrcode');
 const {
   sendPayment,
@@ -227,6 +233,7 @@ async function handleBundleOrder(req, res, bundle_id, address_id, coupon_code, u
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 router.post('/', auth, requireEmailVerified, validate.order, async (req, res) => {
+router.post('/', auth, orderRateLimit, validate.order, async (req, res) => {
   if (req.user.role !== 'buyer') return err(res, 403, 'Only buyers can place orders', 'forbidden');
 
   const { product_id, quantity, address_id, coupon_code, use_soroban_escrow, custom_price, weight, source_asset, bundle_id } = req.body;
@@ -274,13 +281,26 @@ router.post('/', auth, requireEmailVerified, validate.order, async (req, res) =>
   const buyer = buyerRows[0];
 
   const clientIp = req.ip || req.socket?.remoteAddress || '';
-  const { allowed: geoAllowed } = await checkGeoFence(product, buyer, clientIp);
-  if (!geoAllowed) return err(res, 403, 'Not available in your region', 'region_restricted');
+  const skipGeofence = req.user.role === 'admin' && req.body.skip_geofence === true;
 
-  const { delivery_lat, delivery_lng } = req.body;
-  const coordFence = checkCoordinateGeoFence(product, delivery_lat, delivery_lng);
-  if (!coordFence.allowed)
-    return err(res, 403, 'Delivery location is outside the permitted area for this product', 'outside_delivery_area');
+  if (!skipGeofence) {
+    // Country-code geo-fence check
+    const { allowed: geoAllowed } = await checkGeoFence(product, buyer, clientIp);
+    if (!geoAllowed) return err(res, 403, 'Not available in your region', 'region_restricted');
+
+    // Block order if product has allowed_regions but buyer provides no coordinates
+    const { delivery_lat, delivery_lng } = req.body;
+    let allowedRegions = [];
+    try { allowedRegions = product.allowed_regions ? JSON.parse(product.allowed_regions) : []; } catch { allowedRegions = []; }
+    if (Array.isArray(allowedRegions) && allowedRegions.length > 0 && delivery_lat == null && delivery_lng == null) {
+      return err(res, 403, 'Location coordinates are required to order this product. Please enable location services.', 'geofence_required');
+    }
+
+    // Coordinate-based geo-fence check
+    const coordFence = checkCoordinateGeoFence(product, delivery_lat, delivery_lng);
+    if (!coordFence.allowed)
+      return err(res, 403, 'Delivery location is outside the permitted area for this product', coordFence.reason || 'outside_delivery_area');
+  }
 
   const parsedWeight = weight != null ? parseFloat(weight) : null;
   if (product.pricing_type === 'weight') {
@@ -642,7 +662,14 @@ router.patch('/:id/status', auth, validate.updateOrderStatus, async (req, res) =
   const order = rows[0];
   if (!order) return err(res, 404, 'Order not found or not yours', 'not_found');
 
-  await db.query('UPDATE orders SET status = $1 WHERE id = $2', [status, order.id]);
+  if (status === 'delivered') {
+    await db.query(
+      'UPDATE orders SET status = $1, delivered_at = $2 WHERE id = $3',
+      [status, new Date().toISOString(), order.id]
+    );
+  } else {
+    await db.query('UPDATE orders SET status = $1 WHERE id = $2', [status, order.id]);
+  }
 
   if (status === 'completed' && order.buyer_stellar_address) {
     const rewardAmount = parseInt(process.env.REWARD_TOKENS_PER_ORDER || '100', 10);

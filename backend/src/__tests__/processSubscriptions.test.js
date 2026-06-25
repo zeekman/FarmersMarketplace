@@ -124,9 +124,10 @@ function setupDbMocks({ sub, currentStatus = 'active', currentRetryCount = 0, st
     if (s.startsWith('UPDATE subscriptions SET next_order_at')) return prepareMap.updateSubSuccess;
     if (s.startsWith('UPDATE orders SET status = ?') && !s.includes('stellar_tx_hash')) return prepareMap.updateOrderFailed;
     if (s.startsWith('UPDATE products SET quantity = quantity +')) return prepareMap.stockRestore;
-    if (s.includes("status = 'failed'")) return prepareMap.updateSubFailed;
+    if (s.includes("status = 'payment_failed'")) return prepareMap.updateSubFailed;
     if (s.startsWith('UPDATE subscriptions SET retry_count')) return prepareMap.updateSubRetry;
     if (s.startsWith('SELECT id FROM orders')) return prepareMap.orderCheck;
+    if (s.startsWith('SELECT email, name FROM users')) return { get: jest.fn().mockReturnValue({ email: 'buyer@test.com', name: 'Buyer' }) };
     return { run: jest.fn(), get: jest.fn(), all: jest.fn().mockReturnValue([]) };
   });
 

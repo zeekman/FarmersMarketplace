@@ -79,6 +79,9 @@ const EnvSchema = z.object({
 
   // Geo API
   GEO_API_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
+
+  // Freshness alerts
+  FRESHNESS_ALERT_DAYS: z.coerce.number().int().positive().default(3),
 });
 
 let env;
@@ -127,6 +130,7 @@ const config = {
   databaseUrl: env.DATABASE_URL || null,
   redisUrl: env.REDIS_URL || null,
   GEO_API_TIMEOUT_MS: env.GEO_API_TIMEOUT_MS,
+  freshnessAlertDays: env.FRESHNESS_ALERT_DAYS,
 };
 
 module.exports = config;

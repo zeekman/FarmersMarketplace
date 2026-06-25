@@ -16,7 +16,7 @@ export async function initSentry() {
   }
 }
 
-export function captureException(error) {
+export function captureException(error, extra) {
   if (!Sentry) return;
-  Sentry.captureException(error);
+  Sentry.captureException(error, extra);
 }

@@ -14,7 +14,7 @@ const s = {
   btnSecondary: { background: '#f0f0f0', color: '#333', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
   msg: { padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 14 },
   addressCard: { border: '1px solid #e0e0e0', borderRadius: 10, padding: 16, marginBottom: 12, position: 'relative' },
-  defaultBadge: { position: 'absolute', top: 12, right: 12, background: '#2d6a4f', color: '#fff', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 },
+  defaultBadge: { position: 'absolute', top: 12, right: 12, background: '#2d6a4f', color: '#fff', padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, letterSpacing: 0.3 },
   empty: { color: '#888', fontSize: 14, textAlign: 'center', padding: 24 },
   overlay: { position: 'fixed', inset: 0, background: '#0005', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
   modal: { background: '#fff', borderRadius: 12, padding: 28, maxWidth: 480, width: '90%', boxShadow: '0 4px 24px #0003', maxHeight: '90vh', overflowY: 'auto' },
@@ -206,12 +206,14 @@ export default function AddressBook() {
   }
 
   async function handleSetDefault(id) {
+    // optimistic update
+    setAddresses(prev => prev.map(a => ({ ...a, is_default: a.id === id ? 1 : 0 })));
     try {
       await api.setDefaultAddress(id);
       setMsg({ type: 'ok', text: 'Default address updated' });
-      load();
     } catch (err) {
       setMsg({ type: 'err', text: err.message });
+      load(); // revert on error
     }
   }
 

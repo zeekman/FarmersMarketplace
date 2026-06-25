@@ -13,7 +13,14 @@ jest.mock('../db/schema', () => ({
 jest.mock('web-push', () => ({
   sendNotification: jest.fn(),
   setVapidDetails: jest.fn(),
+  generateVAPIDKeys: jest.fn(() => ({
+    publicKey: 'BDd3_hVL7e_J0VL5R5k1sMnfNjz6kgBJyKJMN_ZXGwc',
+    privateKey: 'test-private-key-for-jest',
+  })),
 }));
+
+// Override the global pushNotifications stub so the real sendPushToUser runs here
+jest.unmock('../utils/pushNotifications');
 
 const mockDb = require('../db/schema');
 const webpush = require('web-push');

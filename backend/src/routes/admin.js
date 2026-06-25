@@ -65,43 +65,59 @@ router.post('/returns/:id/reject', adminAuth, (req, res) => {
   res.json({ message: 'Return request rejected' });
 });
 
-// GET /api/admin/users - list users with pagination
-router.get('/users', adminAuth, (req, res) => {
+// GET /api/admin/users - list users with pagination and filters
+router.get('/users', adminAuth, async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
-  const active = req.query.active;
-  
+  const limit = Math.max(1, Math.min(200, parseInt(req.query.limit) || 50));
   const offset = (page - 1) * limit;
-  
-  // Build WHERE clause based on active filter
-  let whereClause = '';
-  if (active !== undefined) {
-    const activeValue = active === '1' || active === 'true' ? 1 : 0;
-    whereClause = `WHERE active = ${activeValue}`;
+
+  const conditions = [];
+  const params = [];
+
+  if (req.query.active !== undefined) {
+    const activeValue = req.query.active === '1' || req.query.active === 'true';
+    params.push(activeValue);
+    conditions.push(`active = $${params.length}`);
   }
-  
-  // Get total count
-  const countResult = db.prepare(`SELECT COUNT(*) as count FROM users ${whereClause}`).get();
-  const total = countResult.count;
-  const pages = Math.ceil(total / limit);
-  
-  // Get paginated data
-  const users = db.prepare(`
-    SELECT id, name, email, role, created_at, active, banned_at
-    FROM users
-    ${whereClause}
-    ORDER BY created_at DESC
-    LIMIT ? OFFSET ?
-  `).all(limit, offset);
-  
-  res.json({
-    data: users,
-    pagination: {
-      page,
-      limit,
-      total,
-      pages
+  if (req.query.role !== undefined) {
+    params.push(req.query.role);
+    conditions.push(`role = $${params.length}`);
+  }
+  if (req.query.verified !== undefined) {
+    if (req.query.verified === 'true' || req.query.verified === '1') {
+      conditions.push('email_verified_at IS NOT NULL');
+    } else {
+      conditions.push('email_verified_at IS NULL');
     }
+  }
+  if (req.query.banned !== undefined) {
+    if (req.query.banned === 'true' || req.query.banned === '1') {
+      conditions.push('banned_at IS NOT NULL');
+    } else {
+      conditions.push('banned_at IS NULL');
+    }
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const countResult = await db.query(`SELECT COUNT(*) as count FROM users ${where}`, params);
+  const total = parseInt(countResult.rows[0].count, 10);
+  const pages = Math.ceil(total / limit);
+
+  params.push(limit);
+  params.push(offset);
+  const users = await db.query(
+    `SELECT id, name, email, role, created_at, active, banned_at, email_verified_at
+     FROM users
+     ${where}
+     ORDER BY created_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+
+  res.json({
+    data: users.rows,
+    pagination: { page, limit, total, pages },
   });
 });
 
@@ -244,6 +260,12 @@ router.get('/analytics/summary', adminAuth, (req, res) => {
     daily_active_users: dailyActiveUsers,
     daily_gmv: dailyGmv,
   });
+});
+
+// GET /api/admin/failed-emails
+router.get('/failed-emails', adminAuth, (req, res) => {
+  const rows = db.prepare('SELECT * FROM failed_emails ORDER BY created_at DESC').all();
+  res.json({ success: true, data: rows });
 });
 
 module.exports = router;

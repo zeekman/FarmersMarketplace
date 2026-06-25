@@ -382,5 +382,26 @@ describe('GET /api/products?q= — full-text search (#803)', () => {
     const countCall = mockDb.query.mock.calls[0][0];
     expect(countCall).toMatch(/LIKE/); // seller filter
     mockDb.isPostgres = undefined;
+// #835 — allergens endpoint and PATCH allergen validation
+// ---------------------------------------------------------------------------
+describe('GET /api/products/allergens', () => {
+  it('returns the list of valid allergens', async () => {
+    const res = await request(app).get('/api/products/allergens');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.allergens)).toBe(true);
+    expect(res.body.allergens).toContain('gluten');
+  });
+});
+
+describe('PATCH /api/products/:id — allergen validation (#835)', () => {
+  it('returns 400 with code invalid_allergen for unknown allergen', async () => {
+    mockDb.query.mockResolvedValueOnce({ rows: [{ id: 1, farmer_id: FARMER_ID }], rowCount: 1 });
+    const res = await request(app)
+      .patch('/api/products/1')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .send({ allergens: ['gluten', 'peanuts'] });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('invalid_allergen');
   });
 });

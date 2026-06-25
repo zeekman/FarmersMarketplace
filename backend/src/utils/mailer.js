@@ -24,7 +24,40 @@ const transporter = SMTP_CONFIGURED
     })
   : null;
 
-async function sendOrderEmails({ order, product, buyer, farmer }) {
+const CRITICAL_TYPES = new Set(['order_confirmation', 'password_reset']);
+const RETRY_DELAYS = [1000, 2000, 4000];
+
+async function sendWithRetry(mailOptions, type, db) {
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await transporter.sendMail(mailOptions);
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));
+      }
+    }
+  }
+  logger.error('[mailer] sendWithRetry failed', {
+    recipient: mailOptions.to,
+    subject: mailOptions.subject,
+    error: lastErr.message,
+  });
+  if (CRITICAL_TYPES.has(type)) {
+    const resolvedDb = db || require('../db/schema');
+    try {
+      resolvedDb.prepare(
+        'INSERT INTO failed_emails (recipient, subject, error, type) VALUES (?, ?, ?, ?)'
+      ).run(mailOptions.to, mailOptions.subject, lastErr.message, type);
+    } catch (dbErr) {
+      logger.error('[mailer] failed to store failed_email record', { error: dbErr.message });
+    }
+  }
+}
+
+async function sendOrderEmails({ order, product, buyer, farmer }, db) {
   if (!SMTP_CONFIGURED) return; // skip if not configured
 
   const subject = `Order #${order.id} Confirmed – ${product.name}`;
@@ -37,18 +70,18 @@ Date:     ${new Date().toUTCString()}
 `.trim();
 
   await Promise.all([
-    transporter.sendMail({
+    sendWithRetry({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: buyer.email,
       subject,
       text: `Hi ${buyer.name},\n\nYour order has been confirmed!\n\n${summary}\n\nDelivery instructions: Contact the farmer (${farmer.name}) to arrange delivery.\n\nThank you for shopping at Farmers Marketplace!`,
-    }),
-    transporter.sendMail({
+    }, 'order_confirmation', db),
+    sendWithRetry({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: farmer.email,
       subject: `New Sale #${order.id} – ${product.name}`,
       text: `Hi ${farmer.name},\n\nYou have a new sale!\n\nBuyer: ${buyer.name} (${buyer.email})\n\n${summary}\n\nPlease arrange delivery with the buyer at your earliest convenience.\n\nFarmers Marketplace`,
-    }),
+    }, 'order_confirmation', db),
   ]);
 }
 
@@ -129,8 +162,49 @@ async function sendContractAlert({ to, alert }) {
   });
 }
 
+async function sendSubscriptionPaymentFailedEmail({ buyer, subscription }) {
+  if (!SMTP_CONFIGURED) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: buyer.email,
+    subject: `⚠️ Subscription Payment Failed – ${subscription.product_name}`,
+    text: `Hi ${buyer.name},\n\nWe were unable to process the payment for your subscription to "${subscription.product_name}" after multiple attempts.\n\nYour subscription has been paused. Please update your payment details or contact support.\n\nFarmers Marketplace`,
+  });
+}
+
+async function sendAuctionWinnerEmail({ winner, auction, txHash }) {
+  if (!SMTP_CONFIGURED) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: winner.buyer_email,
+    subject: `🏆 You won Auction #${auction.id}!`,
+    text: `Hi ${winner.buyer_name},\n\nCongratulations! You won the auction for ${auction.product_name || 'the product'}.\n\nWinning Bid: ${winner.amount} XLM\nTX Hash: ${txHash}\n\nFarmers Marketplace`,
+  });
+}
+
+async function sendAuctionSaleEmail({ farmer, winner, txHash }) {
+  if (!SMTP_CONFIGURED) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: farmer.farmer_email,
+    subject: `💰 Auction #${farmer.id} sold!`,
+    text: `Hi ${farmer.farmer_name},\n\nYour auction has ended with a winning bid of ${winner.amount} XLM.\n\nTX Hash: ${txHash}\n\nFarmers Marketplace`,
+  });
+}
+
+async function sendAuctionNoSaleEmail({ bidder, auction }) {
+  if (!SMTP_CONFIGURED) return;
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: bidder.email,
+    subject: `Auction #${auction.id} ended — reserve not met`,
+    text: `Hi ${bidder.name},\n\nAuction #${auction.id} has ended without a sale because the reserve price was not met.\n\nFarmers Marketplace`,
+  });
+}
+
 module.exports = {
   transporter,
+  sendWithRetry,
   sendOrderEmails,
   sendLowStockAlert,
   sendStatusUpdateEmail,
@@ -142,4 +216,8 @@ module.exports = {
   },
   sendReturnEmail,
   sendContractAlert,
+  sendAuctionWinnerEmail,
+  sendAuctionSaleEmail,
+  sendAuctionNoSaleEmail,
+  sendSubscriptionPaymentFailedEmail,
 };

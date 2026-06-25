@@ -1,5 +1,6 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import React, { useState, useEffect, useRef } from 'react';
-import { NavLink, Link, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
@@ -21,12 +22,14 @@ function navLinkStyle({ isActive }) {
 
 export default function Navbar() {
   const { user, logout } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, useSystemTheme, isUsingSystemTheme } = useTheme();
   const { i18n } = useTranslation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [network, setNetwork] = useState(null);
   const navRef = useRef(null);
+  const hamburgerRef = useRef(null);
+  const drawerRef = useRef(null);
 
   useEffect(() => {
     api.getNetwork().then(res => setNetwork(res.network)).catch(() => {});
@@ -35,7 +38,10 @@ export default function Navbar() {
   // Escape key handler
   useEffect(() => {
     function handleEscape(e) {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        setOpen(false);
+        hamburgerRef.current?.focus();
+      }
     }
     if (open) {
       document.addEventListener('keydown', handleEscape);
@@ -56,14 +62,52 @@ export default function Navbar() {
     }
   }, [open]);
 
+  // Focus trap inside the drawer when open
+  const handleDrawerKeyDown = useCallback((e) => {
+    if (!open || e.key !== 'Tab') return;
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+    const focusable = drawer.querySelectorAll(
+      'a[href], button:not([disabled]), select, input, [tabindex]:not([tabindex="-1"])'
+    );
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }, [open]);
+
   function handleLogout() {
     logout();
     navigate('/login');
     setOpen(false);
   }
 
+  function closeDrawer() {
+    setOpen(false);
+    hamburgerRef.current?.focus();
+  }
+
   return (
-    <nav style={s.nav}>
+    <nav ref={navRef} style={s.nav} aria-label="Main navigation">
+      <NavLink
+        to="/"
+        end
+        style={({ isActive }) => (isActive ? { ...s.brand, textDecoration: 'underline' } : s.brand)}
+        aria-current={undefined}
+      >
+        🌿 FarmersMarket
+      </NavLink>
+    <nav style={s.nav} ref={navRef}>
       <NavLink to="/" end style={({ isActive }) => (isActive ? s.activeLink : s.brand)}>🌿 FarmersMarket</NavLink>
     <nav ref={navRef} style={s.nav}>
       <Link to="/" style={s.brand}>🌿 FarmersMarket</Link>
@@ -81,30 +125,53 @@ export default function Navbar() {
           {network}
         </span>
       )}
-      <button className="hamburger" onClick={() => setOpen(o => !o)} aria-label="Toggle menu" aria-expanded={open}>
+      <button
+        ref={hamburgerRef}
+        className="hamburger"
+        onClick={() => setOpen(o => !o)}
+        aria-label="Toggle menu"
+        aria-expanded={open}
+        aria-controls="nav-drawer"
+      >
         {open ? '✕' : '☰'}
       </button>
-      <div className={`nav-links${open ? ' open' : ''}`}>
+      <div
+        id="nav-drawer"
+        ref={drawerRef}
+        className={`nav-links${open ? ' open' : ''}`}
+        role="navigation"
+        aria-label="Site links"
+        onKeyDown={handleDrawerKeyDown}
+      >
         {user ? (
           <>
-            <NavLink to="/marketplace" style={navLinkStyle} onClick={() => setOpen(false)}>Browse</NavLink>
-            {user.role === 'farmer' && <NavLink to="/dashboard" style={navLinkStyle} onClick={() => setOpen(false)}>Dashboard</NavLink>}
-            {user.role === 'buyer' && <NavLink to="/orders" style={navLinkStyle} onClick={() => setOpen(false)}>Orders</NavLink>}
-            {user.role === 'buyer' && <NavLink to="/subscriptions" style={navLinkStyle} onClick={() => setOpen(false)}>Subscriptions</NavLink>}
-            {user.role === 'buyer' && <NavLink to="/addresses" style={navLinkStyle} onClick={() => setOpen(false)}>Addresses</NavLink>}
+            <NavLink to="/marketplace" style={navLinkStyle} onClick={closeDrawer}>Browse</NavLink>
+            {user.role === 'farmer' && <NavLink to="/dashboard" style={navLinkStyle} onClick={closeDrawer}>Dashboard</NavLink>}
+            {user.role === 'buyer' && <NavLink to="/orders" style={navLinkStyle} onClick={closeDrawer}>Orders</NavLink>}
+            {user.role === 'buyer' && <NavLink to="/subscriptions" style={navLinkStyle} onClick={closeDrawer}>Subscriptions</NavLink>}
+            {user.role === 'buyer' && <NavLink to="/addresses" style={navLinkStyle} onClick={closeDrawer}>Addresses</NavLink>}
             {user.role === 'admin' && (
-              <NavLink to="/admin" style={({ isActive }) => ({ ...(isActive ? s.activeLink : s.link), color: isActive ? '#fff' : '#ffeaa7' })} onClick={() => setOpen(false)}>Admin</NavLink>
+              <NavLink
+                to="/admin"
+                style={({ isActive }) => ({ ...(isActive ? s.activeLink : s.link), color: isActive ? '#fff' : '#ffeaa7' })}
+                onClick={closeDrawer}
+              >
+                Admin
+              </NavLink>
             )}
-            {user.role !== 'admin' && <NavLink to="/wallet" style={navLinkStyle} onClick={() => setOpen(false)}>Wallet</NavLink>}
-            <NavLink to="/settings" style={navLinkStyle} onClick={() => setOpen(false)}>Settings</NavLink>
+            {user.role !== 'admin' && <NavLink to="/wallet" style={navLinkStyle} onClick={closeDrawer}>Wallet</NavLink>}
+            <NavLink to="/settings" style={navLinkStyle} onClick={closeDrawer}>Settings</NavLink>
             <span style={{ color: '#d8f3dc', fontSize: 13 }}>{user.name} ({user.role})</span>
             <button style={s.toggleBtn} onClick={toggleTheme} aria-label="Toggle dark mode">{theme === 'light' ? '🌙' : '☀️'}</button>
+            <button style={{ ...s.toggleBtn, fontSize: 12, minWidth: 120, color: '#fff' }} onClick={useSystemTheme} aria-label="Use system theme">
+              {isUsingSystemTheme ? 'System' : 'Use system'}
+            </button>
             <button style={s.btn} onClick={handleLogout}>Logout</button>
           </>
         ) : (
           <>
-            <NavLink to="/login" style={navLinkStyle} onClick={() => setOpen(false)}>Login</NavLink>
-            <NavLink to="/register" style={navLinkStyle} onClick={() => setOpen(false)}>Register</NavLink>
+            <NavLink to="/login" style={navLinkStyle} onClick={closeDrawer}>Login</NavLink>
+            <NavLink to="/register" style={navLinkStyle} onClick={closeDrawer}>Register</NavLink>
           </>
         )}
         <select

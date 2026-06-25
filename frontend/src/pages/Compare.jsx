@@ -15,19 +15,76 @@ const s = {
   empty: { textAlign: 'center', padding: 80, color: '#666' },
   backBtn: { marginTop: 20, background: '#2d6a4f', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: 8, cursor: 'pointer' },
   productName: { fontWeight: 700, color: '#2d6a4f' },
+  actions: { display: 'flex', gap: 10, marginBottom: 16 },
+  exportBtn: { background: '#2d6a4f', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600 },
+  exportBtnDisabled: { background: '#a8a8a8', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: 8, cursor: 'not-allowed', fontSize: 14, fontWeight: 600 },
 };
+
+function buildComparisonCsv(products) {
+  const rows = [
+    ['Attribute', ...products.map(p => p?.name ?? '—')],
+    ['Price (XLM)', ...products.map(p => (p?.price != null ? `${p.price} XLM` : '—'))],
+    ['Category', ...products.map(p => p?.category ?? '—')],
+    ['Allergens', ...products.map(p => {
+      let allergens = [];
+      try { allergens = p?.allergens ? JSON.parse(p.allergens) : []; } catch {}
+      return allergens.length === 0 ? 'None' : allergens.map(a => a.charAt(0).toUpperCase() + a.slice(1)).join(', ');
+    })],
+    ['Grade', ...products.map(p => p?.grade ?? '—')],
+    ['Rating', ...products.map(p => ((p?.review_count ?? 0) > 0 ? `${p.avg_rating} (${p.review_count})` : 'No reviews'))],
+  ];
+
+  return rows
+    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+}
 
 export default function Compare() {
   const navigate = useNavigate();
   const { products } = useCompare();
 
   const hasEnoughProducts = products.length >= 2;
+  const isEmpty = products.length === 0;
+
+  const handleExportCsv = () => {
+    if (isEmpty) return;
+    const csv = buildComparisonCsv(products);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'product-comparison.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handlePrint = () => {
+    if (isEmpty) return;
+    window.print();
+  };
 
   return (
     <div style={s.page}>
       <div style={s.header}>Compare Products</div>
       <div style={s.description}>
         Compare selected marketplace products side by side. Select up to four products on the marketplace to view them here.
+      </div>
+
+      <div className="compare-actions" style={s.actions}>
+        <button
+          style={isEmpty ? s.exportBtnDisabled : s.exportBtn}
+          onClick={handleExportCsv}
+          disabled={isEmpty}
+        >
+          Export CSV
+        </button>
+        <button
+          style={isEmpty ? s.exportBtnDisabled : s.exportBtn}
+          onClick={handlePrint}
+          disabled={isEmpty}
+        >
+          Print / Save as PDF
+        </button>
       </div>
 
       {!hasEnoughProducts ? (
@@ -40,8 +97,8 @@ export default function Compare() {
           </div>
         </div>
       ) : (
-        <div style={s.tableWrapper}>
-          <table style={s.table}>
+        <div className="compare-table-wrapper" style={s.tableWrapper}>
+          <table className="compare-table" style={s.table}>
             <thead>
               <tr>
                 <th style={{ ...s.th, ...s.rowLabel }}>Attribute</th>
@@ -89,6 +146,12 @@ export default function Compare() {
                 <td style={{ ...s.td, ...s.rowLabel }}>Category</td>
                 {products.map(product => (
                   <td key={`${product.id}-category`} style={s.td}>{product?.category ?? '—'}</td>
+                ))}
+              </tr>
+              <tr>
+                <td style={{ ...s.td, ...s.rowLabel }}>Grade</td>
+                {products.map(product => (
+                  <td key={`${product.id}-grade`} style={s.td}>{product?.grade ?? '—'}</td>
                 ))}
               </tr>
               <tr>

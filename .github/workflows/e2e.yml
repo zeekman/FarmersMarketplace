@@ -29,7 +29,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: backend/node_modules
-          key: ${{ runner.os }}-backend-${{ hashFiles('backend/package-lock.json') }}
+          key: ${{ runner.os }}-backend-${{ hashFiles('backend/package.json') }}
           restore-keys: ${{ runner.os }}-backend-
 
       - name: Cache frontend node_modules
@@ -40,11 +40,11 @@ jobs:
           restore-keys: ${{ runner.os }}-frontend-
 
       - name: Install backend dependencies
-        run: npm ci
+        run: npm install
         working-directory: backend
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
         working-directory: frontend
 
       - name: Install e2e dependencies

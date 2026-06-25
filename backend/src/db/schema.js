@@ -565,6 +565,8 @@ const columnMigrations = [
   'ALTER TABLE orders ADD COLUMN shipping_cost REAL DEFAULT 0',
   'ALTER TABLE users ADD COLUMN farm_lat REAL',
   'ALTER TABLE users ADD COLUMN farm_lng REAL',
+  'ALTER TABLE orders ADD COLUMN delivered_at DATETIME',
+  'ALTER TABLE returns ADD COLUMN reject_reason TEXT',
 ];
 
 for (const sql of columnMigrations) {

@@ -30,6 +30,13 @@ const CATEGORIES = [
 const PAGE_SIZE = 20;
 const MAX_PRICE = 500;
 const ALL_ALLERGENS = ["gluten", "nuts", "dairy", "eggs", "soy", "shellfish"];
+const GRADES = ["A", "B", "C", "Ungraded"];
+const GRADE_COLORS = {
+  A: { background: "#d8f3dc", color: "#2d6a4f" },
+  B: { background: "#fff3cd", color: "#856404" },
+  C: { background: "#ffe0b2", color: "#a85d00" },
+  Ungraded: { background: "#e0e0e0", color: "#555" },
+};
 
 const s = {
   page: { maxWidth: 1100, margin: "0 auto", padding: 24, paddingBottom: 140 },
@@ -134,6 +141,17 @@ const s = {
     marginBottom: 8,
     fontWeight: 700,
   },
+  gradeBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    fontSize: 11,
+    fontWeight: 700,
+    borderRadius: 999,
+    padding: "2px 8px",
+    boxShadow: "0 1px 4px #0002",
+  },
+  cardImageWrap: { position: "relative" },
   empty: { textAlign: "center", padding: 60, color: "#888" },
   sellerSection: {
     display: "flex",
@@ -303,7 +321,21 @@ const EMPTY_FILTERS = {
   radius: "",
   excludeAllergens: [],
   sort: "newest",
+  grade: "",
 };
+
+function GradeBadge({ grade }) {
+  if (!grade) return null;
+  const colors = GRADE_COLORS[grade] || GRADE_COLORS.Ungraded;
+  return (
+    <div
+      style={{ ...s.gradeBadge, ...colors }}
+      aria-label={`Grade: ${grade}`}
+    >
+      {grade}
+    </div>
+  );
+}
 
 function getFreshnessBadge(bestBefore) {
   if (!bestBefore) return null;
@@ -322,7 +354,7 @@ function getFreshnessBadge(bestBefore) {
 const SCROLL_KEY = 'marketplace_scroll';
 
 export default function Marketplace() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [products, setProducts] = useState([]);
   const [auctions, setAuctions] = useState([]);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -337,6 +369,7 @@ export default function Marketplace() {
   const [recsLoading, setRecsLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid"); // 'grid' | 'map'
   const [geoLoading, setGeoLoading] = useState(false);
+  const [geoError, setGeoError] = useState('');
   const [recentlyViewed, setRecentlyViewed] = useState([]);
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -344,8 +377,18 @@ export default function Marketplace() {
   const { products: compareProducts, toggleProduct, isCompared, clearProducts } = useCompare();
   const { usd } = useXlmRate();
 
+  const formatPreorderDate = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return dateString;
+    return date.toLocaleDateString(i18n.language, { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
   const debouncedSearch = useDebounce(filters.search, 300);
   const debouncedSeller = useDebounce(filters.seller, 300);
+  const debouncedRadius = useDebounce(filters.radius, 400);
+  const debouncedSearch = useDebounce(filters.search, 400);
+  const debouncedSeller = useDebounce(filters.seller, 400);
 
   const abortRef = useRef(null);
   const sentinelRef = useRef(null);
@@ -370,6 +413,7 @@ export default function Marketplace() {
       if (f.maxPrice && f.maxPrice < MAX_PRICE) params.maxPrice = f.maxPrice;
       if (f.seller) params.seller = f.seller;
       if (f.available) params.available = f.available;
+      if (f.grade) params.grade = f.grade;
       if (f.sort && f.sort !== "newest") params.sort = f.sort;
       if (f.lat && f.lng && f.radius) { params.lat = f.lat; params.lng = f.lng; params.radius = f.radius; }
       const res = await api.getProducts(params);
@@ -382,6 +426,11 @@ export default function Marketplace() {
         try { allergens = p.allergens ? JSON.parse(p.allergens) : []; } catch {}
         return !f.excludeAllergens.some(a => allergens.includes(a));
       });
+    }
+    if (f.grade && f.search && f.search.trim()) {
+      // searchProducts doesn't support a grade param, so filter client-side
+      // when both a search term and a grade filter are active.
+      data = data.filter((p) => (p.grade || "Ungraded") === f.grade);
     }
     return { data, totalPages };
   }
@@ -489,7 +538,7 @@ export default function Marketplace() {
   useEffect(() => {
     sessionStorage.removeItem(SCROLL_KEY);
     sessionStorage.removeItem(SCROLL_KEY + '_y');
-    const f = { ...filters, search: debouncedSearch, seller: debouncedSeller };
+    const f = { ...filters, search: debouncedSearch, seller: debouncedSeller, radius: debouncedRadius };
     load(f);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -501,6 +550,10 @@ export default function Marketplace() {
     filters.available,
     filters.excludeAllergens,
     filters.sort,
+    filters.grade,
+    filters.lat,
+    filters.lng,
+    debouncedRadius,
   ]);
 
   useEffect(() => {
@@ -561,28 +614,45 @@ export default function Marketplace() {
 
   function reset() {
     setFilters(EMPTY_FILTERS);
+    setGeoError('');
     sessionStorage.removeItem(SCROLL_KEY);
     sessionStorage.removeItem(SCROLL_KEY + '_y');
     load(EMPTY_FILTERS);
   }
 
-  function useNearMe() {
-    if (!navigator.geolocation) return;
+  function toggleNearMe() {
+    // If already active, turn it off
+    if (filters.lat && filters.lng) {
+      setFilters(f => ({ ...f, lat: '', lng: '', radius: '' }));
+      setGeoError('');
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      setGeoError('Geolocation is not supported by your browser.');
+      return;
+    }
+
     setGeoLoading(true);
+    setGeoError('');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const newFilters = {
-          ...filters,
+        setFilters(f => ({
+          ...f,
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
-          radius: filters.radius || 50,
-        };
-        setFilters(newFilters);
-        sessionStorage.removeItem(SCROLL_KEY);
-        load(newFilters);
+          radius: f.radius || 50,
+        }));
         setGeoLoading(false);
       },
-      () => setGeoLoading(false),
+      (err) => {
+        const msg = err.code === 1
+          ? 'Location access denied. Please allow location in your browser and try again.'
+          : 'Unable to retrieve your location. Please try again.';
+        setGeoError(msg);
+        setGeoLoading(false);
+      },
+      { timeout: 8000 }
     );
   }
 
@@ -729,7 +799,6 @@ export default function Marketplace() {
         </div>
       )}
 
-      <RecentlyCompared />
       <div style={s.filters}>
         <input
           style={s.input}
@@ -762,6 +831,18 @@ export default function Marketplace() {
         >
           {SORT_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+
+        <select
+          style={s.select}
+          value={filters.grade}
+          onChange={(e) => set("grade", e.target.value)}
+          aria-label="Filter by grade"
+        >
+          <option value="">All Grades</option>
+          {GRADES.map((g) => (
+            <option key={g} value={g}>{g}</option>
           ))}
         </select>
 
@@ -822,36 +903,53 @@ export default function Marketplace() {
           }}
         >
           <button
-            style={{ ...s.resetBtn, background: "#e8f5e9", color: "#2d6a4f" }}
-            onClick={useNearMe}
+            style={{
+              ...s.resetBtn,
+              background: filters.lat && filters.lng ? "#2d6a4f" : "#e8f5e9",
+              color: filters.lat && filters.lng ? "#fff" : "#2d6a4f",
+              fontWeight: 600,
+              border: filters.lat && filters.lng ? "1px solid #2d6a4f" : "1px solid #ddd",
+            }}
+            onClick={toggleNearMe}
             disabled={geoLoading}
+            aria-pressed={!!(filters.lat && filters.lng)}
           >
-            {geoLoading ? "..." : "📍 Near Me"}
+            {geoLoading ? "⌛ Locating…" : filters.lat && filters.lng ? "📍 Near Me ✓" : "📍 Near Me"}
           </button>
           {filters.lat && filters.lng && (
             <>
               <input
-                style={{ ...s.input, width: 80 }}
-                type="number"
-                min="1"
-                max="500"
-                placeholder="km"
-                value={filters.radius}
-                onChange={(e) => set("radius", e.target.value)}
-                aria-label="Radius in km"
+                type="range"
+                min="5"
+                max="200"
+                step="5"
+                value={filters.radius || 50}
+                onChange={(e) => set("radius", Number(e.target.value))}
+                aria-label="Search radius in km"
+                style={{ width: 120, accentColor: "#2d6a4f" }}
               />
-              <span style={{ fontSize: 12, color: "#888" }}>km radius</span>
+              <span style={{ fontSize: 13, color: "#444", minWidth: 60 }}>
+                {filters.radius || 50} km
+              </span>
               <button
                 style={s.resetBtn}
                 onClick={() => {
-                  set("lat", "");
-                  set("lng", "");
-                  set("radius", "");
+                  setFilters(f => ({ ...f, lat: "", lng: "", radius: "" }));
+                  setGeoError("");
                 }}
+                aria-label="Clear location filter"
               >
                 ✕
               </button>
             </>
+          )}
+          {geoError && (
+            <span
+              style={{ fontSize: 12, color: "#c0392b", display: "flex", alignItems: "center", gap: 4 }}
+              role="alert"
+            >
+              ⚠️ {geoError}
+            </span>
           )}
         </div>
 
@@ -910,6 +1008,9 @@ export default function Marketplace() {
               }
               setViewMode("grid");
             }}
+            userLat={filters.lat || undefined}
+            userLng={filters.lng || undefined}
+            radius={filters.radius || undefined}
           />
         </Suspense>
       ) : products.length === 0 ? (
@@ -937,21 +1038,24 @@ export default function Marketplace() {
             >
               <div style={s.cardHeader}>
                 <div style={{ flex: 1 }}>
-                  {p.image_url ? (
-                    <img
-                      src={p.image_url}
-                      alt={p.name}
-                      style={{
-                        width: "100%",
-                        height: 140,
-                        objectFit: "cover",
-                        borderRadius: 8,
-                        marginBottom: 10,
-                      }}
-                    />
-                  ) : (
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>🥬</div>
-                  )}
+                  <div style={s.cardImageWrap}>
+                    {p.image_url ? (
+                      <img
+                        src={p.image_url}
+                        alt={p.name}
+                        style={{
+                          width: "100%",
+                          height: 140,
+                          objectFit: "cover",
+                          borderRadius: 8,
+                          marginBottom: 10,
+                        }}
+                      />
+                    ) : (
+                      <div style={{ fontSize: 32, marginBottom: 8 }}>🥬</div>
+                    )}
+                    <GradeBadge grade={p.grade || "Ungraded"} />
+                  </div>
                 </div>
                 {user && user.role === "buyer" && (
                   <button
@@ -985,10 +1089,14 @@ export default function Marketplace() {
                 </div>
               ) : null}
               {p.is_preorder ? (
-                <div style={s.preorderBadge}>
-                  Pre-Order
+                <div
+                  style={s.preorderBadge}
+                  title="This is a pre-order. Payment is held in escrow until dispatch."
+                  aria-label="Pre-order product"
+                >
+                  Pre-order
                   {p.preorder_delivery_date
-                    ? ` · Delivers ${p.preorder_delivery_date}`
+                    ? ` · Ships by ${formatPreorderDate(p.preorder_delivery_date)}`
                     : ""}
                 </div>
               ) : null}
@@ -1273,5 +1381,6 @@ export default function Marketplace() {
         </div>
       )}
     </div>
+      <RecentlyCompared />
   );
 }

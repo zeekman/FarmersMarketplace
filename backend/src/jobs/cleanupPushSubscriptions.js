@@ -4,8 +4,8 @@ const db = require('../db/schema');
 
 async function cleanupExpiredPushSubscriptions() {
   const query = db.isPostgres
-    ? "DELETE FROM push_subscriptions WHERE created_at < NOW() - INTERVAL '90 days'"
-    : "DELETE FROM push_subscriptions WHERE created_at < datetime('now', '-90 days')";
+    ? "DELETE FROM push_subscriptions WHERE updated_at < NOW() - INTERVAL '90 days'"
+    : "DELETE FROM push_subscriptions WHERE updated_at < datetime('now', '-90 days')";
 
   const result = await db.query(query);
   const count = db.isPostgres ? result.rowCount : result.changes;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 
 const s = {
@@ -12,7 +12,13 @@ const s = {
   btn: { width: '100%', marginTop: 8, padding: '9px 0', background: '#e07b00', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' },
   btnDisabled: { width: '100%', marginTop: 8, padding: '9px 0', background: '#ccc', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'not-allowed' },
   msg: { fontSize: 12, marginTop: 6, padding: '6px 10px', borderRadius: 6 },
+  liveBadge: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, background: '#fee2e2', color: '#dc2626', borderRadius: 4, padding: '2px 7px', marginBottom: 8, fontWeight: 700 },
 };
+
+const pulseDot = `
+@keyframes ac-pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
+.ac-dot { width:7px;height:7px;border-radius:50%;background:#dc2626;animation:ac-pulse 1s ease-in-out infinite; }
+`;
 
 function formatTimeLeft(endsAt) {
   const diff = new Date(endsAt) - Date.now();
@@ -23,31 +29,60 @@ function formatTimeLeft(endsAt) {
   return h > 0 ? `${h}h ${m}m ${sec}s left` : m > 0 ? `${m}m ${sec}s left` : `${sec}s left`;
 }
 
-export default function AuctionCard({ auction, onBid }) {
+export default function AuctionCard({ auction: initialAuction, onBid }) {
+  const [auction, setAuction] = useState(initialAuction);
   const [amount, setAmount] = useState('');
   const [msg, setMsg] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(() => formatTimeLeft(auction.ends_at));
+  const [timeLeft, setTimeLeft] = useState(() => formatTimeLeft(initialAuction.ends_at));
+  const optimisticBid = useRef(null);
 
+  // Countdown timer
   useEffect(() => {
-    const id = setInterval(() => {
-      setTimeLeft(formatTimeLeft(auction.ends_at));
-    }, 1000);
+    const id = setInterval(() => setTimeLeft(formatTimeLeft(auction.ends_at)), 1000);
     return () => clearInterval(id);
   }, [auction.ends_at]);
 
+  // Polling for live auctions
+  useEffect(() => {
+    if (auction.status !== 'active') return;
+    const id = setInterval(async () => {
+      try {
+        const res = await api.getAuction(auction.id);
+        const fresh = res.data ?? res;
+        setAuction(prev => {
+          // Keep optimistic bid if it's higher than server data
+          if (optimisticBid.current && optimisticBid.current > (fresh.current_bid ?? fresh.start_price)) {
+            return { ...fresh, current_bid: optimisticBid.current };
+          }
+          optimisticBid.current = null;
+          return fresh;
+        });
+      } catch {}
+    }, 5000);
+    return () => clearInterval(id);
+  }, [auction.id, auction.status]);
+
   const ended = timeLeft === null;
   const currentBid = auction.current_bid ?? auction.start_price;
+  const isLive = auction.status === 'active' && !ended;
 
   async function handleBid() {
     setMsg(null);
     setLoading(true);
+    const bidAmount = parseFloat(amount);
+    // Optimistic update
+    optimisticBid.current = bidAmount;
+    setAuction(prev => ({ ...prev, current_bid: bidAmount }));
     try {
-      await api.placeBid(auction.id, { amount: parseFloat(amount) });
+      await api.placeBid(auction.id, { amount: bidAmount });
       setMsg({ ok: true, text: '✓ Bid placed!' });
       setAmount('');
       onBid();
     } catch (e) {
+      // Revert optimistic update on error
+      optimisticBid.current = null;
+      setAuction(initialAuction);
       setMsg({ ok: false, text: e.message });
     }
     setLoading(false);
@@ -55,7 +90,14 @@ export default function AuctionCard({ auction, onBid }) {
 
   return (
     <div style={s.card}>
+      <style>{pulseDot}</style>
       <div style={s.badge}>🔨 Auction</div>
+      {isLive && (
+        <div style={s.liveBadge}>
+          <span className="ac-dot" />
+          LIVE
+        </div>
+      )}
       <div style={s.name}>{auction.product_name}</div>
       <div style={s.farmer}>by {auction.farmer_name}</div>
       <div style={s.price}>{currentBid} XLM</div>

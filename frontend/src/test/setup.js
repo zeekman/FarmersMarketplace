@@ -12,3 +12,11 @@ if (typeof globalThis.EventSource === 'undefined') {
     close() {}
   };
 }
+
+if (typeof globalThis.IntersectionObserver === 'undefined') {
+  globalThis.IntersectionObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}

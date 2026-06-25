@@ -14,6 +14,16 @@ const validate = require('../middleware/validate');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 const logger = require('../logger');
+const { createPerIpRateLimiter } = require('../middleware/rateLimitPerUser');
+
+const loginRateLimit = createPerIpRateLimiter(
+  parseInt(process.env.RATE_LIMIT_LOGIN_MAX || '5', 10),
+  60 * 1000,
+);
+const registerRateLimit = createPerIpRateLimiter(
+  parseInt(process.env.RATE_LIMIT_REGISTER_MAX || '3', 10),
+  60 * 1000,
+);
 
 const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
@@ -173,7 +183,7 @@ async function rotateRefreshToken(userId, oldRawToken) {
  *             schema: { $ref: '#/components/schemas/Error' }
  */
 // POST /api/auth/register
-router.post('/register', validate.register, async (req, res) => {
+router.post('/register', registerRateLimit, validate.register, async (req, res) => {
   const { name, email, password, role, ref } = req.body;
   try {
     const hashed = await bcrypt.hash(password, 12);
@@ -251,7 +261,7 @@ router.post('/register', validate.register, async (req, res) => {
  *             schema: { $ref: '#/components/schemas/Error' }
  */
 // POST /api/auth/login
-router.post('/login', validate.login, async (req, res) => {
+router.post('/login', loginRateLimit, validate.login, async (req, res) => {
   const { email, password } = req.body;
   const { rows } = await db.query(
     'SELECT id, name, email, password, role, stellar_public_key FROM users WHERE email = $1',

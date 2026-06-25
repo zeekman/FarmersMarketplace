@@ -21,6 +21,23 @@ const s = {
   cardQty:    { fontSize: 12, color: '#888', marginTop: 3 },
   badge:      { display: 'inline-block', fontSize: 11, background: '#d8f3dc', color: '#2d6a4f', borderRadius: 4, padding: '2px 7px', marginBottom: 6 },
   verifiedBadge: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, background: '#dbeafe', color: '#1e40af', borderRadius: 20, padding: '3px 10px', marginTop: 8 },
+  coopBadge:  { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, background: '#fef9c3', color: '#854d0e', border: '1px solid #fde047', borderRadius: 20, padding: '3px 10px', marginTop: 6, marginRight: 6, cursor: 'pointer', background: 'none' },
+  coopBadgeInner: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, background: '#fef9c3', color: '#854d0e', border: '1px solid #fde047', borderRadius: 20, padding: '3px 10px', marginTop: 6, marginRight: 6, cursor: 'pointer' },
+  coopModal:  { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+  coopModalBox: { background: '#fff', borderRadius: 14, padding: 28, maxWidth: 420, width: '90%', boxShadow: '0 4px 24px #0003' },
+  coopModalTitle: { fontSize: 18, fontWeight: 700, color: '#2d6a4f', marginBottom: 6 },
+  coopModalDesc: { fontSize: 14, color: '#555', marginBottom: 14, lineHeight: 1.6 },
+  coopModalMeta: { fontSize: 13, color: '#888', marginBottom: 16 },
+  coopModalClose: { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', cursor: 'pointer', fontWeight: 600, fontSize: 14, minHeight: 44 },
+  timeline:   { marginTop: 8 },
+  tlEntry:    { display: 'flex', gap: 14, marginBottom: 20, position: 'relative' },
+  tlDot:      { width: 12, height: 12, borderRadius: '50%', background: '#2d6a4f', flexShrink: 0, marginTop: 4 },
+  tlLine:     { position: 'absolute', left: 5, top: 16, bottom: -20, width: 2, background: '#d8f3dc' },
+  tlBody:     { flex: 1 },
+  tlDate:     { fontSize: 12, color: '#888', marginBottom: 2 },
+  tlBatch:    { fontWeight: 600, fontSize: 14, color: '#2d6a4f', marginBottom: 2 },
+  tlMeta:     { fontSize: 13, color: '#555' },
+  certBadge:  { display: 'inline-block', fontSize: 11, background: '#d8f3dc', color: '#2d6a4f', borderRadius: 4, padding: '1px 6px', marginLeft: 6 },
   empty:      { color: '#aaa', fontSize: 14, padding: '32px 0', textAlign: 'center' },
   back:       { fontSize: 13, color: '#2d6a4f', cursor: 'pointer', marginBottom: 16, display: 'inline-block' },
   pagination: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24 },
@@ -77,6 +94,57 @@ function ProfileSkeleton() {
   );
 }
 
+/** Modal that shows cooperative detail (name, description, member count) */
+function CoopDetailModal({ coop, onClose }) {
+  // Close on backdrop click
+  function handleBackdrop(e) {
+    if (e.target === e.currentTarget) onClose();
+  }
+  // Close on Escape key
+  React.useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      style={s.coopModal}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="coop-modal-title"
+      onClick={handleBackdrop}
+    >
+      <div style={s.coopModalBox}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div id="coop-modal-title" style={s.coopModalTitle}>🤝 {coop.name}</div>
+          <button
+            onClick={onClose}
+            aria-label="Close cooperative detail"
+            style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888', lineHeight: 1, padding: '0 4px' }}
+          >
+            ×
+          </button>
+        </div>
+        {coop.description && (
+          <div style={s.coopModalDesc}>{coop.description}</div>
+        )}
+        <div style={s.coopModalMeta}>
+          {coop.member_count != null && (
+            <div>👥 {coop.member_count} member{coop.member_count !== 1 ? 's' : ''}</div>
+          )}
+          {coop.created_at && (
+            <div style={{ marginTop: 4 }}>
+              Founded {new Date(coop.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
+            </div>
+          )}
+        </div>
+        <button style={s.coopModalClose} onClick={onClose}>Close</button>
+      </div>
+    </div>
+  );
+}
+
 export default function FarmerProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -84,6 +152,10 @@ export default function FarmerProfile() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [page, setPage] = useState(1);
+  const [cooperatives, setCooperatives] = useState([]);
+  const [selectedCoop, setSelectedCoop] = useState(null);
+  const [batches, setBatches] = useState([]);
+  const [batchesLoading, setBatchesLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -92,6 +164,20 @@ export default function FarmerProfile() {
       .then(res => setFarmer(res.data))
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
+
+    setBatchesLoading(true);
+    api.getBatchesByFarmer(id)
+      .then(res => setBatches((res.data ?? []).sort((a, b) => new Date(b.harvest_date) - new Date(a.harvest_date))))
+      .catch(() => setBatches([]))
+      .finally(() => setBatchesLoading(false));
+  }, [id]);
+
+  // Fetch cooperatives for this farmer separately — non-blocking
+  useEffect(() => {
+    if (!id) return;
+    api.getFarmerCooperatives(id)
+      .then(res => setCooperatives(res.data ?? []))
+      .catch(() => setCooperatives([]));
   }, [id]);
 
   const totalPages = farmer ? Math.ceil(farmer.listings.length / PAGE_SIZE) : 1;
@@ -138,8 +224,30 @@ export default function FarmerProfile() {
           {farmer.verified && (
             <div style={s.verifiedBadge}>✔ Verified Farmer</div>
           )}
+
+          {/* Cooperative membership badges */}
+          {cooperatives.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {cooperatives.map(coop => (
+                <button
+                  key={coop.id}
+                  style={s.coopBadgeInner}
+                  onClick={() => setSelectedCoop(coop)}
+                  aria-label={`Member of cooperative: ${coop.name}. Click for details.`}
+                  title={`Cooperative: ${coop.name}${coop.description ? ' — ' + coop.description : ''}`}
+                >
+                  🤝 Member of: {coop.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Cooperative detail modal */}
+      {selectedCoop && (
+        <CoopDetailModal coop={selectedCoop} onClose={() => setSelectedCoop(null)} />
+      )}
 
       {/* Active listings */}
       <div style={s.sectionTitle}>
@@ -200,6 +308,36 @@ export default function FarmerProfile() {
           )}
         </>
       )}
+
+      {/* Harvest Batch Timeline */}
+      <div style={{ marginTop: 32 }}>
+        <h2 style={s.sectionTitle}>🌿 Harvest Traceability</h2>
+        {batchesLoading ? (
+          <div style={s.grid}>
+            {[1,2,3].map(i => <div key={i} style={{ ...s.card, cursor: 'default' }}><SkeletonBlock width="100%" height={60} /></div>)}
+          </div>
+        ) : batches.length === 0 ? (
+          <div style={s.empty}>No harvest batches recorded yet.</div>
+        ) : (
+          <ol style={{ ...s.timeline, listStyle: 'none', padding: 0, margin: 0 }}>
+            {batches.map((b, i) => (
+              <li key={b.id} style={s.tlEntry}>
+                <div style={{ position: 'relative' }}>
+                  <div style={s.tlDot} />
+                  {i < batches.length - 1 && <div style={s.tlLine} />}
+                </div>
+                <div style={s.tlBody}>
+                  <div style={s.tlDate}>{new Date(b.harvest_date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                  <div style={s.tlBatch}>Batch #{b.id} · {b.crop_name}
+                    {b.certified && <span style={s.certBadge}>✔ Certified</span>}
+                  </div>
+                  {b.field_location && <div style={s.tlMeta}>📍 {b.field_location}</div>}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
     </div>
   );
 }

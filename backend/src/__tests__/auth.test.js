@@ -6,6 +6,8 @@ process.env.JWT_SECRET = 'test-secret-for-jest';
 process.env.NODE_ENV = 'test';
 process.env.RATE_LIMIT_AUTH_MAX = '10000';
 process.env.RATE_LIMIT_GENERAL_MAX = '10000';
+process.env.RATE_LIMIT_LOGIN_MAX = '10000';
+process.env.RATE_LIMIT_REGISTER_MAX = '10000';
 
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
@@ -313,6 +315,66 @@ describe('POST /api/auth/refresh', () => {
     const res = await request(app).post('/api/auth/refresh');
     expect(res.status).toBe(401);
     expect(res.body.error).toMatch(/No refresh token/i);
+  });
+});
+
+describe('POST /api/auth/logout', () => {
+  it('returns 200 and clears the refreshToken cookie', async () => {
+    mockDb.query.mockResolvedValueOnce({ rows: [], rowCount: 1 }); // DELETE refresh_tokens
+
+    const res = await request(app)
+      .post('/api/auth/logout')
+      .set('Cookie', 'refreshToken=some-raw-token');
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+
+    // Express clearCookie sets Max-Age=0 or Expires in the past
+    const cookie = res.headers['set-cookie']?.find((c) => c.startsWith('refreshToken=')) || '';
+    expect(cookie).toMatch(/refreshToken=/);
+    expect(cookie).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/i);
+  });
+
+  it('deletes the hashed token from the database when a cookie is present', async () => {
+    mockDb.query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    await request(app)
+      .post('/api/auth/logout')
+      .set('Cookie', 'refreshToken=tok-to-invalidate');
+
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringMatching(/DELETE FROM refresh_tokens WHERE token_hash\s*=\s*\$1/i),
+      expect.any(Array),
+    );
+  });
+
+  it('returns 200 even with no cookie present and performs no DB write', async () => {
+    const res = await request(app).post('/api/auth/logout');
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(mockDb.query).not.toHaveBeenCalled();
+  });
+
+  it('invalidates the token so a subsequent refresh attempt fails', async () => {
+    const rawToken = 'token-that-gets-revoked';
+    const crypto = require('crypto');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    // Logout: DELETE
+    mockDb.query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+    await request(app)
+      .post('/api/auth/logout')
+      .set('Cookie', `refreshToken=${rawToken}`);
+
+    // Subsequent refresh: token no longer in DB
+    mockDb.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const res = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', `refreshToken=${rawToken}`);
+
+    expect(res.status).toBe(401);
   });
 });
 

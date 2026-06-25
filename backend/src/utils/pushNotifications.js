@@ -1,17 +1,85 @@
 const webpush = require('web-push');
 const db = require('../db/schema');
 
-const VAPID_PUBLIC_KEY = process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '';
-const VAPID_PRIVATE_KEY = process.env.WEB_PUSH_VAPID_PRIVATE_KEY || '';
-const VAPID_SUBJECT = process.env.WEB_PUSH_VAPID_SUBJECT || 'mailto:admin@farmersmarketplace.local';
+// Mutable VAPID state — updated by initVapidKeys() / rotateVapidKeys() at runtime
+const _vapid = {
+  publicKey: process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '',
+  privateKey: process.env.WEB_PUSH_VAPID_PRIVATE_KEY || '',
+  subject: process.env.WEB_PUSH_VAPID_SUBJECT || 'mailto:admin@farmersmarketplace.local',
+};
+
+// Kept for backward-compat exports — reflects the current public key
+let VAPID_PUBLIC_KEY = _vapid.publicKey;
 
 function isConfigured() {
-  return Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+  return Boolean(_vapid.publicKey && _vapid.privateKey);
 }
 
 function configureWebPush() {
   if (!isConfigured()) return;
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  webpush.setVapidDetails(_vapid.subject, _vapid.publicKey, _vapid.privateKey);
+}
+
+async function ensureVapidKeysTable() {
+  await db.query(
+    `CREATE TABLE IF NOT EXISTS vapid_keys (
+      id INTEGER PRIMARY KEY,
+      public_key TEXT NOT NULL,
+      private_key TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  );
+}
+
+/**
+ * On first run: if no VAPID keys in env or DB, generate and persist them.
+ * On subsequent runs: load from DB when env vars are absent.
+ */
+async function initVapidKeys() {
+  await ensureVapidKeysTable();
+  // Env vars take priority — already loaded into _vapid at module load
+  if (_vapid.publicKey && _vapid.privateKey) {
+    VAPID_PUBLIC_KEY = _vapid.publicKey;
+    return;
+  }
+  const query = db.isPostgres
+    ? 'SELECT public_key, private_key FROM vapid_keys ORDER BY id DESC LIMIT 1'
+    : 'SELECT public_key, private_key FROM vapid_keys ORDER BY id DESC LIMIT 1';
+  const { rows } = await db.query(query);
+  if (rows[0]) {
+    _vapid.publicKey = rows[0].public_key;
+    _vapid.privateKey = rows[0].private_key;
+    VAPID_PUBLIC_KEY = _vapid.publicKey;
+  } else {
+    // First run — generate and persist
+    const keys = webpush.generateVAPIDKeys();
+    const insertQuery = db.isPostgres
+      ? 'INSERT INTO vapid_keys (public_key, private_key) VALUES ($1, $2)'
+      : 'INSERT INTO vapid_keys (public_key, private_key) VALUES ($1, $2)';
+    await db.query(insertQuery, [keys.publicKey, keys.privateKey]);
+    _vapid.publicKey = keys.publicKey;
+    _vapid.privateKey = keys.privateKey;
+    VAPID_PUBLIC_KEY = _vapid.publicKey;
+  }
+}
+
+/**
+ * Generates new VAPID keys, replaces the stored entry, and updates the running module state.
+ * All existing push subscriptions become invalid after rotation; subscribers must re-subscribe.
+ */
+async function rotateVapidKeys() {
+  await ensureVapidKeysTable();
+  const keys = webpush.generateVAPIDKeys();
+  // Remove existing stored keys and insert fresh ones
+  await db.query(db.isPostgres ? 'DELETE FROM vapid_keys' : 'DELETE FROM vapid_keys');
+  const insertQuery = db.isPostgres
+    ? 'INSERT INTO vapid_keys (public_key, private_key) VALUES ($1, $2)'
+    : 'INSERT INTO vapid_keys (public_key, private_key) VALUES ($1, $2)';
+  await db.query(insertQuery, [keys.publicKey, keys.privateKey]);
+  _vapid.publicKey = keys.publicKey;
+  _vapid.privateKey = keys.privateKey;
+  VAPID_PUBLIC_KEY = _vapid.publicKey;
+  return { publicKey: keys.publicKey };
 }
 
 async function ensurePushSubscriptionTable() {
@@ -134,9 +202,12 @@ async function sendPushToUser(userId, payload) {
 }
 
 module.exports = {
-  VAPID_PUBLIC_KEY,
+  get VAPID_PUBLIC_KEY() { return VAPID_PUBLIC_KEY; },
   isConfigured,
   configureWebPush,
+  initVapidKeys,
+  rotateVapidKeys,
+  ensureVapidKeysTable,
   ensurePushSubscriptionTable,
   ensurePushNotificationHistoryTable,
   insertPushNotificationHistory,
