@@ -23,13 +23,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Cache backend node_modules
         uses: actions/cache@v4
         with:
           path: backend/node_modules
-          key: ${{ runner.os }}-backend-${{ hashFiles('backend/package-lock.json') }}
+          key: ${{ runner.os }}-backend-${{ hashFiles('backend/package.json') }}
           restore-keys: ${{ runner.os }}-backend-
 
       - name: Cache frontend node_modules
@@ -40,11 +40,11 @@ jobs:
           restore-keys: ${{ runner.os }}-frontend-
 
       - name: Install backend dependencies
-        run: npm ci
+        run: npm install
         working-directory: backend
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
         working-directory: frontend
 
       - name: Install e2e dependencies
@@ -55,6 +55,10 @@ jobs:
         run: npx playwright install --with-deps chromium
         working-directory: e2e
 
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
       - name: Start backend
         run: npm start &
         working-directory: backend
@@ -63,8 +67,8 @@ jobs:
           STELLAR_NETWORK: testnet
           SMTP_HOST: ""
 
-      - name: Start frontend
-        run: npm run dev &
+      - name: Start frontend preview
+        run: npx vite preview --port 3000 &
         working-directory: frontend
 
       - name: Wait for servers

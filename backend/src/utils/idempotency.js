@@ -20,9 +20,10 @@ async function getCachedResponse(key) {
   return null;
 }
 
-async function cacheResponse(key, response, ttlHours = 24) {
+async function cacheResponse(key, response, ttlSeconds) {
   if (!key) return;
-  const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString();
+  const ttl = ttlSeconds ?? (parseInt(process.env.IDEMPOTENCY_TTL_SECONDS, 10) || 86400);
+  const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
   await db.query(
     'INSERT INTO idempotency_keys (key, response, expires_at) VALUES ($1, $2, $3) ON CONFLICT (key) DO UPDATE SET response = EXCLUDED.response, expires_at = EXCLUDED.expires_at',
     [key, JSON.stringify(response), expiresAt]

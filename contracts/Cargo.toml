@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "escrow",
+    "creator-earnings",
+]
+resolver = "2"

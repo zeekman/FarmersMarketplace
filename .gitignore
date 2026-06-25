@@ -1,8 +1,10 @@
 node_modules/
-package-lock.json
 *.db
 .env
 dist/
+
+# Nested repo clone (accidental duplicate)
+FarmersMarketplace/
 
 # Playwright
 frontend/playwright-report/
@@ -23,3 +25,4 @@ backend/src/__tests__/tmp/
 
 # Developer notes
 vrickish.md
+somzilla.md

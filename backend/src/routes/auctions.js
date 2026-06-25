@@ -4,6 +4,7 @@ const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
+const requireEmailVerified = require('../middleware/requireEmailVerified');
 const { err } = require('../middleware/error');
 const logger = require('../logger');
 
@@ -37,7 +38,7 @@ const bidSchema = z.object({
 });
 
 // ── POST /api/auctions ────────────────────────────────────────────────────────
-router.post('/', auth, validateBody(createAuctionSchema), async (req, res) => {
+router.post('/', auth, requireEmailVerified, validateBody(createAuctionSchema), async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
 
   const { product_id, start_price, reserve_price, min_increment, ends_at } = req.body;
@@ -273,6 +274,41 @@ function validateBidRules(auction, buyerId, amount) {
 function fail(status, message, code) {
   return { ok: false, success: false, status, message, code };
 }
+
+// GET /api/auctions/:id/bids - bid leaderboard for farmer
+router.get('/:id/bids', auth, (req, res) => {
+  const auction = db.prepare('SELECT * FROM auctions WHERE id = ?').get(req.params.id);
+  if (!auction) return err(res, 404, 'Auction not found', 'not_found');
+  if (auction.farmer_id !== req.user.id) return err(res, 403, 'Forbidden', 'forbidden');
+
+  const bids = db.prepare(
+    `SELECT b.amount, b.created_at, u.name as bidder_name
+     FROM bids b JOIN users u ON b.buyer_id = u.id
+     WHERE b.auction_id = ?
+     ORDER BY b.created_at DESC`
+  ).all(req.params.id);
+
+  // anonymise: first name + last initial
+  const data = bids.map(b => {
+    const parts = (b.bidder_name || '').trim().split(/\s+/);
+    const first = parts[0] || 'Bidder';
+    const last = parts[1] ? parts[1][0] + '.' : '';
+    return { bidder: `${first} ${last}`.trim(), amount: b.amount, placed_at: b.created_at };
+  });
+
+  res.json({ success: true, data });
+});
+
+// PATCH /api/auctions/:id/end - farmer ends auction early
+router.patch('/:id/end', auth, (req, res) => {
+  const auction = db.prepare('SELECT * FROM auctions WHERE id = ?').get(req.params.id);
+  if (!auction) return err(res, 404, 'Auction not found', 'not_found');
+  if (auction.farmer_id !== req.user.id) return err(res, 403, 'Forbidden', 'forbidden');
+  if (auction.status !== 'active') return err(res, 400, 'Auction is not active', 'not_active');
+
+  db.prepare(`UPDATE auctions SET status = 'ended', ends_at = datetime('now') WHERE id = ?`).run(auction.id);
+  res.json({ success: true });
+});
 
 module.exports = router;
 // Export for testing

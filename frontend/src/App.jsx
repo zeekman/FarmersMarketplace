@@ -45,14 +45,14 @@ function Home() {
 }
 
 function AppContent() {
-  const { setLoading } = useContext(LoadingContext);
+  const { startLoading, stopLoading } = useContext(LoadingContext);
   const { logout } = useAuth();
   const location = useLocation();
 
   useEffect(() => {
-    setLoadingCallback(setLoading);
+    setLoadingCallback((isStart) => isStart ? startLoading() : stopLoading());
     setLogoutCallback(logout);
-  }, [setLoading, logout]);
+  }, [startLoading, stopLoading, logout]);
 
   // Announce page changes to screen readers
   useEffect(() => {

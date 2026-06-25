@@ -19,6 +19,7 @@ export function CompareProvider({ children }) {
         setHistory(JSON.parse(stored));
       }
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.error('Failed to load comparison history:', e);
     }
   }, []);
@@ -48,6 +49,7 @@ export function CompareProvider({ children }) {
       try {
         localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error('Failed to save comparison history:', e);
       }
 
@@ -90,6 +92,7 @@ export function CompareProvider({ children }) {
     try {
       localStorage.removeItem(HISTORY_KEY);
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.error('Failed to clear comparison history:', e);
     }
   }, []);

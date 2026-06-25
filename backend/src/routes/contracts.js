@@ -144,6 +144,55 @@ router.get('/:contractId/events', auth, adminAuth, async (req, res) => {
   }
 });
 
+// GET /api/contracts/:contractId/invocations?page=&limit=  (admin only)
+// Returns recent contract invocations stored in contract_invocations table
+router.get('/:contractId/invocations', auth, adminAuth, async (req, res) => {
+  const { contractId } = req.params;
+  if (!validateContractId(contractId)) {
+    return err(res, 400, 'Invalid contractId format (base32 or hex expected)', 'invalid_contract_id');
+  }
+
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const offset = (page - 1) * limit;
+
+  try {
+    const { rows } = await db.query(
+      `SELECT id, contract_id, method, args, tx_hash, success, error, invoked_at
+       FROM contract_invocations
+       WHERE contract_id = $1
+       ORDER BY invoked_at DESC
+       LIMIT $2 OFFSET $3`,
+      [contractId, limit, offset]
+    );
+
+    const { rows: countRows } = await db.query(
+      `SELECT COUNT(*) as total FROM contract_invocations WHERE contract_id = $1`,
+      [contractId]
+    );
+
+    const total = countRows[0]?.total || 0;
+    const pages = Math.max(1, Math.ceil(total / limit));
+
+    res.json({
+      success: true,
+      invocations: rows.map((row) => ({
+        id: row.id,
+        contract_id: row.contract_id,
+        method: row.method,
+        args: row.args ? JSON.parse(row.args) : null,
+        tx_hash: row.tx_hash,
+        success: row.success === 1,
+        error: row.error,
+        invoked_at: row.invoked_at,
+      })),
+      pagination: { page, pages, total, limit },
+    });
+  } catch (error) {
+    err(res, 500, `Failed to fetch contract invocations: ${error.message}`, 'db_error');
+  }
+});
+
 module.exports = router;
 
 // .

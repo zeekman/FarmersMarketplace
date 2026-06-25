@@ -1,18 +1,22 @@
 /**
  * budgetGuard.test.js
  *
- * Tests for the atomic monthly budget guard.
+ * Tests for the atomic monthly budget guard and wallet budget endpoints.
  *
  * Strategy: mock both '../db/schema' and '../middleware/auth' at the top level,
  * then control the mock's behaviour per-test by replacing the query function.
  *
- * Key scenarios:
+ * Key scenarios covered:
  *  - Only paid orders → budget check still works
  *  - Pending + paid orders → both counted
  *  - Zero budget → all orders rejected
  *  - Exact budget match → order at the limit is accepted
  *  - Race condition: two concurrent orders that individually fit but together exceed budget
- *    → exactly one succeeds, one is rejected
+ *    → exactly one succeeds, one is rejected (HTTP 402)
+ *  - Previous-month orders excluded from monthly window
+ *  - Budget rejection fires BEFORE any order INSERT (pre-payment enforcement)
+ *  - GET /api/wallet/budget-status returns { limit_xlm, spent_xlm, remaining_xlm, reset_at }
+ *  - PUT /api/wallet/budget sets, updates, and removes the monthly spending limit
  */
 
 const express = require('express');
@@ -48,15 +52,25 @@ function resetState() {
 }
 
 /**
- * Default query handler — simulates the DB for budget guard + stub order route.
+ * Default query handler — simulates the DB for budget guard + stub order route
+ * and wallet budget endpoints.
  */
 async function handleQuery(sql, params = []) {
   const s = sql.replace(/\s+/g, ' ').trim().toLowerCase();
 
   // SELECT monthly_budget FROM users WHERE id = $1
-  if (s.includes('monthly_budget')) {
+  if (s.includes('monthly_budget') && s.startsWith('select')) {
     const user = mockUsers.find((u) => u.id === params[0]);
     return { rows: user ? [{ monthly_budget: user.monthly_budget }] : [], rowCount: 1 };
+  }
+
+  // UPDATE users SET monthly_budget = $1 WHERE id = $2
+  if (s.includes('update') && s.includes('users') && s.includes('monthly_budget')) {
+    const budget = params[0];
+    const userId = params[1];
+    const user = mockUsers.find((u) => u.id === userId);
+    if (user) user.monthly_budget = budget;
+    return { rows: [], rowCount: 1 };
   }
 
   // SELECT COALESCE(SUM(total_price)...) FROM orders WHERE buyer_id = $1 AND status IN (...)
@@ -68,8 +82,8 @@ async function handleQuery(sql, params = []) {
       (o) =>
         o.buyer_id === buyerId &&
         ['pending', 'paid'].includes(o.status) &&
-        o.created_at >= start &&
-        o.created_at < end,
+        (start == null || o.created_at >= start) &&
+        (end == null || o.created_at < end),
     );
     const spent = relevant.reduce((sum, o) => sum + o.total_price, 0);
     return { rows: [{ spent }], rowCount: 1 };
@@ -94,7 +108,7 @@ async function handleQuery(sql, params = []) {
 }
 
 // ---------------------------------------------------------------------------
-// Build a minimal Express app
+// Build a minimal Express app (budget guard + stub orders route)
 // ---------------------------------------------------------------------------
 function buildApp() {
   const app = express();
@@ -103,7 +117,7 @@ function buildApp() {
   // Inject req.user from test header (simulates JWT auth)
   app.use((req, _res, next) => {
     const userId = parseInt(req.headers['x-test-user-id'], 10);
-    req.user = { id: userId, role: 'buyer' };
+    req.user = { id: userId, role: req.headers['x-test-role'] || 'buyer' };
     next();
   });
 
@@ -128,6 +142,25 @@ function buildApp() {
 }
 
 // ---------------------------------------------------------------------------
+// Build a minimal Express app for wallet budget endpoints
+// ---------------------------------------------------------------------------
+function buildWalletApp() {
+  const app = express();
+  app.use(express.json());
+
+  app.use((req, _res, next) => {
+    const userId = parseInt(req.headers['x-test-user-id'], 10);
+    req.user = { id: userId, role: req.headers['x-test-role'] || 'buyer' };
+    next();
+  });
+
+  const walletBudget = require('../routes/walletBudget');
+  app.use('/api/wallet', walletBudget);
+
+  return app;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 function addUser(id, monthlyBudget) {
@@ -144,8 +177,20 @@ function addOrder(buyerId, totalPrice, status = 'paid') {
   });
 }
 
+function addOrderFromLastMonth(buyerId, totalPrice, status = 'paid') {
+  const d = new Date();
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  mockOrders.push({
+    id: mockNextOrderId++,
+    buyer_id: buyerId,
+    total_price: totalPrice,
+    status,
+    created_at: d.toISOString(),
+  });
+}
+
 // ---------------------------------------------------------------------------
-// Tests
+// Tests — Monthly Budget Guard (orderBudgetGuard middleware)
 // ---------------------------------------------------------------------------
 describe('Monthly Budget Guard', () => {
   let app;
@@ -172,7 +217,7 @@ describe('Monthly Budget Guard', () => {
       .post('/api/orders')
       .set('x-test-user-id', '2')
       .send({ total_price: 30 }); // 80 + 30 = 110 > 100
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(402);
     expect(res.body.code).toBe('budget_exceeded');
   });
 
@@ -184,7 +229,7 @@ describe('Monthly Budget Guard', () => {
       .post('/api/orders')
       .set('x-test-user-id', '3')
       .send({ total_price: 20 }); // 90 + 20 = 110 > 100
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(402);
     expect(res.body.code).toBe('budget_exceeded');
   });
 
@@ -204,7 +249,7 @@ describe('Monthly Budget Guard', () => {
       .post('/api/orders')
       .set('x-test-user-id', '5')
       .send({ total_price: 1 });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(402);
     expect(res.body.code).toBe('budget_exceeded');
   });
 
@@ -229,6 +274,65 @@ describe('Monthly Budget Guard', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Pre-payment enforcement
+  // Verify the guard rejects BEFORE any INSERT so no order record is created.
+  // -------------------------------------------------------------------------
+  test('budget rejection fires before any order INSERT', async () => {
+    addUser(8, 50);
+    addOrder(8, 50, 'paid'); // at limit
+    const ordersBefore = mockOrders.length;
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('x-test-user-id', '8')
+      .send({ total_price: 1 });
+
+    expect(res.status).toBe(402);
+    expect(res.body.code).toBe('budget_exceeded');
+    // Guard must reject before the stub handler calls INSERT
+    expect(mockOrders.length).toBe(ordersBefore);
+  });
+
+  test('402 response includes limit_xlm and spent_xlm', async () => {
+    addUser(9, 100);
+    addOrder(9, 80, 'paid');
+    const res = await request(app)
+      .post('/api/orders')
+      .set('x-test-user-id', '9')
+      .send({ total_price: 30 });
+    expect(res.status).toBe(402);
+    expect(res.body.limit_xlm).toBe(100);
+    expect(res.body.spent_xlm).toBe(80);
+  });
+
+  // -------------------------------------------------------------------------
+  // Monthly window
+  // Orders from a previous calendar month must not count against the current
+  // month's budget — verifying the date_trunc / JS-UTC-boundary logic.
+  // -------------------------------------------------------------------------
+  test('previous-month orders excluded from monthly spending window', async () => {
+    addUser(11, 100);
+    addOrderFromLastMonth(11, 90, 'paid'); // last month — must NOT count
+    const res = await request(app)
+      .post('/api/orders')
+      .set('x-test-user-id', '11')
+      .send({ total_price: 80 }); // 0 (this month) + 80 < 100 → allowed
+    expect(res.status).toBe(200);
+  });
+
+  test('mix of current and previous month orders — only current month counted', async () => {
+    addUser(12, 100);
+    addOrderFromLastMonth(12, 50, 'paid'); // last month — excluded
+    addOrder(12, 60, 'paid');              // this month — included
+    const res = await request(app)
+      .post('/api/orders')
+      .set('x-test-user-id', '12')
+      .send({ total_price: 50 }); // 60 + 50 = 110 > 100 → rejected
+    expect(res.status).toBe(402);
+    expect(res.body.code).toBe('budget_exceeded');
+  });
+
+  // -------------------------------------------------------------------------
   // Race condition test
   //
   // Two concurrent requests for the same buyer, each individually valid (60 < 100)
@@ -239,7 +343,7 @@ describe('Monthly Budget Guard', () => {
   // advisory lock / serialisation in the guard, both would pass. With it, exactly
   // one succeeds and one is rejected.
   //
-  // Expected: [200, 400] — one success, one rejection.
+  // Expected: [200, 402] — one success, one rejection.
   // -------------------------------------------------------------------------
   test('race condition: two concurrent orders individually valid but combined exceed budget', async () => {
     const BUDGET = 100;
@@ -270,8 +374,8 @@ describe('Monthly Budget Guard', () => {
 
     const statuses = [r1.status, r2.status].sort();
 
-    // Exactly one success (200) and one rejection (400)
-    expect(statuses).toEqual([200, 400]);
+    // Exactly one success (200) and one rejection (402)
+    expect(statuses).toEqual([200, 402]);
 
     // Only one order in the DB
     const inserted = mockOrders.filter(
@@ -285,5 +389,131 @@ describe('Monthly Budget Guard', () => {
       .filter((o) => o.buyer_id === 10 && ['pending', 'paid'].includes(o.status))
       .reduce((sum, o) => sum + o.total_price, 0);
     expect(totalSpent).toBeLessThanOrEqual(BUDGET);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — Wallet Budget Endpoints (walletBudget router)
+// ---------------------------------------------------------------------------
+describe('Wallet Budget Endpoints', () => {
+  let wApp;
+
+  beforeEach(() => {
+    resetState();
+    wApp = buildWalletApp();
+  });
+
+  // --- GET /api/wallet/budget-status ---
+
+  test('GET /budget-status returns limit_xlm, spent_xlm, remaining_xlm, reset_at', async () => {
+    addUser(30, 200);
+    addOrder(30, 80, 'paid');
+    const res = await request(wApp)
+      .get('/api/wallet/budget-status')
+      .set('x-test-user-id', '30');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.limit_xlm).toBe(200);
+    expect(res.body.spent_xlm).toBe(80);
+    expect(res.body.remaining_xlm).toBe(120);
+    // reset_at must be the 1st of a month at midnight UTC
+    expect(res.body.reset_at).toMatch(/^\d{4}-\d{2}-01T00:00:00\.000Z$/);
+  });
+
+  test('GET /budget-status with no budget set returns null limit_xlm and remaining_xlm', async () => {
+    addUser(31, null);
+    const res = await request(wApp)
+      .get('/api/wallet/budget-status')
+      .set('x-test-user-id', '31');
+    expect(res.status).toBe(200);
+    expect(res.body.limit_xlm).toBeNull();
+    expect(res.body.remaining_xlm).toBeNull();
+    expect(res.body.spent_xlm).toBe(0);
+    expect(res.body.reset_at).toBeDefined();
+  });
+
+  test('GET /budget-status reset_at is the start of next month UTC', async () => {
+    addUser(35, 100);
+    const res = await request(wApp)
+      .get('/api/wallet/budget-status')
+      .set('x-test-user-id', '35');
+    const resetAt = new Date(res.body.reset_at);
+    const now = new Date();
+    const expectedNextMonth = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+    );
+    expect(resetAt.getTime()).toBe(expectedNextMonth.getTime());
+  });
+
+  // --- PUT /api/wallet/budget ---
+
+  test('PUT /budget sets a new spending limit', async () => {
+    addUser(32, null);
+    const res = await request(wApp)
+      .put('/api/wallet/budget')
+      .set('x-test-user-id', '32')
+      .send({ limit_xlm: 500 });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.limit_xlm).toBe(500);
+    const user = mockUsers.find((u) => u.id === 32);
+    expect(user.monthly_budget).toBe(500);
+  });
+
+  test('PUT /budget updates an existing limit', async () => {
+    addUser(36, 100);
+    const res = await request(wApp)
+      .put('/api/wallet/budget')
+      .set('x-test-user-id', '36')
+      .send({ limit_xlm: 250 });
+    expect(res.status).toBe(200);
+    expect(res.body.limit_xlm).toBe(250);
+    const user = mockUsers.find((u) => u.id === 36);
+    expect(user.monthly_budget).toBe(250);
+  });
+
+  test('PUT /budget with null removes the limit', async () => {
+    addUser(33, 300);
+    const res = await request(wApp)
+      .put('/api/wallet/budget')
+      .set('x-test-user-id', '33')
+      .send({ limit_xlm: null });
+    expect(res.status).toBe(200);
+    expect(res.body.limit_xlm).toBeNull();
+    const user = mockUsers.find((u) => u.id === 33);
+    expect(user.monthly_budget).toBeNull();
+  });
+
+  test('PUT /budget with 0 removes the limit', async () => {
+    addUser(34, 300);
+    const res = await request(wApp)
+      .put('/api/wallet/budget')
+      .set('x-test-user-id', '34')
+      .send({ limit_xlm: 0 });
+    expect(res.status).toBe(200);
+    expect(res.body.limit_xlm).toBeNull();
+    const user = mockUsers.find((u) => u.id === 34);
+    expect(user.monthly_budget).toBeNull();
+  });
+
+  test('PUT /budget with negative value returns 400', async () => {
+    addUser(37, 100);
+    const res = await request(wApp)
+      .put('/api/wallet/budget')
+      .set('x-test-user-id', '37')
+      .send({ limit_xlm: -10 });
+    expect(res.status).toBe(400);
+  });
+
+  test('PUT /budget response includes current spent_xlm and remaining_xlm', async () => {
+    addUser(38, null);
+    addOrder(38, 40, 'paid');
+    const res = await request(wApp)
+      .put('/api/wallet/budget')
+      .set('x-test-user-id', '38')
+      .send({ limit_xlm: 100 });
+    expect(res.status).toBe(200);
+    expect(res.body.spent_xlm).toBe(40);
+    expect(res.body.remaining_xlm).toBe(60);
   });
 });

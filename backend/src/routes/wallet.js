@@ -16,7 +16,10 @@ const {
   removeTrustline,
   mergeAccount,
   lookupFederationAddress,
+  server,
 } = require('../utils/stellar');
+const { resolveFederationAddress, FederationError } = require('../utils/stellar-accounts');
+const { claimBalance } = require('../utils/stellar-payments');
 const { err } = require('../middleware/error');
 
 const BASE_RESERVE_XLM = 1;
@@ -58,13 +61,6 @@ function availableAfterReserve(balance) {
  *                 referralCode: { type: string }
  */
 router.get('/', auth, async (req, res) => {
-  const cacheKey = `wallet:${req.user.id}`;
-  const cached = await cache.get(cacheKey);
-  if (cached) return res.json(cached);
-
-  const { rows } = await db.query('SELECT stellar_public_key, referral_code FROM users WHERE id = $1', [req.user.id]);
-  const user = rows[0];
-  if (!user) return err(res, 404, 'User not found', 'user_not_found');
   try {
     const cacheKey = `wallet:${req.user.id}`;
     const cached = await cache.get(cacheKey);
@@ -74,22 +70,11 @@ router.get('/', auth, async (req, res) => {
     const user = rows[0];
     if (!user) return err(res, 404, 'User not found', 'user_not_found');
 
-  const [balance, balances] = await Promise.all([
-    getBalance(user.stellar_public_key),
-    getAllBalances(user.stellar_public_key),
-  ]);
+    const [balance, balances] = await Promise.all([
+      getBalance(user.stellar_public_key),
+      getAllBalances(user.stellar_public_key),
+    ]);
 
-  const payload = {
-    success: true,
-    publicKey: user.stellar_public_key,
-    balance,
-    availableBalance: availableAfterReserve(balance),
-    baseReserve: BASE_RESERVE_XLM,
-    balances,
-    referralCode: user.referral_code,
-  };
-  await cache.set(cacheKey, payload, 30);
-  res.json(payload);
     const payload = {
       success: true,
       publicKey: user.stellar_public_key,
@@ -100,7 +85,6 @@ router.get('/', auth, async (req, res) => {
       referralCode: user.referral_code,
     };
     await cache.set(cacheKey, payload, 30);
-    res.json(payload);
     return res.json(payload);
   } catch (e) {
     return err(res, 500, e.message, 'wallet_error');
@@ -429,8 +413,86 @@ router.delete('/trustline', auth, async (req, res) => {
   }
 });
 
-router.post('/merge', auth, async (req, res) => {
-  const destination = String(req.body.destination || '').trim();
+/**
+ * GET /api/wallet/claimable-balances
+ * Returns all claimable balances where the authenticated user's Stellar key is a claimant.
+ */
+router.get('/claimable-balances', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query('SELECT stellar_public_key FROM users WHERE id = $1', [
+      req.user.id,
+    ]);
+    if (!rows[0]) return err(res, 404, 'User not found', 'user_not_found');
+
+    const publicKey = rows[0].stellar_public_key;
+    const result = await server.claimableBalances().claimant(publicKey).limit(20).call();
+
+    const balances = (result.records || []).map((b) => {
+      // Find the claimant predicate for this user to surface condition info
+      const myClaimant = b.claimants.find((c) => c.destination === publicKey);
+      return {
+        id: b.id,
+        amount: b.amount,
+        asset: b.asset,
+        claimants: b.claimants,
+        claimant_condition: myClaimant ? myClaimant.predicate : null,
+        last_modified_time: b.last_modified_time,
+        paging_token: b.paging_token,
+      };
+    });
+
+    res.json({ success: true, data: balances });
+  } catch (e) {
+    return err(res, 500, e.message, 'claimable_balances_error');
+  }
+});
+
+/**
+ * POST /api/wallet/claim
+ * Claims a claimable balance on behalf of the authenticated user.
+ * Body: { balance_id }
+ */
+router.post('/claim', auth, async (req, res) => {
+  const { balance_id } = req.body;
+  if (!balance_id || typeof balance_id !== 'string') {
+    return err(res, 400, 'balance_id is required', 'validation_error');
+  }
+
+  try {
+    const { rows } = await db.query(
+      'SELECT stellar_public_key, stellar_secret_key FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    if (!rows[0]) return err(res, 404, 'User not found', 'user_not_found');
+
+    const txHash = await claimBalance({
+      claimantSecret: rows[0].stellar_secret_key,
+      balanceId: balance_id,
+    });
+
+    // Invalidate wallet cache so the updated balance is fetched fresh
+    await cache.del(`wallet:${req.user.id}`);
+
+    const newBalance = await getBalance(rows[0].stellar_public_key);
+    return res.json({ success: true, txHash, balance: newBalance });
+  } catch (e) {
+    // Translate common Stellar result codes into friendly messages
+    const opCode = e?.response?.data?.extras?.result_codes?.operations?.[0];
+    if (opCode === 'op_does_not_exist') {
+      return err(res, 404, 'Claimable balance not found on ledger', 'balance_not_found');
+    }
+    if (opCode === 'op_cannot_claim') {
+      return err(res, 400, 'Balance is not yet claimable (predicate condition not met)', 'not_claimable');
+    }
+    if (opCode === 'op_not_claimant') {
+      return err(res, 403, 'Your account is not a claimant for this balance', 'not_claimant');
+    }
+    const stellarMsg = opCode || e.message;
+    return res.status(502).json({ success: false, error: `Stellar transaction failed: ${stellarMsg}` });
+  }
+});
+
+router.post('/merge', auth, async (req, res) => {  const destination = String(req.body.destination || '').trim();
   const password = String(req.body.password || '').trim();
 
   if (!destination) {
@@ -480,6 +542,35 @@ router.post('/merge', auth, async (req, res) => {
       success: false,
       error: `Stellar transaction failed: ${stellarMsg}`,
     });
+  }
+});
+
+/**
+ * @swagger
+ * /api/wallet/resolve-federation:
+ *   get:
+ *     summary: Resolve a federation address to a Stellar public key
+ *     tags: [Wallet]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: address
+ *         required: true
+ *         schema: { type: string }
+ *         example: alice*stellar.org
+ */
+router.get('/resolve-federation', auth, async (req, res) => {
+  const address = String(req.query.address || '').trim();
+  if (!address) return err(res, 400, 'address query parameter is required', 'validation_error');
+  try {
+    const { publicKey, memo } = await resolveFederationAddress(address, db);
+    return res.json({ success: true, publicKey, memo: memo || null });
+  } catch (e) {
+    if (e instanceof FederationError) {
+      return res.status(400).json({ success: false, error: e.message, code: e.code });
+    }
+    return err(res, 500, e.message, 'resolve_error');
   }
 });
 

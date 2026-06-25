@@ -14,7 +14,8 @@
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, contracterror, symbol_short,
-    Address, Env,
+    Address, Env, Vec,
+    Address, Bytes, BytesN, Env,
 };
 
 // TTL constants (in ledgers; ~5 s/ledger on Stellar)
@@ -64,6 +65,8 @@ pub enum Role {
 pub enum DataKey {
     Escrow(u64),
     Role(Address, Role),
+    /// Ordered list of all members that currently hold a given role. (#401)
+    RoleMembers(Role),
 }
 
 #[contracttype]
@@ -77,6 +80,21 @@ pub struct EscrowRecord {
     pub status: EscrowStatus,
     /// Optional arbitrator address set when a dispute is opened. (#675)
     pub arbitrator: Option<Address>,
+    /// SHA-256 hash of the product details at order time (#703).
+    /// Verified on release to detect product tampering.
+    pub product_hash: BytesN<32>,
+}
+
+/// Hash product details deterministically for tamper detection (#703).
+/// Input bytes are: name (up to 64 bytes, zero-padded) + price as 8 LE bytes.
+pub fn compute_product_hash(env: &Env, product_name: &Bytes, price_stroops: i128) -> BytesN<32> {
+    let mut buf = Bytes::new(env);
+    buf.append(product_name);
+    // Append price as little-endian 16 bytes
+    let price_bytes = price_stroops.to_le_bytes();
+    let price_bytes_soroban = Bytes::from_array(env, &price_bytes);
+    buf.append(&price_bytes_soroban);
+    env.crypto().sha256(&buf)
 }
 
 #[contract]
@@ -86,6 +104,7 @@ pub struct EscrowContract;
 impl EscrowContract {
     /// Locks `amount` tokens in escrow for `order_id`.
     /// Validates buyer != farmer (#469) and timeout >= now + 1h (#470).
+    /// Stores a `product_hash` derived from `product_name` + `price_stroops` (#703).
     /// Extends TTL after writing (#468, #688).
     /// Emits ("escrow", "deposit", order_id) -> (buyer, farmer, amount) (#471).
     pub fn deposit(
@@ -95,6 +114,8 @@ impl EscrowContract {
         farmer: Address,
         amount: i128,
         timeout_unix: u64,
+        product_name: Bytes,
+        price_stroops: i128,
     ) -> Result<(), EscrowError> {
         if buyer == farmer {
             return Err(EscrowError::InvalidParties);
@@ -112,6 +133,8 @@ impl EscrowContract {
 
         buyer.require_auth();
 
+        let product_hash = compute_product_hash(&env, &product_name, price_stroops);
+
         let record = EscrowRecord {
             buyer: buyer.clone(),
             farmer: farmer.clone(),
@@ -119,6 +142,7 @@ impl EscrowContract {
             timeout_unix,
             status: EscrowStatus::Active,
             arbitrator: None,
+            product_hash,
         };
 
         env.storage().persistent().set(&key, &record);
@@ -133,9 +157,15 @@ impl EscrowContract {
     }
 
     /// Releases escrowed funds to the farmer. Only the buyer may call this.
+    /// Verifies `product_name` + `price_stroops` hash matches the stored hash (#703).
     /// Extends TTL after updating the record (#468, #688).
     /// Emits ("escrow", "release", order_id) -> amount (#471).
-    pub fn release(env: Env, order_id: u64) -> Result<(), EscrowError> {
+    pub fn release(
+        env: Env,
+        order_id: u64,
+        product_name: Bytes,
+        price_stroops: i128,
+    ) -> Result<(), EscrowError> {
         let key = DataKey::Escrow(order_id);
 
         let mut record: EscrowRecord = env
@@ -149,6 +179,12 @@ impl EscrowContract {
         }
 
         record.buyer.require_auth();
+
+        // Verify product details have not been tampered with (#703)
+        let expected_hash = compute_product_hash(&env, &product_name, price_stroops);
+        if expected_hash != record.product_hash {
+            return Err(EscrowError::SnapshotNotFound);
+        }
 
         let amount = record.amount;
         record.status = EscrowStatus::Released;
@@ -323,6 +359,7 @@ impl EscrowContract {
     /// Grants `role` to `account` (#687).
     /// Only a PLATFORM holder may grant roles.
     /// Bootstrap: first grant of Role::Platform is open (no existing platform).
+    /// Also appends `account` to the `RoleMembers(role)` list (#401).
     pub fn grant_role(env: Env, caller: Address, account: Address, role: Role) {
         caller.require_auth();
 
@@ -338,13 +375,27 @@ impl EscrowContract {
             panic!("only a Platform role holder can grant roles");
         }
 
-        let key = DataKey::Role(account, role);
+        let key = DataKey::Role(account.clone(), role.clone());
         env.storage().persistent().set(&key, &true);
         env.storage().persistent().extend_ttl(&key, TTL_MIN, TTL_MAX);
+
+        // Maintain the enumerable members list for this role (#401).
+        let members_key = DataKey::RoleMembers(role.clone());
+        let mut members: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&members_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        if !members.contains(&account) {
+            members.push_back(account);
+            env.storage().persistent().set(&members_key, &members);
+            env.storage().persistent().extend_ttl(&members_key, TTL_MIN, TTL_MAX);
+        }
     }
 
     /// Revokes `role` from `account` (#687).
     /// Only a PLATFORM holder may call this.
+    /// Also removes `account` from the `RoleMembers(role)` list (#401).
     pub fn revoke_role(env: Env, caller: Address, account: Address, role: Role) {
         caller.require_auth();
 
@@ -359,11 +410,32 @@ impl EscrowContract {
             panic!("only a Platform role holder can revoke roles");
         }
 
-        let key = DataKey::Role(account, role);
+        let key = DataKey::Role(account.clone(), role.clone());
         env.storage().persistent().remove(&key);
+
+        // Remove from the enumerable members list (#401).
+        let members_key = DataKey::RoleMembers(role.clone());
+        let mut members: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&members_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        if let Some(idx) = members.iter().position(|a| a == account) {
+            members.remove(idx as u32);
+            env.storage().persistent().set(&members_key, &members);
+        }
     }
 
-    /// Returns true if `account` holds `role` (#687).
+    /// Returns all addresses that currently hold `role`. No auth required. (#401)
+    pub fn get_role_members(env: Env, role: Role) -> Vec<Address> {
+        let members_key = DataKey::RoleMembers(role);
+        env.storage()
+            .persistent()
+            .get(&members_key)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Returns true if `account` holds `role`. No auth required. (#401, #687)
     pub fn has_role(env: Env, account: Address, role: Role) -> bool {
         let key = DataKey::Role(account, role);
         env.storage().persistent().get(&key).unwrap_or(false)

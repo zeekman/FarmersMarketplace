@@ -297,9 +297,45 @@ cargo build --target wasm32-unknown-unknown --release
 - **#470** — `deposit` panics if `timeout_unix` is not at least 1 hour (`3600 s`) in the future.
 - **#471** — `deposit`, `release`, and `refund` each emit a Soroban event so the backend can subscribe to the RPC event stream instead of polling.
 
+## i18n Translation Sync
+
+The project supports English (`en.json`) and Swahili (`sw.json`) via `react-i18next`. A CI script enforces key parity between the two locale files.
+
+### Running the sync check
+
+```bash
+cd frontend
+node scripts/check-i18n-sync.js
+```
+
+This script fails if `sw.json` is missing any keys present in `en.json`. It is also run as part of the test suite (`i18nSync.test.js`).
+
+### Adding new translations
+
+1. Add the English string to `src/i18n/en.json`.
+2. Add the corresponding Swahili translation to `src/i18n/sw.json`.
+3. Run `node scripts/check-i18n-sync.js` to verify parity.
+4. Run `npx vitest run src/test/i18nSync.test.js` to confirm the test passes.
+
+Missing Swahili translations will fall back to the English key string, showing raw translation keys to Swahili users. Always keep both locale files in sync.
+
 ## Notes
 
 - Stellar wallets are auto-created on registration
 - All payments use **XLM on Stellar Testnet** — no real money involved
 - SQLite database file (`market.db`) is created automatically on first run (when `DATABASE_URL` is not set)
 - To reset SQLite: delete `backend/market.db`
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for full guidance on:
+
+- Local dev environment setup (Rust toolchain, Stellar CLI)
+- Build and test commands
+- Lint requirements (`cargo fmt`, `cargo clippy`, `cargo audit`)
+- Branch naming and Conventional Commit format
+- PR requirements and review process
+- Issue workflow and label guide
+
+For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md) instead of opening a public issue.
+

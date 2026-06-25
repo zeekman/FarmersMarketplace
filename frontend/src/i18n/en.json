@@ -60,6 +60,12 @@
     "bulkUploadDesc": "Upload multiple products at once using a CSV file. Maximum 500 rows per upload.",
     "uploadCsv": "📁 Upload CSV",
     "downloadTemplate": "📥 Download Template",
+    "csvRow": "Row",
+    "csvStatus": "Status",
+    "csvDetail": "Detail",
+    "csvCreated": "Created",
+    "csvError": "Error",
+    "downloadErrorReport": "⬇ Download error report",
     "myProfile": "My Farmer Profile",
     "avatar": "Avatar",
     "changeAvatar": "Change Avatar",
@@ -155,7 +161,10 @@
     "previousImage": "Previous image",
     "nextImage": "Next image",
     "thumbnail": "Thumbnail {{n}}",
-    "default": "(Default)"
+    "default": "(Default)",
+    "flashSaleTitle": "Flash Sale",
+    "flashSaleBanner": "Flash sale promotion",
+    "flashSaleSavings": "Save {{pct}}%"
   },
   "wallet": {
     "title": "💳 My Wallet",

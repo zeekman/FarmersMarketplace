@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
+const requireEmailVerified = require('../middleware/requireEmailVerified');
 const cache = require('../cache');
 const validate = require('../middleware/validate');
 const upload = require('../middleware/upload');
@@ -9,6 +10,7 @@ const { sanitizeText } = require('../utils/sanitize');
 const { rewriteImageUrl } = require('../utils/cdn');
 const { sendBackInStockEmail } = require('../utils/mailer');
 const AutomaticOrderProcessor = require('../services/AutomaticOrderProcessor');
+const logger = require('../logger');
 
 
 const VALID_ALLERGENS = ['gluten', 'nuts', 'dairy', 'eggs', 'soy', 'shellfish'];
@@ -56,7 +58,7 @@ router.get('/', async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
   const offset = (page - 1) * limit;
-  const { category, minPrice, maxPrice, seller, available = 'true', lat, lng, radius, grade } = req.query;
+  const { category, minPrice, maxPrice, seller, available = 'true', lat, lng, radius, grade, q } = req.query;
 
   const conditions = [];
   const params = [];
@@ -77,6 +79,22 @@ router.get('/', async (req, res) => {
   if (grade) {
     const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];
     if (VALID_GRADES.includes(grade)) { conditions.push(`p.grade = $${params.length + 1}`); params.push(grade); }
+  }
+
+  // Full-text search: PostgreSQL uses tsvector/GIN; SQLite falls back to LIKE
+  let tsRankSelect = '';
+  let tsOrderBy = null;
+  if (q && q.trim()) {
+    if (db.isPostgres) {
+      conditions.push(`p.search_vector @@ plainto_tsquery('english', $${params.length + 1})`);
+      params.push(q.trim());
+      tsRankSelect = `, ts_rank(p.search_vector, plainto_tsquery('english', $${params.length})) as _ts_rank`;
+      tsOrderBy = '_ts_rank DESC';
+    } else {
+      const likeQ = `%${q.trim()}%`;
+      conditions.push(`(p.name LIKE $${params.length + 1} OR p.description LIKE $${params.length + 2})`);
+      params.push(likeQ, likeQ);
+    }
   }
 
   const filterLat = parseFloat(lat);
@@ -100,16 +118,17 @@ router.get('/', async (req, res) => {
 
   const VALID_SORTS = { price_asc: 'p.price ASC', price_desc: 'p.price DESC', newest: 'p.created_at DESC', popular: 'order_count DESC' };
   const sortKey = VALID_SORTS[req.query.sort] ? req.query.sort : 'newest';
-  const orderBy = VALID_SORTS[sortKey];
-  const popularJoin = sortKey === 'popular'
+  // Text search results ordered by relevance rank; other sorts apply normally
+  const orderBy = tsOrderBy || VALID_SORTS[sortKey];
+  const popularJoin = sortKey === 'popular' && !tsOrderBy
     ? `LEFT JOIN (SELECT product_id, COUNT(*) as order_count FROM orders WHERE status='paid' GROUP BY product_id) oc ON oc.product_id = p.id`
     : '';
-  const popularSelect = sortKey === 'popular' ? ', COALESCE(oc.order_count, 0) as order_count' : '';
+  const popularSelect = sortKey === 'popular' && !tsOrderBy ? ', COALESCE(oc.order_count, 0) as order_count' : '';
 
   const { rows: products } = await db.query(
     `SELECT p.*, u.name as farmer_name, u.latitude as farmer_lat, u.longitude as farmer_lng, u.farm_address as farmer_farm_address,
             ROUND(AVG(r.rating)${db.isPostgres ? '::numeric' : ''}, 1) as avg_rating,
-            COUNT(r.id) as review_count${popularSelect}
+            COUNT(r.id) as review_count${popularSelect}${tsRankSelect}
      FROM products p
      JOIN users u ON p.farmer_id = u.id
      LEFT JOIN reviews r ON r.product_id = p.id
@@ -134,6 +153,11 @@ router.get('/', async (req, res) => {
   }
   await cache.set(cacheKey, payload, 60);
   res.json(payload);
+});
+
+// GET /api/products/allergens — returns the canonical allergen whitelist
+router.get('/allergens', (req, res) => {
+  res.json({ success: true, allergens: VALID_ALLERGENS });
 });
 
 // GET /api/products/:id
@@ -194,7 +218,7 @@ router.get('/:id', (req, res) => {
  *     tags: [Products]
  */
 // POST /api/products
-router.post('/', auth, validate.product, async (req, res) => {
+router.post('/', auth, requireEmailVerified, validate.product, async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can list products', 'forbidden');
 
   const { name, description, unit, category, image_url, nutrition } = req.body;
@@ -208,7 +232,14 @@ router.post('/', auth, validate.product, async (req, res) => {
   const preorder = normalizePreorderInput(req.body);
   if (preorder.error) return err(res, 400, preorder.error, 'validation_error');
 
-  const { weight_kg, available_from } = req.body;
+  const { weight_kg, available_from, available_until } = req.body;
+
+  if (available_until != null) {
+    if (new Date(available_until) <= new Date()) return err(res, 400, 'available_until must be in the future', 'validation_error');
+  }
+  if (available_from != null && available_until != null) {
+    if (new Date(available_from) >= new Date(available_until)) return err(res, 400, 'available_from must be before available_until', 'validation_error');
+  }
 
   const result = db.prepare(
     'INSERT INTO products (farmer_id, name, description, price, quantity, unit, weight_kg) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -344,7 +375,7 @@ router.patch('/:id', auth, async (req, res) => {
     'name', 'description', 'price', 'quantity', 'unit', 'category',
     'low_stock_threshold', 'nutrition', 'pricing_type', 'min_weight', 'max_weight',
     'batch_id', 'is_preorder', 'preorder_delivery_date', 'allergens', 'allowed_regions',
-    'grade', 'carbon_kg_per_unit', 'available_from', 'available_until',
+    'grade', 'carbon_kg_per_unit', 'available_from', 'available_until', 'best_before',
   ];
   const updates = {};
   for (const key of allowed) {
@@ -375,7 +406,7 @@ router.patch('/:id', auth, async (req, res) => {
   }
   if (updates.allergens !== undefined) {
     const allergenResult = parseAndValidateAllergens(updates.allergens);
-    if (allergenResult.error) return err(res, 400, allergenResult.error, 'validation_error');
+    if (allergenResult.error) return err(res, 400, allergenResult.error, 'invalid_allergen');
     updates.allergens = allergenResult.allergens;
   }
   if (updates.allowed_regions !== undefined) {
@@ -384,6 +415,16 @@ router.patch('/:id', auth, async (req, res) => {
   if (updates.grade !== undefined) {
     const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];
     if (!VALID_GRADES.includes(updates.grade)) return err(res, 400, 'grade must be A, B, C, or Ungraded', 'validation_error');
+  }
+  if (updates.best_before !== undefined) {
+    if (updates.best_before !== null && !/^\d{4}-\d{2}-\d{2}$/.test(updates.best_before)) {
+      return err(res, 400, 'best_before must be YYYY-MM-DD or null', 'validation_error');
+    }
+    const currentBestBefore = product.best_before ? String(product.best_before).split('T')[0] : null;
+    const today = new Date().toISOString().split('T')[0];
+    if (updates.best_before !== currentBestBefore && updates.best_before && updates.best_before > today) {
+      updates.expiry_notified_at = null;
+    }
   }
   if (updates.batch_id !== undefined) {
     if (updates.batch_id === null || updates.batch_id === '') {
@@ -395,6 +436,15 @@ router.patch('/:id', auth, async (req, res) => {
       if (!bRows[0]) return err(res, 400, 'Invalid batch_id or not your batch', 'invalid_batch');
       updates.batch_id = bid;
     }
+  }
+
+  if (updates.available_until != null) {
+    if (new Date(updates.available_until) <= new Date()) return err(res, 400, 'available_until must be in the future', 'validation_error');
+  }
+  const patchFrom = updates.available_from != null ? updates.available_from : product.available_from;
+  const patchUntil = updates.available_until !== undefined ? updates.available_until : product.available_until;
+  if (patchFrom != null && patchUntil != null) {
+    if (new Date(patchFrom) >= new Date(patchUntil)) return err(res, 400, 'available_from must be before available_until', 'validation_error');
   }
 
   const nextIsPreorder = updates.is_preorder !== undefined
@@ -701,12 +751,14 @@ router.post('/:id/tiers', auth, async (req, res) => {
   const { tiers } = req.body;
   if (!Array.isArray(tiers)) return err(res, 400, 'tiers must be an array', 'validation_error');
 
-  const sortedTiers = tiers.sort((a, b) => a.min_quantity - b.min_quantity);
+  const sortedTiers = [...tiers].sort((a, b) => a.min_quantity - b.min_quantity);
   for (let i = 0; i < sortedTiers.length; i++) {
     const tier = sortedTiers[i];
     if (!tier.min_quantity || tier.min_quantity < 1 || !Number.isInteger(tier.min_quantity)) return err(res, 400, 'min_quantity must be a positive integer', 'validation_error');
     if (!tier.price_per_unit || tier.price_per_unit <= 0) return err(res, 400, 'price_per_unit must be a positive number', 'validation_error');
-    if (i > 0 && tier.min_quantity <= sortedTiers[i - 1].min_quantity) return err(res, 400, 'min_quantity values must be increasing', 'validation_error');
+    if (i > 0 && tier.min_quantity <= sortedTiers[i - 1].min_quantity) return err(res, 409, 'Overlapping tier ranges detected', 'tier_overlap');
+    // Volume discount: each successive tier must have a lower or equal price
+    if (i > 0 && tier.price_per_unit > sortedTiers[i - 1].price_per_unit) return err(res, 400, 'price_per_unit must be <= the price of the previous tier (volume discount required)', 'validation_error');
   }
 
   await db.query('DELETE FROM price_tiers WHERE product_id = $1', [req.params.id]);
@@ -719,6 +771,35 @@ router.post('/:id/tiers', auth, async (req, res) => {
     [req.params.id]
   );
   res.json({ success: true, data: newTiers });
+});
+
+// DELETE /api/products/:id/tiers/:tierId
+router.delete('/:id/tiers/:tierId', auth, async (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can manage price tiers', 'forbidden');
+  const { rows: prodRows } = await db.query('SELECT * FROM products WHERE id = $1 AND farmer_id = $2', [req.params.id, req.user.id]);
+  if (!prodRows[0]) return err(res, 404, 'Product not found or not yours', 'not_found');
+
+  const { rows: tierRows } = await db.query('SELECT * FROM price_tiers WHERE id = $1 AND product_id = $2', [req.params.tierId, req.params.id]);
+  if (!tierRows[0]) return err(res, 404, 'Tier not found', 'not_found');
+
+  const deletedTier = tierRows[0];
+  await db.query('DELETE FROM price_tiers WHERE id = $1', [req.params.tierId]);
+
+  // Recalculate active subscriptions that used this tier's quantity bracket
+  // Set their next price to be recalculated at next order time by clearing any cached price
+  // (subscriptions use live getTierPrice at order time, so deleting the tier is sufficient;
+  //  but we log affected subscriptions for visibility)
+  const { rows: affected } = await db.query(
+    'SELECT id FROM subscriptions WHERE product_id = $1 AND quantity >= $2 AND active = 1',
+    [req.params.id, deletedTier.min_quantity]
+  );
+  if (affected.length > 0) {
+    logger.info('[tiers] Deleted tier may affect subscriptions; prices will recalculate at next order', {
+      tierId: req.params.tierId, productId: req.params.id, affectedSubscriptions: affected.length,
+    });
+  }
+
+  res.json({ success: true });
 });
 
 // GET /api/products/:id/price-history

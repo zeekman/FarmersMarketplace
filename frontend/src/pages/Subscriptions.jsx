@@ -167,11 +167,14 @@ export default function Subscriptions() {
                 <div style={s.meta}>{sub.quantity} {sub.unit} · {FREQ_LABEL[sub.frequency]}</div>
                 {nextAmount && <div style={s.meta}>Next renewal amount: <strong>{nextAmount}</strong></div>}
                 <div style={s.meta}>Next renewal date: {new Date(sub.next_order_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</div>
-                {sub.next_billing_at && (
+                {sub.next_billing_at ? (
                   <div style={s.meta}>Next billing: {new Date(sub.next_billing_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                ) : (
+                  <div style={s.meta}>Next billing: Billing date not set</div>
                 )}
               </div>
               <div style={s.actions}>
+                <span style={{ ...s.badge, background: '#e8f4fd', color: '#1e40af' }}>{sub.frequency}</span>
                 <span style={{ ...s.badge, ...STATUS_STYLE[sub.status] }}>{sub.status}</span>
                 {sub.status === 'active' && (
                   <button style={{ ...s.smBtn, background: '#fff3cd', color: '#856404' }} onClick={() => handleAction(sub.id, 'pause')}>Pause</button>

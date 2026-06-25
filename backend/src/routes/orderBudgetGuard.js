@@ -1,7 +1,9 @@
 /**
  * orderBudgetGuard.js
  *
- * Middleware that enforces a buyer's monthly budget before an order is created.
+ * Middleware that enforces a buyer's monthly XLM budget before an order is created.
+ * Must be mounted at /api/orders BEFORE the orders router so the check runs
+ * before any Stellar payment is initiated.
  *
  * WHY PENDING ORDERS ARE INCLUDED:
  *   Including only 'paid' orders allows a race condition where multiple concurrent
@@ -9,23 +11,22 @@
  *   resulting in overspending. By including 'pending' orders we count in-flight
  *   orders that have not yet been paid/failed.
  *
- * CONCURRENCY APPROACH — Advisory lock (PostgreSQL) / serialised check (SQLite):
+ * MONTHLY WINDOW:
+ *   PostgreSQL: date_trunc('month', NOW()) to NOW() — resets consistently at
+ *   midnight UTC on the 1st of each month without any application-level date math.
+ *   SQLite (local dev / test): JS-computed UTC month boundaries passed as query
+ *   params — semantically equivalent to date_trunc('month', NOW()).
+ *
+ * CONCURRENCY — Advisory lock (PostgreSQL) / serialised check (SQLite):
  *   On PostgreSQL we acquire a session-level advisory lock keyed on the buyer's
  *   user id before reading the spend total.  This serialises concurrent budget
  *   checks for the same buyer so only one request can pass the gate at a time.
- *   The lock is released automatically when the DB client is released back to
- *   the pool (end of request).
  *
  *   On SQLite (local dev / test) we use a per-user JS promise-chain mutex so
  *   concurrent async checks for the same buyer are serialised in the event loop.
  *
- * TRANSACTION FLOW:
- *   1. Acquire advisory lock for this buyer (Postgres only).
- *   2. Read monthly_budget from users.
- *   3. SUM total_price of orders WHERE status IN ('pending','paid') for this month.
- *   4. If (spent + new_order_price) > budget → reject 400.
- *   5. Otherwise call next(); the order route will INSERT the order.
- *   6. Release lock when the client is returned to the pool.
+ * RESPONSE ON VIOLATION:
+ *   HTTP 402 with { code: 'budget_exceeded', limit_xlm, spent_xlm }
  */
 
 const db = require('../db/schema');
@@ -35,9 +36,6 @@ const router = require('express').Router();
 /**
  * Per-user mutex for the non-Postgres path.
  * Maps userId → Promise (the tail of the current serialised chain).
- * Each new request appends itself to the chain so budget checks are
- * processed one-at-a-time per buyer, preventing concurrent reads from
- * both seeing the same (stale) spend total.
  */
 const userLocks = new Map();
 
@@ -56,10 +54,8 @@ router.post('/', auth, async (req, res, next) => {
 
     const overrideConfirmed = req.body?.budget_override_confirmed === true;
 
-    // Resolve the price of the incoming order so we can check (spent + new) vs budget.
-    // total_price is computed later in the orders route, so we do a best-effort
-    // estimate here using the raw body values.  The authoritative check is the
-    // sum query below; this estimate is only used for the pre-insert rejection.
+    // Best-effort price estimate from the request body; the authoritative total
+    // is computed inside the orders route after all discounts are applied.
     const newOrderPrice = Number(req.body?.total_price ?? req.body?.price ?? 0);
 
     const isPostgres = db.isPostgres;
@@ -67,13 +63,12 @@ router.post('/', auth, async (req, res, next) => {
     if (isPostgres) {
       // --- PostgreSQL path: advisory lock + dedicated client ---
       const client = await db.getClient();
-      res.locals.budgetClient = client; // pass to order route for reuse if needed
+      res.locals.budgetClient = client;
 
       try {
         await client.query('BEGIN');
 
         // Advisory lock serialises concurrent budget checks for this buyer.
-        // pg_try_advisory_xact_lock is transaction-scoped and released on COMMIT/ROLLBACK.
         await client.query('SELECT pg_advisory_xact_lock($1)', [req.user.id]);
 
         const { rows: userRows } = await client.query(
@@ -89,17 +84,15 @@ router.post('/', auth, async (req, res, next) => {
           return next();
         }
 
-        const { start, end } = getMonthRangeUtc();
-
-        // Include both pending and paid orders to prevent race-condition overspending.
+        // date_trunc resets the window at midnight UTC on the 1st of each month.
         const { rows: spendRows } = await client.query(
           `SELECT COALESCE(SUM(total_price), 0) AS spent
            FROM orders
            WHERE buyer_id = $1
              AND status IN ('pending', 'paid')
-             AND created_at >= $2
-             AND created_at < $3`,
-          [req.user.id, start, end],
+             AND created_at >= date_trunc('month', NOW())
+             AND created_at <= NOW()`,
+          [req.user.id],
         );
 
         const spent = Number(spendRows[0]?.spent || 0);
@@ -109,20 +102,15 @@ router.post('/', auth, async (req, res, next) => {
           await client.query('ROLLBACK');
           client.release();
           delete res.locals.budgetClient;
-          return res.status(400).json({
+          return res.status(402).json({
             success: false,
             error: 'Monthly budget exceeded. Set budget_override_confirmed=true to continue.',
             code: 'budget_exceeded',
-            budget,
-            spentThisMonth: spent,
+            limit_xlm: budget,
+            spent_xlm: spent,
           });
         }
 
-        // Keep the transaction open so the advisory lock is held until the order
-        // INSERT completes.  The order route must call COMMIT (or ROLLBACK) and
-        // release the client.  If the order route does not use res.locals.budgetClient
-        // we commit here and release.
-        // For simplicity we commit here — the lock has already serialised the read.
         await client.query('COMMIT');
         client.release();
         delete res.locals.budgetClient;
@@ -137,13 +125,11 @@ router.post('/', auth, async (req, res, next) => {
       // --- Non-Postgres path: JS mutex serialises concurrent checks per buyer ---
       const userId = req.user.id;
 
-      // Build a serialised chain: each request waits for the previous one to finish.
       const prev = userLocks.get(userId) || Promise.resolve();
       let releaseLock;
       const lockPromise = new Promise((resolve) => { releaseLock = resolve; });
       userLocks.set(userId, prev.then(() => lockPromise));
 
-      // Wait for our turn
       await prev;
 
       try {
@@ -158,9 +144,10 @@ router.post('/', auth, async (req, res, next) => {
           return next();
         }
 
+        // SQLite equivalent of date_trunc('month', NOW()): JS-computed UTC month
+        // boundaries passed as query params.
         const { start, end } = getMonthRangeUtc();
 
-        // Include both pending and paid orders to prevent race-condition overspending.
         const { rows: spendRows } = await db.query(
           `SELECT COALESCE(SUM(total_price), 0) AS spent
            FROM orders
@@ -176,22 +163,17 @@ router.post('/', auth, async (req, res, next) => {
 
         if (spent + newOrderPrice > budget && !overrideConfirmed) {
           releaseLock();
-          return res.status(400).json({
+          return res.status(402).json({
             success: false,
             error: 'Monthly budget exceeded. Set budget_override_confirmed=true to continue.',
             code: 'budget_exceeded',
-            budget,
-            spentThisMonth: spent,
+            limit_xlm: budget,
+            spent_xlm: spent,
           });
         }
 
-        // Pass control to the order route; release the lock after next() returns
-        // so the INSERT happens while the lock is still held, preventing a second
-        // concurrent request from reading the pre-insert spend total.
-        await new Promise((resolve, reject) => {
+        await new Promise((resolve) => {
           next();
-          // next() is synchronous in Express — resolve immediately so the lock
-          // is released only after the downstream handler has had a chance to run.
           setImmediate(resolve);
         });
         releaseLock();

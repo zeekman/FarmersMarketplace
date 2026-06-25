@@ -4,6 +4,9 @@ const cron = require('node-cron');
 const db = require('../db/schema');
 const logger = require('../logger');
 
+// Stable lock key for the aggregation job (arbitrary integer)
+const AGG_ADVISORY_LOCK_KEY = 7291837465;
+
 /**
  * Returns the ISO date string (YYYY-MM-DD) for a given Date, defaulting to yesterday.
  * Accepting an explicit date makes the function testable without time-travel.
@@ -20,11 +23,13 @@ function targetDate(d = new Date()) {
  * Idempotent: uses INSERT … ON CONFLICT DO UPDATE (PG) / INSERT OR REPLACE (SQLite)
  * so reruns for the same date safely overwrite stale data.
  *
- * Batching: processes products in chunks of BATCH_SIZE to avoid full-table scans
- * and keep memory usage bounded on large datasets.
+ * PostgreSQL:
+ *   - Acquires pg_try_advisory_lock (embedded in the DISTINCT query CTE) to prevent concurrent runs.
+ *   - last_aggregated_at is updated to NOW() in the ON CONFLICT DO UPDATE clause of each batch INSERT.
+ *   - Incremental: only processes view records created after the minimum last_aggregated_at for the date.
  *
  * @param {string} [date] - ISO date string YYYY-MM-DD; defaults to yesterday.
- * @returns {Promise<{date: string, processed: number, skipped: number}>}
+ * @returns {Promise<{date: string, processed: number, skipped: number}|null>}
  */
 async function aggregateProductViews(date) {
   const aggDate = date || targetDate();
@@ -33,15 +38,25 @@ async function aggregateProductViews(date) {
   logger.info('[product-views-agg] Starting aggregation', { date: aggDate });
 
   // Fetch distinct product IDs that have views on the target date.
-  // Using a targeted date-range query avoids a full scan of product_views.
+  // PostgreSQL: embeds advisory lock acquisition and last_aggregated_at lookup
+  // into the same CTE to avoid extra round-trips.
   let productIds;
   if (db.isPostgres) {
     const { rows } = await db.query(
-      `SELECT DISTINCT product_id
-       FROM product_views
-       WHERE viewed_at >= $1::date AND viewed_at < ($1::date + INTERVAL '1 day')`,
-      [aggDate]
+      `WITH lock_and_since AS (
+         SELECT pg_try_advisory_lock($2) AS lock_acquired,
+                (SELECT MIN(last_aggregated_at) FROM product_view_summaries WHERE view_date = $1::date) AS since_ts
+       )
+       SELECT DISTINCT product_id
+       FROM product_views, lock_and_since
+       WHERE viewed_at >= $1::date
+         AND viewed_at < ($1::date + INTERVAL '1 day')
+         AND lock_and_since.lock_acquired IS NOT FALSE
+         AND (lock_and_since.since_ts IS NULL OR viewed_at > lock_and_since.since_ts)`,
+      [aggDate, AGG_ADVISORY_LOCK_KEY]
     );
+    // If lock was not acquired, rows will be empty; that is indistinguishable from
+    // "no new views" but the lock check prevents double-aggregation.
     productIds = rows.map((r) => r.product_id);
   } else {
     productIds = db
@@ -92,19 +107,21 @@ async function aggregateProductViews(date) {
 /**
  * Aggregate a batch of product IDs for the given date and upsert into the summary table.
  * Wrapped in a transaction so a partial batch failure leaves no partial writes.
+ * PG: updates last_aggregated_at = NOW() in the ON CONFLICT DO UPDATE clause.
  */
 async function aggregateBatch(productIds, aggDate) {
   if (db.isPostgres) {
     // Build a single query that aggregates all products in the batch at once,
-    // then upserts the results.
+    // then upserts the results. last_aggregated_at is updated on conflict.
     const placeholders = productIds.map((_, i) => `$${i + 2}`).join(', ');
     await db.query(
-      `INSERT INTO product_view_summaries (product_id, view_date, view_count, unique_viewers, aggregated_at)
+      `INSERT INTO product_view_summaries (product_id, view_date, view_count, unique_viewers, aggregated_at, last_aggregated_at)
        SELECT product_id,
               $1::date                                AS view_date,
               COUNT(*)                                AS view_count,
               COUNT(DISTINCT COALESCE(user_id, -id))  AS unique_viewers,
-              NOW()                                   AS aggregated_at
+              NOW()                                   AS aggregated_at,
+              NOW()                                   AS last_aggregated_at
        FROM product_views
        WHERE viewed_at >= $1::date
          AND viewed_at < ($1::date + INTERVAL '1 day')
@@ -112,9 +129,10 @@ async function aggregateBatch(productIds, aggDate) {
        GROUP BY product_id
        ON CONFLICT (product_id, view_date)
        DO UPDATE SET
-         view_count     = EXCLUDED.view_count,
-         unique_viewers = EXCLUDED.unique_viewers,
-         aggregated_at  = EXCLUDED.aggregated_at`,
+         view_count          = EXCLUDED.view_count,
+         unique_viewers      = EXCLUDED.unique_viewers,
+         aggregated_at       = EXCLUDED.aggregated_at,
+         last_aggregated_at  = EXCLUDED.last_aggregated_at`,
       [aggDate, ...productIds]
     );
   } else {

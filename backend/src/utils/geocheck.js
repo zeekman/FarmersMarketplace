@@ -47,7 +47,7 @@ function haversineKm(lat1, lng1, lat2, lng2) {
  */
 function checkCoordinateGeoFence(product, deliveryLat, deliveryLng) {
   if (!product.geo_fencing_enabled) {
-    return { checked: false, allowed: true, distanceKm: null };
+    return { checked: false, allowed: true, distanceKm: null, reason: null };
   }
 
   const fenceLat = parseFloat(product.geo_fence_lat);
@@ -61,7 +61,7 @@ function checkCoordinateGeoFence(product, deliveryLat, deliveryLng) {
     radiusKm <= 0
   ) {
     // Incomplete fence config → fail-open (don't block orders)
-    return { checked: false, allowed: true, distanceKm: null };
+    return { checked: false, allowed: true, distanceKm: null, reason: null };
   }
 
   const buyerLat = parseFloat(deliveryLat);
@@ -69,11 +69,16 @@ function checkCoordinateGeoFence(product, deliveryLat, deliveryLng) {
 
   if (!Number.isFinite(buyerLat) || !Number.isFinite(buyerLng)) {
     // Missing buyer coordinates → reject (coordinates required when fence is active)
-    return { checked: true, allowed: false, distanceKm: null };
+    return { checked: true, allowed: false, distanceKm: null, reason: 'coordinates_required' };
   }
 
   const distanceKm = haversineKm(fenceLat, fenceLng, buyerLat, buyerLng);
-  return { checked: true, allowed: distanceKm <= radiusKm, distanceKm };
+  return {
+    checked: true,
+    allowed: distanceKm <= radiusKm,
+    distanceKm,
+    reason: distanceKm <= radiusKm ? null : 'outside_delivery_area',
+  };
 }
 
 /**
