@@ -6,6 +6,8 @@ process.env.JWT_SECRET = 'test-secret-for-jest';
 process.env.NODE_ENV = 'test';
 process.env.RATE_LIMIT_AUTH_MAX = '10000';
 process.env.RATE_LIMIT_GENERAL_MAX = '10000';
+process.env.RATE_LIMIT_LOGIN_MAX = '10000';
+process.env.RATE_LIMIT_REGISTER_MAX = '10000';
 
 const request = require('supertest');
 const jwt = require('jsonwebtoken');

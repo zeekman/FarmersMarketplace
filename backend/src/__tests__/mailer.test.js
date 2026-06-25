@@ -106,3 +106,82 @@ describe('Mailer - SMTP Configuration', () => {
     expect(result).toBeUndefined();
   });
 });
+
+describe('sendWithRetry', () => {
+  const mailOptions = { to: 'buyer@test.com', subject: 'Order Confirmed', text: 'body' };
+  let mailer;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.resetModules();
+    process.env.SMTP_HOST = 'smtp.test.com';
+    process.env.SMTP_USER = 'user@test.com';
+    process.env.SMTP_PASS = 'pass';
+    mailer = require('../utils/mailer');
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    delete process.env.SMTP_HOST;
+    delete process.env.SMTP_USER;
+    delete process.env.SMTP_PASS;
+  });
+
+  test('retries 3 times with exponential backoff delays on failure', async () => {
+    const sendMail = jest.spyOn(mailer.transporter, 'sendMail').mockRejectedValue(new Error('SMTP error'));
+
+    const promise = mailer.sendWithRetry(mailOptions, 'other');
+
+    await Promise.resolve();
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+    jest.advanceTimersByTime(2000);
+    await Promise.resolve();
+
+    await promise;
+
+    expect(sendMail).toHaveBeenCalledTimes(3);
+    sendMail.mockRestore();
+  });
+
+  test('after 3 failures, stores in failed_emails for critical type', async () => {
+    const sendMail = jest.spyOn(mailer.transporter, 'sendMail').mockRejectedValue(new Error('SMTP down'));
+    const mockRun = jest.fn();
+    const mockDb = { prepare: jest.fn(() => ({ run: mockRun })) };
+
+    const promise = mailer.sendWithRetry(mailOptions, 'order_confirmation', mockDb);
+
+    await Promise.resolve();
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+    jest.advanceTimersByTime(2000);
+    await Promise.resolve();
+
+    await promise;
+
+    expect(mockDb.prepare).toHaveBeenCalledWith(
+      'INSERT INTO failed_emails (recipient, subject, error, type) VALUES (?, ?, ?, ?)'
+    );
+    expect(mockRun).toHaveBeenCalledWith('buyer@test.com', 'Order Confirmed', 'SMTP down', 'order_confirmation');
+    sendMail.mockRestore();
+  });
+
+  test('succeeds on second retry without storing in failed_emails', async () => {
+    const sendMail = jest.spyOn(mailer.transporter, 'sendMail')
+      .mockRejectedValueOnce(new Error('temporary'))
+      .mockResolvedValueOnce({});
+    const mockDb = { prepare: jest.fn() };
+
+    const promise = mailer.sendWithRetry(mailOptions, 'order_confirmation', mockDb);
+
+    await Promise.resolve();
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    await promise;
+
+    expect(sendMail).toHaveBeenCalledTimes(2);
+    expect(mockDb.prepare).not.toHaveBeenCalled();
+    sendMail.mockRestore();
+  });
+});

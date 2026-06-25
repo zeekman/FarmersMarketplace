@@ -9,6 +9,9 @@ process.env.RATE_LIMIT_AUTH_MAX = '10000';
 process.env.RATE_LIMIT_GENERAL_MAX = '10000';
 process.env.RATE_LIMIT_ORDER_MAX = '10000';
 process.env.RATE_LIMIT_SEND_MAX = '10000';
+process.env.RATE_LIMIT_LOGIN_MAX = '10000';
+process.env.RATE_LIMIT_REGISTER_MAX = '10000';
+process.env.RATE_LIMIT_ORDER_USER_MAX = '10000';
 
 const mockDb = jest.requireMock('../src/db/schema');
 
