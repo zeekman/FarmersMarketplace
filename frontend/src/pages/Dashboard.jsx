@@ -6,6 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import { getErrorMessage } from '../utils/errorMessages';
 import ProductForm from '../components/dashboard/ProductForm';
+import InlineEditField from '../components/dashboard/InlineEditField';
+import { showToast } from '../utils/toast';
 import FlashSaleManager from '../components/dashboard/FlashSaleManager';
 import AuctionManager from '../components/dashboard/AuctionManager';
 
@@ -185,6 +187,7 @@ export default function Dashboard() {
   const { t } = useTranslation();
   const { rate } = useXlmRate();
   const [products, setProducts] = useState([]);
+  const [inlineEditing, setInlineEditing] = useState({}); // { [productId_field]: true }
   const [restockVals, setRestockVals] = useState({});
   const [harvestBatches, setHarvestBatches] = useState([]);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -582,6 +585,20 @@ export default function Dashboard() {
       load();
     } catch (e) {
       setBulkPriceMsg({ type: 'err', text: e.message || 'Bulk update failed' });
+    }
+  }
+
+  async function handleInlineSave(productId, field, newValue) {
+    // Optimistic update
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, [field]: newValue } : p));
+    try {
+      await api.updateProduct(productId, { [field]: newValue });
+    } catch (e) {
+      // Revert on error
+      setProducts(prev => prev.map(p =>
+        p.id === productId ? { ...p, [field]: products.find(x => x.id === productId)?.[field] } : p
+      ));
+      throw e; // let InlineEditField trigger onError
     }
   }
 
@@ -1021,6 +1038,30 @@ export default function Dashboard() {
                           ? 'Donation'
                           : `${p.price} XLM`}{' '}
                       · {p.quantity} {p.unit}
+                    <div style={{ fontSize: 13, color: '#666', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {p.pricing_model === 'pwyw' ? `Min ${p.min_price} XLM (PWYW)` : p.pricing_model === 'donation' ? 'Donation' : (
+                        <>
+                          <InlineEditField
+                            value={p.price}
+                            type="number"
+                            min={0.0000001}
+                            step="any"
+                            format={(v) => `${v} XLM`}
+                            onSave={(v) => handleInlineSave(p.id, 'price', v)}
+                            onError={(msg) => showToast(msg, 'error')}
+                          />
+                        </>
+                      )}
+                      ·
+                      <InlineEditField
+                        value={p.quantity}
+                        type="number"
+                        min={0}
+                        step={1}
+                        format={(v) => `${v} ${p.unit}`}
+                        onSave={(v) => handleInlineSave(p.id, 'quantity', Math.floor(v))}
+                        onError={(msg) => showToast(msg, 'error')}
+                      />
                     </div>
                     {(p.is_preorder || p.is_preorder === 1) && p.preorder_delivery_date && (
                       <div style={{ fontSize: 12, color: '#e07b00', marginTop: 2 }}>

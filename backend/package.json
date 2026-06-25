@@ -74,6 +74,7 @@
     "pg": "^8.20.0",
     "qrcode": "^1.5.4",
     "sanitize-html": "^2.17.2",
+    "speakeasy": "^2.0.0",
     "stellar-hd-wallet": "^0.0.8",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",

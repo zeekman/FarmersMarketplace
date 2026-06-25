@@ -139,7 +139,7 @@ export const api = {
 
   // Price tiers
   getProductTiers: (id) => request(`/products/${id}/tiers`),
-  getPriceHistory: (id) => request(`/products/${id}/price-history`),
+  getPriceHistory: (id, range) => request(`/products/${id}/price-history${range ? `?range=${range}` : ''}`),
   updateProductTiers: (id, tiers) => request(`/products/${id}/tiers`, { method: 'POST', body: { tiers } }),
 
   uploadProductImage: (file) => {
@@ -267,6 +267,8 @@ export const api = {
     const qs = new URLSearchParams({ page });
     if (filters.search) qs.append('search', filters.search);
     if (filters.role) qs.append('role', filters.role);
+    if (filters.verified) qs.append('verified', filters.verified);
+    if (filters.banned) qs.append('banned', filters.banned);
     return request(`/admin/users?${qs}`);
   },
   adminGetOrders: (page = 1) => request(`/admin/orders?page=${page}`),

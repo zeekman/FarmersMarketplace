@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { useXlmRate } from '../utils/useXlmRate';
 
 const DISCLAIMER_KEY = 'testnet_disclaimer_dismissed';
-const RECONNECT_BASE_MS = 1000;
+const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 30000;
 
 const COMMON_ASSETS = [
@@ -103,6 +103,7 @@ export default function Wallet() {
   const [removingAsset, setRemovingAsset] = useState(null);
 
   const [reconnecting, setReconnecting] = useState(false);
+  const [sseConnected, setSseConnected] = useState(false);
 
   const esRef = useRef(null);
   const reconnectTimer = useRef(null);
@@ -168,13 +169,14 @@ export default function Wallet() {
       es.close();
       esRef.current = null;
       if (unmounted.current) return;
+      setSseConnected(false);
       reconnectDelay.current = Math.min(reconnectDelay.current * 2, RECONNECT_MAX_MS);
       setReconnecting(true);
       reconnectTimer.current = setTimeout(() => {
         connectStream();
       }, reconnectDelay.current);
     });
-    es.onopen = () => { reconnectDelay.current = RECONNECT_BASE_MS; setReconnecting(false); };
+    es.onopen = () => { reconnectDelay.current = RECONNECT_BASE_MS; setReconnecting(false); setSseConnected(true); };
   }, [load]);
 
   useEffect(() => {
@@ -306,6 +308,27 @@ export default function Wallet() {
           ⟳ Reconnecting to live updates…
         </div>
       )}
+
+      {/* SSE connection indicator */}
+      <div
+        role="status"
+        aria-label={sseConnected ? 'Live updates connected' : 'Live updates disconnected'}
+        title={sseConnected ? 'Live updates connected' : 'Live updates disconnected'}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, fontSize: 12, color: sseConnected ? '#2d6a4f' : '#999' }}
+      >
+        <span
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: '50%',
+            background: sseConnected ? '#40c074' : '#bbb',
+            display: 'inline-block',
+            boxShadow: sseConnected ? '0 0 0 3px #d8f3dc' : 'none',
+            transition: 'background 0.3s, box-shadow 0.3s',
+          }}
+        />
+        {sseConnected ? 'Live' : 'Offline'}
+      </div>
 
       {disclaimerVisible && network !== 'mainnet' && (
         <div role="dialog" aria-modal="true" aria-labelledby="disclaimer-modal-title" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>

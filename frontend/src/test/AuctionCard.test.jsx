@@ -2,9 +2,10 @@ import React from 'react';
 import { render, screen, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-vi.mock('../api/client', () => ({ api: { placeBid: vi.fn() } }));
+vi.mock('../api/client', () => ({ api: { placeBid: vi.fn(), getAuction: vi.fn() } }));
 
 import AuctionCard from '../components/AuctionCard';
+import { api } from '../api/client';
 
 const baseAuction = {
   id: 1,
@@ -13,6 +14,7 @@ const baseAuction = {
   current_bid: 5,
   start_price: 3,
   bid_count: 2,
+  status: 'active',
 };
 
 describe('AuctionCard countdown timer (#440)', () => {
@@ -31,7 +33,6 @@ describe('AuctionCard countdown timer (#440)', () => {
     const clearSpy = vi.spyOn(global, 'clearInterval');
     const { unmount } = render(<AuctionCard auction={{ ...baseAuction, ends_at: future }} onBid={vi.fn()} />);
 
-    // Timer should be ticking
     act(() => { vi.advanceTimersByTime(1000); });
     expect(screen.getByText(/left/i)).toBeInTheDocument();
 
@@ -46,5 +47,43 @@ describe('AuctionCard countdown timer (#440)', () => {
 
     act(() => { vi.advanceTimersByTime(3000); });
     expect(screen.getByText('Auction ended')).toBeInTheDocument();
+  });
+});
+
+describe('AuctionCard polling (#766)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    api.getAuction.mockResolvedValue({ id: 1, ...baseAuction, current_bid: 10, bid_count: 3 });
+  });
+  afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
+
+  it('starts polling when auction is active', async () => {
+    const future = new Date(Date.now() + 60000).toISOString();
+    render(<AuctionCard auction={{ ...baseAuction, ends_at: future }} onBid={vi.fn()} />);
+
+    await act(async () => { vi.advanceTimersByTime(5000); });
+    expect(api.getAuction).toHaveBeenCalledWith(1);
+  });
+
+  it('does not poll when auction is not active', async () => {
+    const future = new Date(Date.now() + 60000).toISOString();
+    render(<AuctionCard auction={{ ...baseAuction, status: 'ended', ends_at: future }} onBid={vi.fn()} />);
+
+    await act(async () => { vi.advanceTimersByTime(5000); });
+    expect(api.getAuction).not.toHaveBeenCalled();
+  });
+
+  it('stops polling on unmount', async () => {
+    const clearSpy = vi.spyOn(global, 'clearInterval');
+    const future = new Date(Date.now() + 60000).toISOString();
+    const { unmount } = render(<AuctionCard auction={{ ...baseAuction, ends_at: future }} onBid={vi.fn()} />);
+    unmount();
+    expect(clearSpy).toHaveBeenCalled();
+  });
+
+  it('shows LIVE badge on active auction', () => {
+    const future = new Date(Date.now() + 60000).toISOString();
+    render(<AuctionCard auction={{ ...baseAuction, ends_at: future }} onBid={vi.fn()} />);
+    expect(screen.getByText('LIVE')).toBeInTheDocument();
   });
 });
