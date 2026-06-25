@@ -98,6 +98,8 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/uploads/videos', express.static(path.join(__dirname, '../uploads/videos')));
 
 app.get('/api/csrf-token', csrfTokenHandler);
+// #836: Also expose at /api/auth/csrf-token for SPA initialization (duplicated for discoverability).
+app.get('/api/auth/csrf-token', csrfTokenHandler);
 app.use('/api/categories', categoriesRouter);
 
 // Interactive API documentation

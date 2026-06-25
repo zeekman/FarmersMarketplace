@@ -16,4 +16,8 @@ pub enum EscrowError {
     AlreadySettled = 5,
     /// payer and farmer addresses must be different.
     InvalidParties = 6,
+    /// Contract has already been initialized. (#837)
+    AlreadyInitialized = 7,
+    /// Deposit amount must be greater than zero. (#838)
+    InvalidAmount = 8,
 }

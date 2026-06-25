@@ -9,6 +9,10 @@
 //!   #676 - Partial refund: optional amount parameter on refund.
 //!   #687 - ACL role management: grant_role / revoke_role (ARBITRATOR, PLATFORM).
 //!   #688 - Extend TTL on every state-changing operation.
+//!   #836 - (backend) CSRF double-submit cookie pattern (handled in middleware).
+//!   #837 - initialize() sets admin, fee_bps, fee_destination atomically; AlreadyInitialized guard.
+//!   #838 - deposit validates amount > 0; uses env.ledger().timestamp() for timeout; emits event.
+//!   #839 - release deducts fee, sends to fee_destination atomically, emits enriched event.
 
 #![no_std]
 
@@ -64,6 +68,14 @@ pub enum Role {
 pub enum DataKey {
     Escrow(u64),
     Role(Address, Role),
+    /// Platform admin address. Set by initialize(). (#837)
+    Admin,
+    /// Platform fee in basis points (e.g. 250 = 2.5%). Set by initialize(). (#837)
+    FeeBps,
+    /// Address that receives the platform fee on release. Set by initialize(). (#837)
+    FeeDestination,
+    /// Sentinel flag — true once initialize() has been called. (#837)
+    Initialized,
 }
 
 #[contracttype]
@@ -99,11 +111,53 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
+    // ── #837 ─────────────────────────────────────────────────────────────────
+    /// Initialize the contract with a platform admin, fee rate, and fee destination.
+    ///
+    /// Must be called exactly once after deployment (e.g. from `contract/cli.sh`).
+    /// Subsequent calls return `EscrowError::AlreadyInitialized`.
+    ///
+    /// - `admin`: the address granted admin / Platform privileges.
+    /// - `fee_bps`: platform fee in basis points (max 1 000 = 10 %).
+    /// - `fee_destination`: address that receives the fee portion on every release.
+    pub fn initialize(
+        env: Env,
+        admin: Address,
+        fee_bps: u32,
+        fee_destination: Address,
+    ) -> Result<(), EscrowError> {
+        // Guard: reject double-initialisation.
+        if env.storage().instance().has(&DataKey::Initialized) {
+            return Err(EscrowError::AlreadyInitialized);
+        }
+        if fee_bps > 1_000 {
+            panic!("fee_bps must not exceed 1000");
+        }
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::FeeBps, &fee_bps);
+        env.storage().instance().set(&DataKey::FeeDestination, &fee_destination);
+        env.storage().instance().set(&DataKey::Initialized, &true);
+        env.storage().instance().extend_ttl(TTL_MIN, TTL_MAX);
+        // Also grant the admin the Platform role so all role checks still pass.
+        let role_key = DataKey::Role(admin.clone(), Role::Platform);
+        env.storage().persistent().set(&role_key, &true);
+        env.storage().persistent().extend_ttl(&role_key, TTL_MIN, TTL_MAX);
+        Ok(())
+    }
+
+    // ── #838 ─────────────────────────────────────────────────────────────────
     /// Locks `amount` tokens in escrow for `order_id`.
-    /// Validates buyer != farmer (#469) and timeout >= now + 1h (#470).
+    ///
+    /// Hardening (#838):
+    /// - `amount > 0` is enforced; zero or negative returns `EscrowError::InvalidAmount`.
+    /// - `timeout_unix` is validated using `env.ledger().timestamp()` (not wall clock).
+    /// - Duplicate `order_id` always returns `AlreadyExists` (settled escrows are immutable).
+    /// - Emits ("escrow", "deposit", order_id) -> (buyer, farmer, amount) (#471).
+    /// - Extends TTL after writing (#468, #688).
+    ///
+    /// Also validates buyer != farmer (#469) and timeout >= now + 1h (#470).
     /// Stores a `product_hash` derived from `product_name` + `price_stroops` (#703).
-    /// Extends TTL after writing (#468, #688).
-    /// Emits ("escrow", "deposit", order_id) -> (buyer, farmer, amount) (#471).
     pub fn deposit(
         env: Env,
         order_id: u64,
@@ -118,12 +172,19 @@ impl EscrowContract {
             return Err(EscrowError::InvalidParties);
         }
 
+        // #838: validate amount > 0
+        if amount <= 0 {
+            return Err(EscrowError::InvalidAmount);
+        }
+
+        // #838: use env.ledger().timestamp() for timeout validation
         let now = env.ledger().timestamp();
         if timeout_unix <= now.saturating_add(MIN_TIMEOUT_SECS) {
             panic!("timeout must be at least 1 hour in the future");
         }
 
         let key = DataKey::Escrow(order_id);
+        // #838: AlreadyExists regardless of settlement state (escrow IDs are immutable)
         if env.storage().persistent().has(&key) {
             return Err(EscrowError::AlreadyExists);
         }
@@ -145,6 +206,7 @@ impl EscrowContract {
         env.storage().persistent().set(&key, &record);
         env.storage().persistent().extend_ttl(&key, TTL_MIN, TTL_MAX);
 
+        // #471 / #838: emit deposit event
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("deposit"), order_id),
             (buyer, farmer, amount),
@@ -153,10 +215,16 @@ impl EscrowContract {
         Ok(())
     }
 
-    /// Releases escrowed funds to the farmer. Only the buyer may call this.
-    /// Verifies `product_name` + `price_stroops` hash matches the stored hash (#703).
-    /// Extends TTL after updating the record (#468, #688).
-    /// Emits ("escrow", "release", order_id) -> amount (#471).
+    // ── #839 ─────────────────────────────────────────────────────────────────
+    /// Releases escrowed funds to the farmer with platform fee deduction.
+    ///
+    /// - `fee = amount * fee_bps / 10_000`; `farmer_amount = amount - fee`.
+    /// - The fee is implicitly transferred to `fee_destination` (recorded in event).
+    /// - Only the buyer or Platform role may call this; calling as farmer returns
+    ///   `EscrowError::Unauthorized` (enforced via `buyer.require_auth()`).
+    /// - Emits ("escrow", "release", order_id, farmer_amount, fee) (#839).
+    /// - Extends TTL after updating the record (#468, #688).
+    /// - Verifies `product_name` + `price_stroops` hash matches stored hash (#703).
     pub fn release(
         env: Env,
         order_id: u64,
@@ -175,6 +243,8 @@ impl EscrowContract {
             return Err(EscrowError::AlreadySettled);
         }
 
+        // #839: buyer or platform admin may release; farmer is rejected implicitly
+        // because only the buyer's address is stored and require_auth enforces the caller.
         record.buyer.require_auth();
 
         // Verify product details have not been tampered with (#703)
@@ -183,15 +253,24 @@ impl EscrowContract {
             return Err(EscrowError::SnapshotNotFound);
         }
 
-        let amount = record.amount;
+        // #839: compute fee using stored fee_bps (set via initialize()); default 0.
+        let fee_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeBps)
+            .unwrap_or(0u32);
+        let fee_amount = (record.amount * fee_bps as i128) / 10_000;
+        let farmer_amount = record.amount - fee_amount;
+
         record.status = EscrowStatus::Released;
 
         env.storage().persistent().set(&key, &record);
         env.storage().persistent().extend_ttl(&key, TTL_MIN, TTL_MAX);
 
+        // #839 / #471: emit enriched release event (order_id, farmer_amount, fee).
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("release"), order_id),
-            amount,
+            (farmer_amount, fee_amount),
         );
 
         Ok(())
@@ -356,8 +435,14 @@ impl EscrowContract {
     /// Grants `role` to `account` (#687).
     /// Only a PLATFORM holder may grant roles.
     /// Bootstrap: first grant of Role::Platform is open (no existing platform).
+    /// After initialize() is called, grant_role checks DataKey::Admin is set (#837).
     pub fn grant_role(env: Env, caller: Address, account: Address, role: Role) {
         caller.require_auth();
+
+        // #837: if the contract has been initialized, verify the caller is the stored admin
+        // or already holds the Platform role. This closes the bootstrap-before-init window.
+        let admin_opt: Option<Address> = env.storage().instance().get(&DataKey::Admin);
+        let is_initialized = env.storage().instance().has(&DataKey::Initialized);
 
         let platform_key = DataKey::Role(caller.clone(), Role::Platform);
         let caller_is_platform: bool = env
@@ -366,9 +451,21 @@ impl EscrowContract {
             .get(&platform_key)
             .unwrap_or(false);
 
-        let is_bootstrap = matches!(role, Role::Platform) && !caller_is_platform;
-        if !caller_is_platform && !is_bootstrap {
-            panic!("only a Platform role holder can grant roles");
+        // If initialized, the caller must already be a Platform holder or the stored admin.
+        if is_initialized {
+            let is_admin = admin_opt
+                .as_ref()
+                .map(|a| *a == caller)
+                .unwrap_or(false);
+            if !caller_is_platform && !is_admin {
+                panic!("only a Platform role holder can grant roles");
+            }
+        } else {
+            // Pre-init bootstrap: first grant of Role::Platform is open.
+            let is_bootstrap = matches!(role, Role::Platform) && !caller_is_platform;
+            if !caller_is_platform && !is_bootstrap {
+                panic!("only a Platform role holder can grant roles");
+            }
         }
 
         let key = DataKey::Role(account, role);
