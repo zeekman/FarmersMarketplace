@@ -277,6 +277,9 @@ router.post('/login', loginRateLimit, validate.login, async (req, res) => {
   const rawRefresh = generateRefreshToken();
   await storeRefreshToken(user.id, rawRefresh);
 
+  // #836: Rotate CSRF token on every login to prevent token-fixation attacks.
+  generateCsrfToken(res);
+
   res.cookie('refreshToken', rawRefresh, COOKIE_OPTIONS);
   res.json({
     token: accessToken,
@@ -289,6 +292,13 @@ router.post('/login', loginRateLimit, validate.login, async (req, res) => {
     },
   });
 });
+
+/**
+ * GET /api/auth/csrf-token
+ * Returns a fresh CSRF token for SPA initialization. (#836)
+ * The token is also set as a readable cookie for the double-submit cookie pattern.
+ */
+router.get('/csrf-token', csrfTokenHandler);
 
 /**
  * @swagger

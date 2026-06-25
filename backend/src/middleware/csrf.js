@@ -7,10 +7,11 @@ const CSRF_HEADER = 'x-csrf-token';
 const EXEMPT_PATHS = ['/api/auth/login', '/api/auth/register'];
 
 /**
- * Generates a CSRF token, sets it as a readable cookie, and exposes it in the response.
- * GET /api/csrf-token
+ * Generates a fresh CSRF token and sets it as a readable (non-httpOnly) cookie.
+ * Exported so it can be called from the login handler to rotate the token on
+ * every login, preventing token-fixation attacks. (#836)
  */
-function csrfTokenHandler(req, res) {
+function generateCsrfToken(res) {
   const token = crypto.randomBytes(32).toString('hex');
   res.cookie(CSRF_COOKIE, token, {
     httpOnly: false, // must be readable by JS so the client can send it as a header
@@ -18,12 +19,22 @@ function csrfTokenHandler(req, res) {
     secure: process.env.NODE_ENV === 'production',
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
   });
+  return token;
+}
+
+/**
+ * Generates a CSRF token, sets it as a readable cookie, and exposes it in the response.
+ * GET /api/csrf-token  (also mounted at GET /api/auth/csrf-token for SPA init — #836)
+ */
+function csrfTokenHandler(req, res) {
+  const token = generateCsrfToken(res);
   res.json({ csrfToken: token });
 }
 
 /**
  * Middleware that validates the CSRF token on all state-changing requests.
  * Compares the X-CSRF-Token header against the csrf_token cookie.
+ * Applied globally via app.use() to all non-GET routes (#836).
  */
 function csrfProtect(req, res, next) {
   const method = req.method.toUpperCase();
@@ -67,4 +78,4 @@ function parseCookie(cookieStr, name) {
   return null;
 }
 
-module.exports = { csrfProtect, csrfTokenHandler };
+module.exports = { csrfProtect, csrfTokenHandler, generateCsrfToken };

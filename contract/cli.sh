@@ -23,6 +23,22 @@ invoke() {
 
 case "${1:-help}" in
 
+  # ── #837 ─────────────────────────────────────────────────────────────────
+  # Call once immediately after deployment to set admin, fee_bps, fee_destination.
+  # Example:
+  #   CONTRACT_ID=C... SOURCE=mykey \
+  #   ./cli.sh initialize GADMIN... 250 GFEEDEST...
+  initialize)
+    ADMIN="${2:?Provide admin address}"
+    FEE_BPS="${3:?Provide fee_bps (e.g. 250 for 2.5%)}"
+    FEE_DESTINATION="${4:?Provide fee_destination address}"
+    invoke initialize \
+      --admin "$ADMIN" \
+      --fee_bps "$FEE_BPS" \
+      --fee_destination "$FEE_DESTINATION"
+    echo "Contract initialized. Admin=$ADMIN fee_bps=$FEE_BPS fee_destination=$FEE_DESTINATION"
+    ;;
+
   create)
     # ./cli.sh create <payer> <freelancer> <token> <amount> [deadline]
     PAYER="$2" FREELANCER="$3" TOKEN="$4" AMOUNT="$5"
@@ -67,6 +83,7 @@ case "${1:-help}" in
     echo "Usage: ./cli.sh <subcommand>"
     echo ""
     echo "Subcommands:"
+    echo "  initialize <admin> <fee_bps> <fee_destination>  — #837: call once after deploy"
     echo "  create <payer> <freelancer> <token> <amount> [deadline]"
     echo "  submit    — freelancer submits work"
     echo "  approve   — payer approves and releases funds"
