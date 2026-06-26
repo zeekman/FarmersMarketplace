@@ -15,7 +15,10 @@ frontend/.playwright/
 contract/target/
 contract/Cargo.lock
 contracts/target/
+contracts/Cargo.lock
 contracts/escrow/target/
+# Soroban test snapshot artifacts (written by `cargo test`)
+**/test_snapshots/
 # Test artifacts
 coverage/
 **/__snapshots__/
