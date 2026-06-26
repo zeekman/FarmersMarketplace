@@ -374,6 +374,51 @@ async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublic
 }
 
 /**
+ * Reads an order's escrow record from the Soroban escrow contract via simulation
+ * (read-only — no transaction is submitted). Returns `null` when the record does
+ * not exist on-chain so callers can respond with a 404.
+ * @param {number|string} orderId
+ * @returns {Promise<null | { status: string, buyer: string|null, farmer: string|null, amount: number|null, timeoutUnix: number|null, escrowAddress: string, lastUpdatedLedger: number|null }>}
+ */
+async function getEscrowState(orderId) {
+  const contractId = config.sorobanEscrowContractId;
+  if (!contractId) throw new Error('SOROBAN_ESCROW_CONTRACT_ID is not configured');
+
+  const sim = await simulateContractCall(contractId, 'get_escrow', [
+    { type: 'u64', value: Number(orderId) },
+  ]);
+
+  if (!sim.success) {
+    const msg = sim.error || '';
+    // The contract traps / returns an error when the escrow does not exist.
+    if (/not\s*found|missing|no\s*such|does not exist|UnreachableCodeReached/i.test(msg)) {
+      return null;
+    }
+    const e = new Error(`Failed to read escrow state: ${msg}`);
+    e.code = 'escrow_read_failed';
+    throw e;
+  }
+
+  const data = sim.result;
+  if (data === null || data === undefined) return null;
+
+  // scValToNative yields the contract struct's own field keys; map defensively.
+  const amountRaw = data.amount ?? data.amount_stroops ?? null;
+  const amount = amountRaw == null ? null : Number(amountRaw) / 10_000_000;
+  const timeoutUnix = data.timeout ?? data.timeout_unix ?? data.timeout_at ?? null;
+
+  return {
+    status: data.status != null ? String(data.status) : 'unknown',
+    buyer: data.buyer ?? null,
+    farmer: data.farmer ?? null,
+    amount,
+    timeoutUnix: timeoutUnix != null ? Number(timeoutUnix) : null,
+    escrowAddress: contractId,
+    lastUpdatedLedger: data.last_updated_ledger ?? null,
+  };
+}
+
+/**
  * General-purpose Soroban contract invocation. Prepares, signs, submits, and polls for confirmation.
  * @param {{ contractId: string, method: string, args?: Array<{ type: string, value: unknown }>, signerSecret: string }} params
  * @returns {Promise<{ hash: string, result: unknown }>}
@@ -690,6 +735,7 @@ module.exports = {
   getContractWasmHash,
   simulateContractCall,
   invokeEscrowContract,
+  getEscrowState,
   invokeContract,
   simulateContract,
   getContractABI,
