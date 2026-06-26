@@ -9,7 +9,11 @@
 
 const db = require('../db/schema');
 const { sendPayment, getBalance } = require('../utils/stellar');
+const { invokeEscrowContract } = require('../utils/stellar-contracts');
 const { sendOrderEmails } = require('../utils/mailer');
+
+// Default escrow timeout for automatic (waitlist) orders: 7 days from deposit.
+const DEFAULT_ESCROW_TIMEOUT_DAYS = 7;
 
 class AutomaticOrderProcessor {
   /**
@@ -85,6 +89,7 @@ class AutomaticOrderProcessor {
         success: true,
         orderId: orderResult.order.id,
         txHash: orderResult.order.stellar_tx_hash,
+        escrowOrderId: orderResult.escrowOrderId || null,
         totalPrice,
         code: 'ORDER_CREATED',
       };
@@ -223,23 +228,35 @@ class AutomaticOrderProcessor {
         };
       }
 
-      // Process payment
-      const paymentResult = await this.processPayment(order, buyer, farmer);
+      // Process payment — products opting into Soroban escrow use the escrow
+      // contract for buyer protection; all others use a direct Stellar payment.
+      const paymentResult = product.use_soroban_escrow
+        ? await this.processEscrowDeposit(order, buyer, farmer)
+        : await this.processPayment(order, buyer, farmer);
 
       if (!paymentResult.success) {
-        // Persist order as payment_failed and restore stock
-        await db.query('UPDATE orders SET status = $1 WHERE id = $2', ['payment_failed', order.id]);
+        // Persist order failure and restore stock. Escrow failures use a
+        // dedicated status so the waitlist entry can be marked 'escrow_failed'.
+        const failedStatus = paymentResult.code === 'ESCROW_FAILED' ? 'escrow_failed' : 'payment_failed';
+        await db.query('UPDATE orders SET status = $1 WHERE id = $2', [failedStatus, order.id]);
         await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [waitlistEntry.quantity, product.id]);
         await db.query('COMMIT');
         return { ...paymentResult, orderId: order.id };
       }
 
       // Update order with payment details
-      await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', [
-        'paid',
-        paymentResult.txHash,
-        order.id,
-      ]);
+      if (product.use_soroban_escrow) {
+        await db.query(
+          'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4 WHERE id = $5',
+          ['paid', paymentResult.txHash, paymentResult.escrowOrderId, 'funded', order.id]
+        );
+      } else {
+        await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', [
+          'paid',
+          paymentResult.txHash,
+          order.id,
+        ]);
+      }
 
       // Commit transaction
       await db.query('COMMIT');
@@ -250,8 +267,10 @@ class AutomaticOrderProcessor {
           ...order,
           status: 'paid',
           stellar_tx_hash: paymentResult.txHash,
+          escrow_order_id: paymentResult.escrowOrderId || null,
         },
         txHash: paymentResult.txHash,
+        escrowOrderId: paymentResult.escrowOrderId || null,
       };
     } catch (error) {
       await db.query('ROLLBACK');
@@ -263,6 +282,49 @@ class AutomaticOrderProcessor {
   async _getBalance(publicKey) {
     const { getBalance } = require('../utils/stellar');
     return getBalance(publicKey);
+  }
+
+  /**
+   * Deposit an automatic order's funds into the Soroban escrow contract.
+   * Used when the product has `use_soroban_escrow = true` so auto-placed
+   * waitlist orders get the same buyer protection as manual escrow orders.
+   * @param {Object} order - The order details
+   * @param {Object} buyer - The buyer details
+   * @param {Object} farmer - The farmer details
+   * @returns {Promise<{success: boolean, txHash?: string, escrowOrderId?: number, error?: string, code?: string}>}
+   */
+  async processEscrowDeposit(order, buyer, farmer) {
+    try {
+      const timeoutDays = parseInt(
+        process.env.SOROBAN_ESCROW_TIMEOUT_DAYS || String(DEFAULT_ESCROW_TIMEOUT_DAYS),
+        10
+      );
+      const timeoutUnix = Math.floor(Date.now() / 1000) + timeoutDays * 24 * 60 * 60;
+
+      const result = await invokeEscrowContract({
+        action: 'deposit',
+        senderSecret: buyer.stellar_secret_key,
+        orderId: order.id,
+        buyerPublicKey: buyer.stellar_public_key,
+        farmerPublicKey: farmer.stellar_public_key,
+        amount: order.total_price,
+        timeoutUnix,
+      });
+
+      return {
+        success: true,
+        txHash: result.txHash,
+        escrowOrderId: order.id,
+        code: 'ESCROW_FUNDED',
+      };
+    } catch (error) {
+      console.error('[AutomaticOrderProcessor] Escrow deposit failed:', error.message);
+      return {
+        success: false,
+        error: 'Escrow deposit failed: ' + error.message,
+        code: 'ESCROW_FAILED',
+      };
+    }
   }
 
   /**
@@ -609,9 +671,10 @@ Farmers Marketplace`;
             code: orderResult.code,
           });
 
+          const failedStatus = orderResult.code === 'ESCROW_FAILED' ? 'escrow_failed' : 'payment_failed';
           await db.query(
             'UPDATE waitlist_entries SET status = $1 WHERE id = $2',
-            ['payment_failed', entry.id]
+            [failedStatus, entry.id]
           );
 
           sendOrderEmails({
