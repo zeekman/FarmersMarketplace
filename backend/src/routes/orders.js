@@ -154,12 +154,29 @@ async function handleBundleOrder(req, res, bundle_id, address_id, coupon_code, u
   let orderIds = [];
   try {
     await db.query('BEGIN');
+    // Lock rows to prevent race conditions
+    const productIds = bundleItems.map((i) => i.product_id);
+    const placeholders = productIds.map((_, i) => `$${i + 1}`).join(',');
+    const { rows: lockedProducts } = await db.query(
+      `SELECT id, name, quantity FROM products WHERE id IN (${placeholders}) FOR UPDATE`,
+      productIds
+    );
+    const stockMap = {};
+    for (const p of lockedProducts) stockMap[p.id] = p;
+
+    const outOfStock = [];
     for (const item of bundleItems) {
-      const { rowCount } = await db.query(
-        'UPDATE products SET quantity = quantity - $1 WHERE id = $2 AND quantity >= $3',
-        [item.quantity, item.product_id, item.quantity]
-      );
-      if (rowCount === 0) throw new Error(`Insufficient stock for "${item.product_name}"`);
+      const stock = stockMap[item.product_id];
+      if (!stock || stock.quantity < item.quantity)
+        outOfStock.push({ product_id: item.product_id, product_name: item.product_name, available: stock?.quantity ?? 0, required: item.quantity });
+    }
+    if (outOfStock.length > 0) {
+      await db.query('ROLLBACK');
+      return res.status(409).json({ success: false, code: 'insufficient_stock', outOfStock });
+    }
+
+    for (const item of bundleItems) {
+      await db.query('UPDATE products SET quantity = quantity - $1 WHERE id = $2', [item.quantity, item.product_id]);
     }
     for (const item of bundleItems) {
       const itemPrice = (item.product_price * item.quantity) / individualTotal * bundle.price;
@@ -205,6 +222,12 @@ async function handleBundleOrder(req, res, bundle_id, address_id, coupon_code, u
       coupon: appliedCoupon ? { code: appliedCoupon.code, discount_type: appliedCoupon.discount_type } : undefined,
     };
     if (idempotencyKey) await cacheResponse(idempotencyKey, { ...responseData, _status: 200 });
+
+    // Send bundle receipt email (non-fatal)
+    const { sendBundleReceiptEmail } = require('../utils/mailer');
+    sendBundleReceiptEmail({ buyer, bundle, items: bundleItems, totalPrice, discount, txHash })
+      .catch(() => {});
+
     return res.json(responseData);
   } catch (e) {
     await db.query('BEGIN');
