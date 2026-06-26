@@ -34,8 +34,8 @@ router.post('/', auth, async (req, res) => {
   );
   const coopId = rows[0].id;
 
-  // Add creator as first member
-  await db.query(`INSERT INTO cooperative_members (cooperative_id, user_id) VALUES ($1, $2)`, [
+  // Add creator as first member and admin
+  await db.query(`INSERT INTO cooperative_members (cooperative_id, user_id, is_admin) VALUES ($1, $2, TRUE)`, [
     coopId,
     req.user.id,
   ]);
@@ -351,6 +351,100 @@ router.post('/transactions/:id/sign', auth, async (req, res) => {
     signaturesCollected: signatures.length,
     required: ptx.multisig_threshold,
   });
+});
+
+// POST /api/cooperatives/:id/join — farmer joins a cooperative
+router.post('/:id/join', auth, async (req, res) => {
+  const coopId = parseInt(req.params.id, 10);
+  const { rows: coopRows } = await db.query('SELECT id FROM cooperatives WHERE id = $1', [coopId]);
+  if (!coopRows.length) return err(res, 404, 'Cooperative not found', 'not_found');
+
+  const { rows: existing } = await db.query(
+    'SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2',
+    [coopId, req.user.id]
+  );
+  if (existing.length) return err(res, 409, 'Already a member', 'already_member');
+
+  await db.query('INSERT INTO cooperative_members (cooperative_id, user_id) VALUES ($1, $2)', [coopId, req.user.id]);
+  res.status(201).json({ success: true });
+});
+
+// POST /api/cooperatives/:id/leave — farmer leaves a cooperative
+router.post('/:id/leave', auth, async (req, res) => {
+  const coopId = parseInt(req.params.id, 10);
+  const { rows: memRows } = await db.query(
+    'SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2',
+    [coopId, req.user.id]
+  );
+  if (!memRows.length) return err(res, 404, 'Not a member', 'not_found');
+
+  // Check if farmer is the last admin
+  const { rows: adminRows } = await db.query(
+    'SELECT user_id FROM cooperative_members WHERE cooperative_id = $1 AND is_admin = TRUE',
+    [coopId]
+  );
+  const adminIds = adminRows.map((r) => r.user_id);
+  if (adminIds.length === 1 && adminIds[0] === req.user.id)
+    return err(res, 400, 'Transfer admin role before leaving.', 'last_admin');
+
+  await db.query('DELETE FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2', [coopId, req.user.id]);
+  res.json({ success: true });
+});
+
+// PATCH /api/cooperatives/:id/admin — transfer admin role
+router.patch('/:id/admin', auth, async (req, res) => {
+  const coopId = parseInt(req.params.id, 10);
+  const { new_admin_id } = req.body;
+  if (!new_admin_id) return err(res, 400, 'new_admin_id is required', 'validation_error');
+
+  // Verify caller is admin
+  const { rows: callerRows } = await db.query(
+    'SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2 AND is_admin = TRUE',
+    [coopId, req.user.id]
+  );
+  if (!callerRows.length) return err(res, 403, 'Only admins can transfer admin role', 'forbidden');
+
+  // Verify target is a member
+  const { rows: targetRows } = await db.query(
+    'SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2',
+    [coopId, new_admin_id]
+  );
+  if (!targetRows.length) return err(res, 404, 'Target user is not a member', 'not_found');
+
+  await db.query('UPDATE cooperative_members SET is_admin = FALSE WHERE cooperative_id = $1 AND user_id = $2', [coopId, req.user.id]);
+  await db.query('UPDATE cooperative_members SET is_admin = TRUE WHERE cooperative_id = $1 AND user_id = $2', [coopId, new_admin_id]);
+  res.json({ success: true });
+});
+
+// GET /api/cooperatives/:id/products — all products from member farmers, paginated
+router.get('/:id/products', async (req, res) => {
+  const coopId = parseInt(req.params.id, 10);
+  const page = Math.max(1, parseInt(req.query.page || '1', 10));
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '20', 10)));
+  const offset = (page - 1) * limit;
+
+  const { rows: coopRows } = await db.query('SELECT id FROM cooperatives WHERE id = $1', [coopId]);
+  if (!coopRows.length) return err(res, 404, 'Cooperative not found', 'not_found');
+
+  const { rows } = await db.query(
+    `SELECT p.*, u.name as farmer_name
+     FROM products p
+     JOIN users u ON p.farmer_id = u.id
+     WHERE p.farmer_id IN (
+       SELECT user_id FROM cooperative_members WHERE cooperative_id = $1
+     )
+     ORDER BY p.created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [coopId, limit, offset]
+  );
+
+  const { rows: countRows } = await db.query(
+    `SELECT COUNT(*)::int as total FROM products p
+     WHERE p.farmer_id IN (SELECT user_id FROM cooperative_members WHERE cooperative_id = $1)`,
+    [coopId]
+  );
+
+  res.json({ success: true, data: rows, total: countRows[0].total, page, limit });
 });
 
 // GET /api/cooperatives/:id/pending — list pending transactions for a cooperative
