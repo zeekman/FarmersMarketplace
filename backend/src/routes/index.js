@@ -366,7 +366,7 @@ registerRoute('/', '/coupons', require('./coupons'));
 registerRoute('/', '/alerts', require('./alerts'));
 registerRoute('/', '/products/import', require('./productImport'));
 registerRoute('/', '', require('./reviews'));
-registerRoute('/', '', require('./network'));
+registerRoute('/', '/network', require('./network'));
 registerRoute('/', '/batches', require('./batches'));
 registerRoute('/', '/products/flashSales', require('./flashSales'));
 registerRoute('/', '/products/videos', require('./productVideos'));
