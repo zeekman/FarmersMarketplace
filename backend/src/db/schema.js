@@ -31,7 +31,7 @@ function normalizeBooleans(row) {
   if (!row || typeof row !== 'object') return row;
 
   const normalized = { ...row };
-  const booleanColumns = ['active', 'fee_bumped', 'is_preorder', 'low_stock_alerted', 'acknowledged'];
+  const booleanColumns = ['active', 'fee_bumped', 'is_preorder', 'low_stock_alerted', 'acknowledged', 'success'];
 
   for (const col of booleanColumns) {
     if (col in normalized) {

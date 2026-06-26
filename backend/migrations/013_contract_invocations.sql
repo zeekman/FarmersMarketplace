@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS contract_invocations (
   args        TEXT,
   result      TEXT,
   tx_hash     TEXT,
-  success     INTEGER NOT NULL DEFAULT 1,
+  success     BOOLEAN NOT NULL DEFAULT TRUE,
   error       TEXT,
   invoked_by  INTEGER REFERENCES users(id),
   invoked_at  DATETIME DEFAULT CURRENT_TIMESTAMP
