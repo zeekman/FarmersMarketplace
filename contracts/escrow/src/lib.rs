@@ -49,6 +49,9 @@ pub enum EscrowError {
     /// (Issue suggested extending InvalidAmount; a dedicated variant is clearer.
     /// Code 16 is used because 12/8 are already taken by other variants.)
     BelowMinDeposit     = 16,
+    /// `batch_release` was called with more than `MAX_BATCH_RELEASE` order IDs. (#856)
+    /// (Issue suggested code 12, but that is already `NotEnoughSignatures`; 17 is used.)
+    BatchTooLarge       = 17,
 }
 
 #[derive(Clone, PartialEq)]
@@ -494,6 +497,111 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::MinDeposit)
             .unwrap_or(MIN_DEPOSIT_STROOPS)
+    }
+
+    /// Release many escrows to their farmers in a single transaction. (#856)
+    ///
+    /// Callable by the Platform role only (the platform address authorises the
+    /// whole batch, so individual buyer signatures are not required). Reduces the
+    /// per-release transaction fee for cron-driven settlement of many small orders.
+    ///
+    /// - At most `MAX_BATCH_RELEASE` (20) IDs are accepted, matching Stellar's
+    ///   per-transaction operation limit; otherwise `EscrowError::BatchTooLarge`.
+    /// - Each release is independent: a failing one emits
+    ///   ("escrow", "batch_release_error", order_id) and the batch continues.
+    /// - Returns one `(order_id, succeeded)` pair per input ID, in order.
+    pub fn batch_release(
+        env: Env,
+        order_ids: Vec<u64>,
+    ) -> Result<Vec<(u64, bool)>, EscrowError> {
+        // Platform-role authorization for the whole batch.
+        let platform: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Platform)
+            .ok_or(EscrowError::Unauthorized)?;
+        platform.require_auth();
+
+        if order_ids.len() > MAX_BATCH_RELEASE {
+            return Err(EscrowError::BatchTooLarge);
+        }
+
+        let mut results: Vec<(u64, bool)> = Vec::new(&env);
+        for order_id in order_ids.iter() {
+            match Self::release_internal(&env, order_id) {
+                Ok(()) => results.push_back((order_id, true)),
+                Err(_) => {
+                    env.events().publish(
+                        (
+                            symbol_short!("escrow"),
+                            soroban_sdk::Symbol::new(&env, "batch_release_error"),
+                            order_id,
+                        ),
+                        (),
+                    );
+                    results.push_back((order_id, false));
+                }
+            }
+        }
+        Ok(results)
+    }
+
+    /// Core release logic shared by `batch_release` (#856) — releases an escrow
+    /// to its farmer with the stored platform fee, WITHOUT requiring buyer auth
+    /// (the caller is responsible for authorization). Returns an error instead of
+    /// panicking so a batch can continue past individual failures.
+    fn release_internal(env: &Env, order_id: u64) -> Result<(), EscrowError> {
+        let mut escrow: Escrow = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(order_id))
+            .ok_or(EscrowError::NotFound)?;
+
+        match escrow.status {
+            EscrowStatus::Released | EscrowStatus::Refunded => {
+                return Err(EscrowError::AlreadySettled);
+            }
+            EscrowStatus::Disputed => return Err(EscrowError::InDispute),
+            EscrowStatus::Active => {}
+        }
+
+        // Enforce the token stored at deposit time.
+        let stored_token: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Token(order_id))
+            .ok_or(EscrowError::NotFound)?;
+        if stored_token != escrow.token {
+            return Err(EscrowError::InvalidToken);
+        }
+
+        let token_client = token::Client::new(env, &escrow.token);
+        let effective_bps: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
+        let fee_amount = (escrow.amount * effective_bps as i128) / 10_000;
+        let farmer_amount = escrow.amount - fee_amount;
+
+        if fee_amount > 0 {
+            let fee_dest: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::FeeDestination)
+                .or_else(|| env.storage().instance().get(&DataKey::Platform))
+                .ok_or(EscrowError::NotFound)?;
+            token_client.transfer(&env.current_contract_address(), &fee_dest, &fee_amount);
+        }
+        token_client.transfer(&env.current_contract_address(), &escrow.farmer, &farmer_amount);
+
+        escrow.status = EscrowStatus::Released;
+        env.storage().persistent().set(&DataKey::Escrow(order_id), &escrow);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
+
+        env.events().publish(
+            (symbol_short!("escrow"), symbol_short!("release")),
+            (order_id, farmer_amount, fee_amount),
+        );
+        Ok(())
     }
 
     /// Refund funds to the buyer after timeout.
@@ -1682,5 +1790,66 @@ mod test {
         for amount in [min, min + 1, 10_000_000, 1_000_000_000] {
             assert!(amount >= min, "amount {amount} should satisfy the minimum-deposit guard");
         }
+    }
+
+    // ── #856 batch release tests ──────────────────────────────────────────────
+
+    #[test]
+    fn batch_release_too_large() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let platform = Address::generate(&env);
+        env.storage().instance().set(&DataKey::Platform, &platform);
+
+        let mut ids: Vec<u64> = Vec::new(&env);
+        for i in 0..21u64 {
+            ids.push_back(i);
+        }
+        let result = EscrowContract::batch_release(env, ids);
+        assert_eq!(result, Err(EscrowError::BatchTooLarge));
+    }
+
+    #[test]
+    fn batch_release_partial_failure_continues() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let platform = Address::generate(&env);
+        env.storage().instance().set(&DataKey::Platform, &platform);
+
+        // order 800 does not exist -> NotFound; order 801 is already settled ->
+        // AlreadySettled. Both fail, but the batch must process both and report each.
+        let buyer = Address::generate(&env);
+        let farmer = Address::generate(&env);
+        let token = Address::generate(&env);
+        let settled = Escrow {
+            buyer,
+            farmer,
+            token,
+            amount: 1_000,
+            timeout_unix: 0,
+            status: EscrowStatus::Released,
+        };
+        env.storage().persistent().set(&DataKey::Escrow(801), &settled);
+
+        let mut ids: Vec<u64> = Vec::new(&env);
+        ids.push_back(800u64);
+        ids.push_back(801u64);
+
+        let results = EscrowContract::batch_release(env, ids).unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results.get(0).unwrap(), (800u64, false));
+        assert_eq!(results.get(1).unwrap(), (801u64, false));
+    }
+
+    #[test]
+    fn batch_release_empty_is_ok() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let platform = Address::generate(&env);
+        env.storage().instance().set(&DataKey::Platform, &platform);
+
+        let ids: Vec<u64> = Vec::new(&env);
+        let results = EscrowContract::batch_release(env, ids).unwrap();
+        assert_eq!(results.len(), 0);
     }
 }
