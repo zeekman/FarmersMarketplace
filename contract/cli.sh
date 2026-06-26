@@ -1,24 +1,59 @@
 #!/usr/bin/env bash
 # Escrow contract CLI — wraps `stellar contract invoke`
-# Usage: ./cli.sh <subcommand> [args]
+# Usage: ./cli.sh <subcommand> [args] [--secret-key S...]
 #
 # Required env vars:
 #   CONTRACT_ID   — deployed contract address
 #   NETWORK       — testnet | mainnet | standalone (default: testnet)
 #   SOURCE        — Stellar account key name (from `stellar keys`)
+#
+# Non-interactive signing (CI):
+#   Pass --secret-key S... as a flag, or set STELLAR_SECRET_KEY in the
+#   environment. When supplied, the raw secret key signs the transaction
+#   instead of a named `stellar keys` identity — no interactive prompt. (#859)
 
 set -euo pipefail
 
 CONTRACT_ID="${CONTRACT_ID:?Set CONTRACT_ID}"
 NETWORK="${NETWORK:-testnet}"
 SOURCE="${SOURCE:-default}"
+SECRET_KEY="${STELLAR_SECRET_KEY:-}"
+
+# Pre-scan argv for --secret-key so it can appear anywhere (CI convenience). (#859)
+ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --secret-key)
+      SECRET_KEY="${2:?--secret-key requires a value}"
+      shift 2
+      ;;
+    --secret-key=*)
+      SECRET_KEY="${1#*=}"
+      shift
+      ;;
+    *)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${ARGS[@]:-}"
 
 invoke() {
-  stellar contract invoke \
-    --id "$CONTRACT_ID" \
-    --network "$NETWORK" \
-    --source "$SOURCE" \
-    -- "$@"
+  if [ -n "$SECRET_KEY" ]; then
+    # CI path: sign non-interactively with a raw secret key.
+    stellar contract invoke \
+      --id "$CONTRACT_ID" \
+      --network "$NETWORK" \
+      --source-account "$SECRET_KEY" \
+      -- "$@"
+  else
+    stellar contract invoke \
+      --id "$CONTRACT_ID" \
+      --network "$NETWORK" \
+      --source "$SOURCE" \
+      -- "$@"
+  fi
 }
 
 case "${1:-help}" in
