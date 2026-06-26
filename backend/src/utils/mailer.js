@@ -202,6 +202,48 @@ async function sendAuctionNoSaleEmail({ bidder, auction }) {
   });
 }
 
+async function sendDisputeOpenedEmail({ buyer, order, farmerName, farmerEmail }) {
+  if (!SMTP_CONFIGURED) return;
+  await Promise.all([
+    transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: buyer.email,
+      subject: `Dispute Filed – Order #${order.id || order.order_id}`,
+      text: `Hi ${buyer.name},\n\nYour dispute for Order #${order.id || order.order_id} has been filed and is under review.\n\nFarmers Marketplace`,
+    }),
+    transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: farmerEmail,
+      subject: `Dispute Opened – Order #${order.id || order.order_id}`,
+      text: `Hi ${farmerName},\n\nA dispute has been filed against Order #${order.id || order.order_id} by the buyer.\n\nPlease log in to review.\n\nFarmers Marketplace`,
+    }),
+  ]);
+}
+
+async function sendDisputeResolvedEmail({ dispute, order, product, buyer, farmerEmail, farmerName }) {
+  if (!SMTP_CONFIGURED) return;
+  const subject = `Dispute Resolved – Order #${order.id}`;
+  const body = `Dispute for Order #${order.id} (${product?.name || ''}) has been resolved.\n\nResolution: ${dispute.resolution}\n\nFarmers Marketplace`;
+  const emails = [
+    transporter.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: buyer.email, subject, text: `Hi ${buyer.name},\n\n${body}` }),
+  ];
+  if (farmerEmail) {
+    emails.push(transporter.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: farmerEmail, subject, text: `Hi ${farmerName || 'Farmer'},\n\n${body}` }));
+  }
+  await Promise.all(emails);
+}
+
+async function sendBundleReceiptEmail({ buyer, bundle, items, totalPrice, discount, txHash }) {
+  if (!SMTP_CONFIGURED) return;
+  const itemLines = items.map((i) => `  - ${i.product_name} x${i.quantity}`).join('\n');
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: buyer.email,
+    subject: `Bundle Receipt – ${bundle.name}`,
+    text: `Hi ${buyer.name},\n\nThank you for your bundle purchase!\n\nBundle: ${bundle.name}\nItems:\n${itemLines}\n\nDiscount: ${discount} XLM\nTotal Paid: ${totalPrice} XLM\nTX Hash: ${txHash}\n\nFarmers Marketplace`,
+  });
+}
+
 module.exports = {
   transporter,
   sendWithRetry,
@@ -220,4 +262,7 @@ module.exports = {
   sendAuctionSaleEmail,
   sendAuctionNoSaleEmail,
   sendSubscriptionPaymentFailedEmail,
+  sendDisputeOpenedEmail,
+  sendDisputeResolvedEmail,
+  sendBundleReceiptEmail,
 };
