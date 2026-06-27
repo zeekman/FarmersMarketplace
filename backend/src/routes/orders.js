@@ -441,6 +441,28 @@ router.post('/', auth, orderRateLimit, validate.order, async (req, res) => {
     if (use_soroban_escrow) {
       const timeoutDays = parseInt(process.env.SOROBAN_ESCROW_TIMEOUT_DAYS || '14', 10);
       const timeoutUnix = Math.floor(Date.now() / 1000) + timeoutDays * 24 * 60 * 60;
+
+      // #860: Look up cooperative membership and royalty rate for the farmer.
+      let cooperativeAddress = null;
+      let cooperativeRoyaltyBps = 0;
+      try {
+        const { rows: coopRows } = await db.query(
+          `SELECT c.stellar_public_key, c.royalty_bps
+           FROM cooperatives c
+           JOIN cooperative_members cm ON cm.cooperative_id = c.id
+           WHERE cm.user_id = $1
+           ORDER BY c.created_at DESC
+           LIMIT 1`,
+          [product.farmer_id]
+        );
+        if (coopRows[0] && coopRows[0].stellar_public_key) {
+          cooperativeAddress = coopRows[0].stellar_public_key;
+          cooperativeRoyaltyBps = coopRows[0].royalty_bps || 0;
+        }
+      } catch (coopErr) {
+        logger.warn('[orders] cooperative lookup failed (non-fatal):', { error: coopErr.message });
+      }
+
       const result = await invokeEscrowContract({
         action: 'deposit',
         senderSecret: buyer.stellar_secret_key,
@@ -450,6 +472,8 @@ router.post('/', auth, orderRateLimit, validate.order, async (req, res) => {
         amount: totalPrice,
         timeoutUnix,
         userId: req.user.id,
+        cooperativeAddress,
+        cooperativeRoyaltyBps,
       });
       txHash = result.txHash;
       balanceId = `soroban:${orderId}`;

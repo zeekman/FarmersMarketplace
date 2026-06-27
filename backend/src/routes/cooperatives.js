@@ -70,7 +70,7 @@ router.get('/', async (req, res) => {
   // Authenticated: list cooperatives the current user belongs to
   if (!req.user) return err(res, 401, 'Unauthorized', 'unauthorized');
   const { rows } = await db.query(
-    `SELECT c.id, c.name, c.stellar_public_key, c.multisig_threshold, c.created_at
+    `SELECT c.id, c.name, c.stellar_public_key, c.multisig_threshold, c.royalty_bps, c.created_at
      FROM cooperatives c
      JOIN cooperative_members cm ON cm.cooperative_id = c.id
      WHERE cm.user_id = $1
@@ -389,6 +389,30 @@ router.post('/:id/leave', auth, async (req, res) => {
 
   await db.query('DELETE FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2', [coopId, req.user.id]);
   res.json({ success: true });
+});
+
+// PATCH /api/cooperatives/:id/royalty — set cooperative royalty rate (admin-only)
+// Body: { royalty_bps: N }  where N is 0–2000 (max 20%)
+router.patch('/:id/royalty', auth, async (req, res) => {
+  const coopId = parseInt(req.params.id, 10);
+  const { royalty_bps } = req.body;
+
+  if (royalty_bps == null || typeof royalty_bps !== 'number' || !Number.isInteger(royalty_bps) || royalty_bps < 0 || royalty_bps > 2000) {
+    return err(res, 400, 'royalty_bps must be an integer between 0 and 2000', 'validation_error');
+  }
+
+  // Only cooperative admins may change the royalty rate.
+  const { rows: callerRows } = await db.query(
+    'SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2 AND is_admin = TRUE',
+    [coopId, req.user.id]
+  );
+  if (!callerRows.length) return err(res, 403, 'Only cooperative admins can set royalty rate', 'forbidden');
+
+  const { rows: coopRows } = await db.query('SELECT id FROM cooperatives WHERE id = $1', [coopId]);
+  if (!coopRows.length) return err(res, 404, 'Cooperative not found', 'not_found');
+
+  await db.query('UPDATE cooperatives SET royalty_bps = $1 WHERE id = $2', [royalty_bps, coopId]);
+  res.json({ success: true, royalty_bps });
 });
 
 // PATCH /api/cooperatives/:id/admin — transfer admin role

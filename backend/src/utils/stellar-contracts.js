@@ -283,11 +283,11 @@ async function simulateContractCall(contractId, method, args = []) {
 /**
  * Invokes a lifecycle action on the Soroban escrow contract and polls until confirmed.
  * Logs every attempt to `contract_invocations`.
- * @param {{ action: 'deposit'|'release'|'refund'|'dispute', senderSecret: string, orderId: number, buyerPublicKey: string, farmerPublicKey: string, amount: number, timeoutUnix: number, userId: number|null }} params
+ * @param {{ action: 'deposit'|'release'|'refund'|'dispute', senderSecret: string, orderId: number, buyerPublicKey: string, farmerPublicKey: string, amount: number, timeoutUnix: number, userId: number|null, cooperativeAddress?: string|null, cooperativeRoyaltyBps?: number }} params
  * @returns {Promise<{ txHash: string, contractId: string }>}
  * @throws if the contract IDs are unconfigured, submission fails, or confirmation times out after 15 s
  */
-async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublicKey, farmerPublicKey, amount, timeoutUnix, userId }) {
+async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublicKey, farmerPublicKey, amount, timeoutUnix, userId, cooperativeAddress, cooperativeRoyaltyBps }) {
   const contractId = config.sorobanEscrowContractId;
   const xlmTokenContractId = config.sorobanXlmTokenContractId;
   if (!contractId) throw new Error('SOROBAN_ESCROW_CONTRACT_ID is not configured');
@@ -301,6 +301,11 @@ async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublic
   let operation;
   if (action === 'deposit') {
     const amountStroops = BigInt(Math.round(Number(amount) * 10_000_000));
+    // #860: cooperative royalty fields — pass None/0 when not in a cooperative.
+    const coopAddrScVal = cooperativeAddress
+      ? StellarSdk.nativeToScVal(cooperativeAddress, { type: 'address' })
+      : StellarSdk.xdr.ScVal.scvVoid();
+    const royaltyBps = cooperativeRoyaltyBps != null ? Number(cooperativeRoyaltyBps) : 0;
     operation = contract.call(
       'deposit',
       StellarSdk.nativeToScVal(xlmTokenContractId, { type: 'address' }),
@@ -308,7 +313,9 @@ async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublic
       StellarSdk.nativeToScVal(buyerPublicKey, { type: 'address' }),
       StellarSdk.nativeToScVal(farmerPublicKey, { type: 'address' }),
       StellarSdk.nativeToScVal(amountStroops, { type: 'i128' }),
-      StellarSdk.nativeToScVal(Number(timeoutUnix), { type: 'u64' })
+      StellarSdk.nativeToScVal(Number(timeoutUnix), { type: 'u64' }),
+      coopAddrScVal,
+      StellarSdk.nativeToScVal(royaltyBps, { type: 'u32' })
     );
   } else if (action === 'release') {
     operation = contract.call(
