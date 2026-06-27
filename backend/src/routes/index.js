@@ -14,6 +14,9 @@ router.use('/api/auth',     require('./auth'));
 router.use('/api/products', require('./products'));
 router.use('/api/orders',   require('./orders'));
 router.use('/api/wallet',   require('./wallet'));
+router.use('/api/alerts',   require('./alerts'));
+router.use('/api/admin',    require('./admin'));
+router.use('/api/rates',    require('./rates'));
 
 router.get('/api/health', (_, res) => res.json({ status: 'ok' }));
 
