@@ -607,6 +607,11 @@ export default function Wallet() {
               <div style={{ background: '#f8fdf9', border: '1px solid #b7e4c7', borderRadius: 10, padding: 16, marginBottom: 16 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#2d6a4f', marginBottom: 10 }}>Quick Add</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                  {wallet?.rewardToken && (
+                    <button key={wallet.rewardToken.code} style={{ ...s.btnOutline, background: '#fff8e1', borderColor: '#f9a825' }} disabled={tlLoading} onClick={() => handleAddTrustline(wallet.rewardToken.code, wallet.rewardToken.issuer)}>
+                      ⭐ {wallet.rewardToken.code} (Reward Token)
+                    </button>
+                  )}
                   {COMMON_ASSETS.map(a => (
                     <button key={a.code} style={s.btnOutline} disabled={tlLoading} onClick={() => handleAddTrustline(a.code, a.issuer)}>
                       {a.label}
@@ -643,25 +648,31 @@ export default function Wallet() {
             {customBalances.length === 0 ? (
               <p style={{ color: '#aaa', fontSize: 14 }}>No custom asset trustlines yet. Add one above to hold USDC or other Stellar assets.</p>
             ) : (
-              customBalances.map(b => (
-                <div key={b.asset_code + '-' + b.asset_issuer} style={s.assetRow}>
-                  <div>
-                    <div style={s.assetCode}>{b.asset_code}</div>
-                    <div style={s.assetIssuer}>{b.asset_issuer ? b.asset_issuer.slice(0, 12) + '...' + b.asset_issuer.slice(-6) : ''}</div>
+              customBalances.map(b => {
+                const isRewardToken = wallet?.rewardToken && b.asset_code === wallet.rewardToken.code && b.asset_issuer === wallet.rewardToken.issuer;
+                return (
+                  <div key={b.asset_code + '-' + b.asset_issuer} style={s.assetRow}>
+                    <div>
+                      <div style={s.assetCode}>
+                        {isRewardToken && <span style={{ marginRight: 6 }} title="Reward token">⭐</span>}
+                        {b.asset_code}
+                      </div>
+                      <div style={s.assetIssuer}>{b.asset_issuer ? b.asset_issuer.slice(0, 12) + '...' + b.asset_issuer.slice(-6) : ''}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={s.assetBal}>{b.balance.toFixed(2)}</div>
+                      <button
+                        style={s.btnDanger}
+                        disabled={removingAsset === b.asset_code}
+                        onClick={() => handleRemoveTrustline(b.asset_code, b.asset_issuer)}
+                        title="Remove trustline (requires zero balance)"
+                      >
+                        {removingAsset === b.asset_code ? '...' : 'Remove'}
+                      </button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={s.assetBal}>{b.balance.toFixed(2)}</div>
-                    <button
-                      style={s.btnDanger}
-                      disabled={removingAsset === b.asset_code}
-                      onClick={() => handleRemoveTrustline(b.asset_code, b.asset_issuer)}
-                      title="Remove trustline (requires zero balance)"
-                    >
-                      {removingAsset === b.asset_code ? '...' : 'Remove'}
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 

@@ -21,6 +21,7 @@ const {
 const { resolveFederationAddress, FederationError } = require('../utils/stellar-accounts');
 const { claimBalance } = require('../utils/stellar-payments');
 const { err } = require('../middleware/error');
+const config = require('../config');
 
 const BASE_RESERVE_XLM = 1;
 
@@ -75,6 +76,10 @@ router.get('/', auth, async (req, res) => {
       getAllBalances(user.stellar_public_key),
     ]);
 
+    const rewardToken = config.rewardTokenIssuer
+      ? { code: config.rewardTokenCode, issuer: config.rewardTokenIssuer }
+      : null;
+
     const payload = {
       success: true,
       publicKey: user.stellar_public_key,
@@ -82,6 +87,7 @@ router.get('/', auth, async (req, res) => {
       availableBalance: availableAfterReserve(balance),
       baseReserve: BASE_RESERVE_XLM,
       balances,
+      rewardToken,
       referralCode: user.referral_code,
     };
     await cache.set(cacheKey, payload, 30);
