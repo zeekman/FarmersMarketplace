@@ -40,6 +40,8 @@ pub enum DataKey {
     RewardRateBps,
     /// Minter address authorized to mint tokens (#849).
     Minter,
+    /// Maximum redemption percentage per order in basis points (e.g. 2000 = 20%). (#879)
+    MaxRedemptionBps,
 }
 
 /// A single vesting lock created at mint time (#693).
@@ -87,6 +89,7 @@ impl RewardToken {
         env.storage().instance().set(&DataKey::TransferFeeBps, &0_u32);
         env.storage().instance().set(&DataKey::MaxSupply, &max_supply);
         env.storage().instance().set(&DataKey::RewardRateBps, &0_u32);
+        env.storage().instance().set(&DataKey::MaxRedemptionBps, &2000_u32);
         env.storage().instance().set(
             &DataKey::Metadata,
             &TokenMetadata { decimal, name, symbol },
@@ -295,6 +298,79 @@ impl RewardToken {
         let supply: i128 = env.storage().instance().get(&DataKey::TotalSupply).unwrap_or(0);
         env.storage().instance().set(&DataKey::TotalSupply, &(supply - actual));
         env.events().publish(("reward", "burn", from), actual);
+    }
+
+    // ── #879: On-chain redemption for marketplace discounts ────────────────────────
+
+    /// Default maximum redemption percentage per order (20% = 2000 basis points). (#879)
+    const DEFAULT_MAX_REDEMPTION_BPS: u32 = 2000;
+
+    /// Set the max redemption basis points (admin only). (#879)
+    pub fn set_max_redemption_bps(env: Env, bps: u32) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        if bps > 10_000 {
+            panic!("max_redemption_bps must be <= 10000");
+        }
+        env.storage().instance().set(&DataKey::MaxRedemptionBps, &bps);
+        env.events().publish(("set_max_redemption_bps",), bps);
+    }
+
+    /// Returns the current max redemption basis points. (#879)
+    pub fn max_redemption_bps(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::MaxRedemptionBps).unwrap_or(DEFAULT_MAX_REDEMPTION_BPS)
+    }
+
+    /// Redeem reward tokens for a discount on an order. (#879)
+    ///
+    /// Burns `token_amount` tokens from `buyer` and emits a redemption event
+    /// that the backend can verify before applying a discount to the order total.
+    /// Maximum redemption per order is `max_redemption_bps` (default 20% of order value).
+    ///
+    /// If the order fails and refund is issued, the escrow contract should re-mint
+    /// the redeemed tokens back to the buyer.
+    pub fn redeem(env: Env, buyer: Address, order_id: u64, token_amount: i128) {
+        buyer.require_auth();
+        if token_amount <= 0 {
+            panic!("token_amount must be positive");
+        }
+
+        let balance = Self::balance(env.clone(), buyer.clone());
+        if balance < token_amount {
+            panic!("insufficient balance to redeem");
+        }
+
+        // Burn the tokens
+        env.storage().persistent().set(&DataKey::Balance(buyer.clone()), &(balance - token_amount));
+        let supply: i128 = env.storage().instance().get(&DataKey::TotalSupply).unwrap_or(0);
+        env.storage().instance().set(&DataKey::TotalSupply, &(supply - token_amount));
+
+        // Emit redemption event for backend verification
+        env.events().publish(
+            ("reward", "redeemed", buyer, order_id),
+            token_amount,
+        );
+    }
+
+    /// Re-mint tokens after a failed order (refund path). (#879)
+    /// Only callable by admin (escrow contract or platform).
+    pub fn reissue_redeemed(env: Env, buyer: Address, order_id: u64, token_amount: i128) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        if token_amount <= 0 {
+            panic!("token_amount must be positive");
+        }
+
+        let supply: i128 = env.storage().instance().get(&DataKey::TotalSupply).unwrap_or(0);
+        let max_supply: i128 = env.storage().instance().get(&DataKey::MaxSupply).unwrap_or(0);
+        if max_supply > 0 && supply + token_amount > max_supply {
+            panic!("reissue would exceed max_supply cap");
+        }
+
+        let balance = Self::balance(env.clone(), buyer.clone());
+        env.storage().persistent().set(&DataKey::Balance(buyer.clone()), &(balance + token_amount));
+        env.storage().instance().set(&DataKey::TotalSupply, &(supply + token_amount));
+        env.events().publish(("reward", "reissued", buyer, order_id), token_amount);
     }
 
     /// Burn tokens on behalf of a holder using spender allowance (#483).

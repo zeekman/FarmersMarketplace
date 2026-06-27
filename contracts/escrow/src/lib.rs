@@ -36,6 +36,10 @@ pub enum EscrowError {
     AlreadyInitialized  = 14,
     /// Caller is not the platform admin or does not hold the required role. (#837)
     NotAdmin            = 15,
+    /// Evidence submission window has closed (48 hours after dispute opened). (#877)
+    SubmissionWindowClosed = 16,
+    /// Auto-release time has not yet been reached. (#878)
+    AutoReleaseNotReached  = 17,
 }
 
 #[derive(Clone, PartialEq)]
@@ -68,6 +72,18 @@ pub enum DataKey {
     FeeDestination,
     /// Flag set to true once initialize() has been called. (#837)
     Initialized,
+    /// Evidence hash entries for buyer (up to 5). (#877)
+    BuyerEvidence(u64),
+    /// Evidence hash entries for farmer (up to 5). (#877)
+    FarmerEvidence(u64),
+    /// Evidence submission storage counter per side per escrow. (#877)
+    BuyerEvidenceCount(u64),
+    /// Evidence submission storage counter per side per escrow. (#877)
+    FarmerEvidenceCount(u64),
+    /// Dispute opened timestamp. (#877)
+    DisputeOpenedAt(u64),
+    /// Auto-release days configurable by admin. (#878)
+    AutoReleaseDays,
 }
 
 /// Full escrow record. `token` stores the SAC address used for this escrow (#683).
@@ -88,6 +104,10 @@ pub struct Escrow {
     pub amount: i128,
     pub timeout_unix: u64,
     pub status: EscrowStatus,
+    /// Auto-release timestamp (deposit_timestamp + auto_release_days * 86400). (#878)
+    pub auto_release_unix: u64,
+    /// Timestamp when dispute was opened, used for evidence window check. (#877)
+    pub dispute_opened_at: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -211,16 +231,17 @@ impl EscrowContract {
         let token_client = token::Client::new(&env, &token);
         token_client.transfer(&buyer, &env.current_contract_address(), &amount);
 
+        let auto_release_days: u64 = env.storage().instance().get(&DataKey::AutoReleaseDays).unwrap_or(7);
         let escrow = Escrow {
             buyer: buyer.clone(),
             farmer: farmer.clone(),
-            buyer,
-            farmer,
             // Clone token before moving it into the struct so we can persist it separately.
             token: token.clone(),
             amount,
             timeout_unix,
             status: EscrowStatus::Active,
+            auto_release_unix: now.saturating_add(auto_release_days.saturating_mul(86400)),
+            dispute_opened_at: 0,
         };
         // Persist the token used for this escrow so releases/refunds must use the same token contract.
         env.storage().persistent().set(&DataKey::Token(order_id), &token);
@@ -270,6 +291,8 @@ impl EscrowContract {
             let token_client = token::Client::new(&env, &token);
             token_client.transfer(&buyer, &env.current_contract_address(), &amount);
 
+            let now = env.ledger().timestamp();
+            let auto_release_days: u64 = env.storage().instance().get(&DataKey::AutoReleaseDays).unwrap_or(7);
             let escrow = Escrow {
                 buyer,
                 farmer,
@@ -277,6 +300,8 @@ impl EscrowContract {
                 amount,
                 timeout_unix,
                 status: EscrowStatus::Active,
+                auto_release_unix: now.saturating_add(auto_release_days.saturating_mul(86400)),
+                dispute_opened_at: 0,
             };
             env.storage().persistent().set(&DataKey::Escrow(order_id), &escrow);
             env.storage().persistent().extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
@@ -497,6 +522,178 @@ impl EscrowContract {
         Self::refund(env, order_id)
     }
 
+    // ── #878: Auto-release (time-lock release) ─────────────────────────────────────
+
+    /// Default auto-release days. (#878)
+    const DEFAULT_AUTO_RELEASE_DAYS: u64 = 7;
+
+    /// Set the auto-release days (admin only). (#878)
+    pub fn set_auto_release_days(env: Env, days: u64) -> Result<(), EscrowError> {
+        let admin_transfer: AdminTransfer = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("admin not set");
+        admin_transfer.current_admin.require_auth();
+        env.storage().instance().set(&DataKey::AutoReleaseDays, &days);
+        env.events().publish((symbol_short!("escrow"), symbol_short!("auto_days")), days);
+        Ok(())
+    }
+
+    /// Auto-release escrow funds to the farmer when the time-lock has expired. (#878)
+    /// Anyone may call this when `env.ledger().timestamp() >= auto_release_unix`
+    /// and the escrow status is `Active`. Blocked if in dispute.
+    /// Applies the same fee logic as `release`.
+    pub fn auto_release(env: Env, order_id: u64) -> Result<(), EscrowError> {
+        let mut escrow: Escrow = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(order_id))
+            .ok_or(EscrowError::NotFound)?;
+
+        // Must be Active (not settled, not disputed, not refunded)
+        if escrow.status != EscrowStatus::Active {
+            return Err(EscrowError::AlreadySettled);
+        }
+
+        let now = env.ledger().timestamp();
+        if now < escrow.auto_release_unix {
+            return Err(EscrowError::AutoReleaseNotReached);
+        }
+
+        // Apply same fee logic as release (using stored fee_bps)
+        let fee_bps: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
+        let fee_amount = if fee_bps > 0 && fee_bps <= 1000 {
+            (escrow.amount * fee_bps as i128) / 10_000
+        } else {
+            0
+        };
+        let farmer_amount = escrow.amount - fee_amount;
+
+        // Verify token
+        let stored_token: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Token(order_id))
+            .ok_or(EscrowError::NotFound)?;
+        if stored_token != escrow.token {
+            return Err(EscrowError::InvalidToken);
+        }
+
+        let token_client = token::Client::new(&env, &escrow.token);
+
+        // Transfer fee to fee_destination
+        if fee_amount > 0 {
+            let fee_dest: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::FeeDestination)
+                .or_else(|| env.storage().instance().get(&DataKey::Platform))
+                .ok_or(EscrowError::NotFound)?;
+            token_client.transfer(&env.current_contract_address(), &fee_dest, &fee_amount);
+        }
+
+        // Transfer farmer amount
+        token_client.transfer(&env.current_contract_address(), &escrow.farmer, &farmer_amount);
+
+        escrow.status = EscrowStatus::Released;
+        env.storage().persistent().set(&DataKey::Escrow(order_id), &escrow);
+        env.storage().persistent().extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
+
+        // Emit auto-release event
+        env.events().publish(
+            (symbol_short!("escrow"), symbol_short!("auto_rel")),
+            order_id,
+        );
+
+        Ok(())
+    }
+
+    // ── #877: Dispute evidence submission ──────────────────────────────────────────
+
+    /// Maximum number of evidence hashes per party per escrow. (#877)
+    const MAX_EVIDENCE_PER_PARTY: u32 = 5;
+
+    /// Evidence submission window in seconds (48 hours). (#877)
+    const EVIDENCE_WINDOW_SECS: u64 = 172_800;
+
+    /// Submit evidence hash for a disputed escrow. (#877)
+    /// Only buyer or farmer can submit when status is Disputed,
+    /// and only within 48 hours of the dispute being opened.
+    pub fn submit_evidence(
+        env: Env,
+        order_id: u64,
+        evidence_hash: BytesN<32>,
+    ) -> Result<(), EscrowError> {
+        let escrow: Escrow = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(order_id))
+            .ok_or(EscrowError::NotFound)?;
+
+        if escrow.status != EscrowStatus::Disputed {
+            return Err(EscrowError::InDispute);
+        }
+
+        // Determine if caller is buyer or farmer
+        let buyer_clone = escrow.buyer.clone();
+        let farmer_clone = escrow.farmer.clone();
+        let (is_buyer, submitter) = if buyer_clone == env.invoker() {
+            (true, escrow.buyer.clone())
+        } else if farmer_clone == env.invoker() {
+            (false, escrow.farmer.clone())
+        } else {
+            return Err(EscrowError::Unauthorized);
+        };
+        submitter.require_auth();
+
+        // Check evidence submission window (48 hours from dispute opened)
+        let now = env.ledger().timestamp();
+        if escrow.dispute_opened_at == 0 || now.saturating_sub(escrow.dispute_opened_at) > EVIDENCE_WINDOW_SECS {
+            return Err(EscrowError::SubmissionWindowClosed);
+        }
+
+        // Check max evidence count per party
+        let count_key = if is_buyer {
+            DataKey::BuyerEvidenceCount(order_id)
+        } else {
+            DataKey::FarmerEvidenceCount(order_id)
+        };
+        let evidence_count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        if evidence_count >= MAX_EVIDENCE_PER_PARTY {
+            return Err(EscrowError::InvalidAmount); // reuse — max evidence reached
+        }
+
+        // Store evidence hash
+        let evidence_key = if is_buyer {
+            DataKey::BuyerEvidence(order_id)
+        } else {
+            DataKey::FarmerEvidence(order_id)
+        };
+        // Store evidence as a Vec of hashes
+        let mut hashes: Vec<BytesN<32>> = env.storage().persistent().get(&evidence_key).unwrap_or_else(|| Vec::new(&env));
+        hashes.push_back(evidence_hash.clone());
+        env.storage().persistent().set(&evidence_key, &hashes);
+        env.storage().persistent().set(&count_key, &(evidence_count + 1));
+        env.storage().persistent().extend_ttl(&evidence_key, TTL_MIN, TTL_MAX);
+        env.storage().persistent().extend_ttl(&count_key, TTL_MIN, TTL_MAX);
+
+        // Emit event
+        env.events().publish(
+            (symbol_short!("escrow"), symbol_short!("evidence"), order_id),
+            (submitter, evidence_hash),
+        );
+
+        Ok(())
+    }
+
+    /// Get all evidence hashes for a disputed escrow. Returns (buyer_hashes, farmer_hashes). (#877)
+    pub fn get_evidence(env: Env, order_id: u64) -> (Vec<BytesN<32>>, Vec<BytesN<32>>) {
+        let buyer_hashes: Vec<BytesN<32>> = env.storage().persistent().get(&DataKey::BuyerEvidence(order_id)).unwrap_or_else(|| Vec::new(&env));
+        let farmer_hashes: Vec<BytesN<32>> = env.storage().persistent().get(&DataKey::FarmerEvidence(order_id)).unwrap_or_else(|| Vec::new(&env));
+        (buyer_hashes, farmer_hashes)
+    }
+
     pub fn dispute(env: Env, order_id: u64, caller: Address) -> Result<(), EscrowError> {
         caller.require_auth();
         let mut escrow: Escrow = env
@@ -516,6 +713,8 @@ impl EscrowContract {
         }
 
         escrow.status = EscrowStatus::Disputed;
+        // #877: Record dispute opened timestamp for evidence window check
+        escrow.dispute_opened_at = env.ledger().timestamp();
         env.storage().persistent().set(&DataKey::Escrow(order_id), &escrow);
         env.storage().persistent().extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
 
@@ -710,6 +909,8 @@ impl EscrowContract {
                 EscrowStatus::Active
             };
 
+            let now = env.ledger().timestamp();
+            let auto_release_days: u64 = env.storage().instance().get(&DataKey::AutoReleaseDays).unwrap_or(7);
             let new_escrow = Escrow {
                 buyer: record.buyer,
                 farmer: record.farmer,
@@ -717,6 +918,8 @@ impl EscrowContract {
                 amount: record.amount,
                 timeout_unix: record.timeout_unix,
                 status,
+                auto_release_unix: now.saturating_add(auto_release_days.saturating_mul(86400)),
+                dispute_opened_at: 0,
             };
 
             env.storage().persistent().set(&key, &new_escrow);
@@ -843,6 +1046,8 @@ mod test {
             amount: 1_000_0000,
             timeout_unix: 1_000,
             status: EscrowStatus::Active,
+            auto_release_unix: 9_999_999,
+            dispute_opened_at: 0,
         };
         env.storage().persistent().set(&DataKey::Escrow(order_id), &escrow);
     }
@@ -876,6 +1081,8 @@ mod test {
             amount: 1_000_0000,
             timeout_unix: 1_000,
             status: EscrowStatus::Disputed,
+            auto_release_unix: 9_999_999,
+            dispute_opened_at: 0,
         };
         env.storage().persistent().set(&DataKey::Escrow(2), &escrow);
         let result = EscrowContract::release(env, 2, 0);
@@ -926,6 +1133,8 @@ mod test {
             amount: 1_000_0000,
             timeout_unix: 1_000,
             status: EscrowStatus::Released,
+            auto_release_unix: 9_999_999,
+            dispute_opened_at: 0,
         };
         env.storage().persistent().set(&DataKey::Escrow(4), &escrow);
         let result = EscrowContract::dispute(env, 4, buyer);
@@ -977,6 +1186,8 @@ mod test {
             amount: 1_000_0000,
             timeout_unix: 1_000,
             status: EscrowStatus::Released,
+            auto_release_unix: 9_999_999,
+            dispute_opened_at: 0,
         };
         env.storage().persistent().set(&DataKey::Escrow(7), &escrow);
         let result = EscrowContract::release(env, 7, 0);
@@ -1161,6 +1372,8 @@ mod test {
                 amount,
                 timeout_unix: 9999,
                 status: EscrowStatus::Active,
+                auto_release_unix: 9_999_999,
+                dispute_opened_at: 0,
             };
             env.storage().persistent().set(&DataKey::Escrow(amount as u64), &escrow);
             let stored = EscrowContract::get(env, amount as u64).unwrap();
@@ -1208,6 +1421,8 @@ mod test {
             amount: 1_000,
             timeout_unix: 0, // already timed out
             status: EscrowStatus::Released,
+            auto_release_unix: 9_999_999,
+            dispute_opened_at: 0,
         };
         env.storage().persistent().set(&DataKey::Escrow(300), &escrow);
 
@@ -1231,6 +1446,8 @@ mod test {
             amount: 1_000,
             timeout_unix: 0,
             status: EscrowStatus::Refunded,
+            auto_release_unix: 9_999_999,
+            dispute_opened_at: 0,
         };
         env.storage().persistent().set(&DataKey::Escrow(301), &escrow);
 
@@ -1267,6 +1484,8 @@ mod test {
                 amount: 1_000,
                 timeout_unix,
                 status: EscrowStatus::Active,
+                auto_release_unix: 9_999_999,
+                dispute_opened_at: 0,
             };
             env.storage().persistent().set(&DataKey::Escrow(400), &escrow);
 
@@ -1483,6 +1702,8 @@ mod test {
             amount: 1_000,
             timeout_unix: 9999,
             status: EscrowStatus::Released,
+            auto_release_unix: 9_999_999,
+            dispute_opened_at: 0,
         };
         env.storage().persistent().set(&DataKey::Escrow(601), &escrow);
 
@@ -1511,6 +1732,8 @@ mod test {
             amount: 1_000,
             timeout_unix: 9999,
             status: EscrowStatus::Disputed,
+            auto_release_unix: 9_999_999,
+            dispute_opened_at: 0,
         };
         env.storage().persistent().set(&DataKey::Escrow(602), &escrow);
 
