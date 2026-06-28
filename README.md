@@ -258,6 +258,63 @@ When skipped in CI, a warning is printed to the log so the omission is visible.
 
 A dedicated **nightly CI job** (`contract-tests-nightly` in `.github/workflows/ci.yml`) runs the full contract test suite on a schedule with Docker available, ensuring these tests are not silently broken.
 
+## Futurenet E2E Integration Test (#861)
+
+The script `contract/test-futurenet.sh` runs a full end-to-end test of the escrow contract on **Stellar Futurenet** using real XLM transfers.
+
+### What it tests
+
+| Test | Flow | Assertion |
+|------|------|-----------|
+| 1 — Happy path | deposit → release | Farmer balance increases by `deposit − platform_fee` |
+| 2 — Dispute refund | deposit → open_dispute → resolve(buyer) | Buyer balance recovers the deposited amount |
+| 3 — Dispute to farmer | deposit → open_dispute → resolve(farmer) | Farmer balance increases |
+
+### Prerequisites
+
+- [`stellar` CLI](https://developers.stellar.org/docs/tools/stellar-cli) installed and in `$PATH`
+- `curl` and `jq`
+- Compiled WASM (see build step below)
+
+### Run the test
+
+```bash
+# 1. Build the contract WASM
+cd contract
+cargo build --target wasm32-unknown-unknown --release
+
+# 2. Run the Futurenet E2E test (takes ~2–3 minutes)
+./contract/test-futurenet.sh
+```
+
+The script:
+1. Generates four ephemeral Stellar keypairs (admin, buyer, farmer, arbitrator)
+2. Funds each via [Futurenet Friendbot](https://friendbot-futurenet.stellar.org)
+3. Deploys the contract to Futurenet and calls `initialize`
+4. Runs the three test flows above
+5. Asserts balance changes match expected amounts (±100 stroops tolerance for network fees)
+6. Exits **non-zero** on any failed assertion
+7. Cleans up ephemeral keys on exit
+
+### Optional environment overrides
+
+| Variable | Default | Description |
+|---|---|---|
+| `NETWORK` | `futurenet` | Stellar network alias |
+| `WASM_PATH` | auto-detected | Path to compiled `.wasm` |
+| `FEE_BPS` | `250` | Platform fee in basis points (2.5%) |
+| `DEPOSIT_XLM` | `1` | Deposit amount in XLM |
+| `TIMEOUT_SECS` | `7200` | Escrow timeout offset (seconds from now) |
+| `SKIP_BUILD` | `0` | Set to `1` to skip `cargo build` |
+
+### Example with overrides
+
+```bash
+DEPOSIT_XLM=2 FEE_BPS=500 SKIP_BUILD=1 ./contract/test-futurenet.sh
+```
+
+---
+
 ## Soroban Escrow Contract (`contract/`)
 
 The `contract/` directory contains a Soroban smart contract that provides on-chain escrow for marketplace orders.
