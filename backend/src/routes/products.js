@@ -931,5 +931,63 @@ router.get('/:id/batches', async (req, res) => {
   res.json({ success: true, data: rows });
 });
 
+// POST /api/products/:id/restock — farmer adds stock; triggers back-in-stock notifications (once per restock)
+router.post('/:id/restock', auth, (req, res) => {
+  if (req.user.role !== 'farmer') return res.status(403).json({ error: 'Farmers only' });
+
+  const quantity = parseInt(req.body.quantity, 10);
+  if (isNaN(quantity) || quantity < 1) return res.status(400).json({ error: 'quantity must be a positive integer' });
+
+  const product = db.prepare('SELECT * FROM products WHERE id = ? AND farmer_id = ?').get(req.params.id, req.user.id);
+  if (!product) return res.status(404).json({ error: 'Not found or not yours' });
+
+  const wasOutOfStock = product.quantity === 0;
+  db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?').run(quantity, product.id);
+
+  // Only notify if the product was out of stock and hasn't fired a notification for this restock yet.
+  if (!wasOutOfStock || product.restock_notified_at) {
+    return res.json({ message: 'Restocked', quantity: product.quantity + quantity });
+  }
+
+  // Stamp immediately to prevent duplicate sends on concurrent requests.
+  db.prepare('UPDATE products SET restock_notified_at = CURRENT_TIMESTAMP WHERE id = ?').run(product.id);
+
+  // Gather unique buyer IDs from both favourites and waitlists.
+  const buyerIds = [
+    ...db.prepare('SELECT user_id FROM favourites WHERE product_id = ?').all(product.id),
+    ...db.prepare('SELECT user_id FROM waitlists WHERE product_id = ?').all(product.id),
+  ]
+    .map(r => r.user_id)
+    .filter((v, i, a) => a.indexOf(v) === i);
+
+  if (buyerIds.length === 0) return res.json({ message: 'Restocked', notified: 0 });
+
+  const updatedProduct = { ...product, quantity: product.quantity + quantity };
+
+  // Fire-and-forget — don't block the HTTP response.
+  Promise.allSettled(
+    buyerIds.map(async (userId) => {
+      const user = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(userId);
+      if (!user) return;
+
+      const sub = db.prepare('SELECT subscription_json FROM push_subscriptions WHERE user_id = ?').get(userId);
+
+      await Promise.allSettled([
+        sendBackInStockEmail({ user, product: updatedProduct }),
+        sendPushToUser({
+          subscription: sub ? JSON.parse(sub.subscription_json) : null,
+          payload: {
+            title: 'Back in stock',
+            body: `${updatedProduct.name} is available again!`,
+            url: `/products/${updatedProduct.id}`,
+          },
+        }),
+      ]);
+    })
+  ).catch(err => console.error('Restock notification error:', err.message));
+
+  res.json({ message: 'Restocked', notified: buyerIds.length });
+});
+
 module.exports = router;
 module.exports.broadcastStockUpdate = broadcastStockUpdate;

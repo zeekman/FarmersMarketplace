@@ -521,6 +521,7 @@ db.exec(`
     unit TEXT DEFAULT 'unit',
     weight_kg REAL DEFAULT 1.0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    restock_notified_at DATETIME,
     FOREIGN KEY (farmer_id) REFERENCES users(id)
   );
 
