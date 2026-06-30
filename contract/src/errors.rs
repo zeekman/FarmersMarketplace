@@ -14,10 +14,16 @@ pub enum EscrowError {
     NotTimedOut = 4,
     /// The escrow has already been settled (released or refunded).
     AlreadySettled = 5,
-    /// payer and farmer addresses must be different.
+    /// buyer and farmer addresses must be different.
     InvalidParties = 6,
     /// Contract has already been initialized. (#837)
     AlreadyInitialized = 7,
-    /// Deposit amount must be greater than zero. (#838)
-    InvalidAmount = 8,
+    /// Snapshot not found or product hash mismatch. (#703)
+    SnapshotNotFound = 8,
+    /// Deposit/refund amount must be greater than zero and within bounds. (#838, #676)
+    InvalidAmount = 9,
+    /// Contract is currently paused; all state-changing calls are rejected. (#854)
+    ContractPaused = 10,
+    /// fee_bps exceeds MAX_FEE_BPS (500 = 5%). (#855)
+    InvalidFeeRate = 11,
 }
