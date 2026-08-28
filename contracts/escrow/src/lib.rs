@@ -227,6 +227,21 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
+    /// Shared basis-point fee/royalty/reward-split calculation: `amount * bps / 10_000`.
+    /// Rounds down (truncates toward zero); the remainder stays with whichever side
+    /// did not receive this result. Uses `checked_mul` so an overflowing multiplication
+    /// panics instead of silently wrapping. (#1225)
+    ///
+    /// This is the canonical copy — `contracts/creator-earnings` and
+    /// `contract/reward-token` intentionally keep their own copy of this exact
+    /// logic per ADR 0001 (no shared crate across SDK generations yet).
+    fn compute_fee(amount: i128, bps: u32) -> i128 {
+        amount
+            .checked_mul(bps as i128)
+            .expect("fee calculation overflow")
+            / 10_000
+    }
+
     /// Initialize the contract with a platform admin, fee rate, and fee destination. (#837)
     ///
     /// Must be called exactly once after deployment. Subsequent calls return
@@ -643,13 +658,13 @@ impl EscrowContract {
             .get(&DataKey::FeeBps)
             .unwrap_or(platform_fee_bps);
 
-        let fee_amount = (escrow.amount * effective_bps as i128) / 10_000;
+        let fee_amount = Self::compute_fee(escrow.amount, effective_bps);
         // Amount remaining after platform fee, before cooperative royalty.
         let after_fee = escrow.amount - fee_amount;
 
         // #860: cooperative royalty — deducted from the farmer's portion.
         let royalty_amount: i128 = match &escrow.cooperative_address {
-            Some(_) => (after_fee * escrow.cooperative_royalty_bps as i128) / 10_000,
+            Some(_) => Self::compute_fee(after_fee, escrow.cooperative_royalty_bps),
             None => 0,
         };
         let farmer_amount = after_fee - royalty_amount;
@@ -707,7 +722,7 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::RewardBps)
             .unwrap_or(100);
-        let reward_amount = (farmer_amount * reward_bps as i128) / 10_000;
+        let reward_amount = Self::compute_fee(farmer_amount, reward_bps);
         if let Some(reward_token_address) = env.storage().instance().get(&DataKey::RewardTokenContract) {
             // Use try_invoke to call reward token mint - if it fails, emit event but don't abort release
             let mint_args = soroban_sdk::vec![
@@ -842,12 +857,12 @@ impl EscrowContract {
             .get(&DataKey::FeeBps)
             .unwrap_or(platform_fee_bps);
 
-        let fee_amount = (escrow.amount * effective_bps as i128) / 10_000;
+        let fee_amount = Self::compute_fee(escrow.amount, effective_bps);
         let after_fee = escrow.amount - fee_amount;
 
         // #860: cooperative royalty — deducted from the farmer's portion.
         let royalty_amount: i128 = match &escrow.cooperative_address {
-            Some(_) => (after_fee * escrow.cooperative_royalty_bps as i128) / 10_000,
+            Some(_) => Self::compute_fee(after_fee, escrow.cooperative_royalty_bps),
             None => 0,
         };
         let farmer_amount = after_fee - royalty_amount;
@@ -1071,7 +1086,7 @@ impl EscrowContract {
     }
         let token_client = token::Client::new(env, &escrow.token);
         let effective_bps: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
-        let fee_amount = (escrow.amount * effective_bps as i128) / 10_000;
+        let fee_amount = Self::compute_fee(escrow.amount, effective_bps);
         let farmer_amount = escrow.amount - fee_amount;
 
         if fee_amount > 0 {
@@ -1279,7 +1294,7 @@ impl EscrowContract {
         // Apply same fee logic as release (using stored fee_bps)
         let fee_bps: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
         let fee_amount = if fee_bps > 0 && fee_bps <= 1000 {
-            (escrow.amount * fee_bps as i128) / 10_000
+            Self::compute_fee(escrow.amount, fee_bps)
         } else {
             0
         };
