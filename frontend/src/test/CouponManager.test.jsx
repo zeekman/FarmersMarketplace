@@ -2,13 +2,18 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
-vi.mock('../../api/client', () => ({
-  api: {
-    getMyCoupons: vi.fn(),
-    createCoupon: vi.fn(),
-    deleteCoupon: vi.fn(),
-  },
-}));
+vi.mock('../../api/client', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      getMyCoupons: vi.fn(),
+      createCoupon: vi.fn(),
+      deleteCoupon: vi.fn(),
+    },
+  };
+});
 
 import CouponManager from '../../components/dashboard/CouponManager';
 import { api } from '../../api/client';
