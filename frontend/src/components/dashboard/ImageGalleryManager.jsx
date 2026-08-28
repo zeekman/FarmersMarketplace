@@ -51,6 +51,7 @@ export default function ImageGalleryManager({ productId, images = [], onUpdate }
   const [draggedIdx, setDraggedIdx] = useState(null);
   const [msg, setMsg] = useState(null);
   const [saving, setSaving] = useState(false);
+  const committedRef = useRef(images);
 
   function handleDragStart(idx) {
     setDraggedIdx(idx);
@@ -78,13 +79,16 @@ export default function ImageGalleryManager({ productId, images = [], onUpdate }
     if (!productId) return;
     setSaving(true);
     setMsg(null);
+    const prevGalleries = committedRef.current;
     try {
       const order = galleries.map((img) => (typeof img === 'string' ? img : img.url));
       await api.reorderProductImages(productId, order);
+      committedRef.current = galleries;
       setMsg({ type: 'ok', text: 'Gallery order saved!' });
       if (onUpdate) onUpdate(galleries);
       setTimeout(() => setMsg(null), 2500);
     } catch (e) {
+      setGalleries(prevGalleries);
       setMsg({ type: 'err', text: e.message || 'Failed to save gallery order' });
     } finally {
       setSaving(false);
