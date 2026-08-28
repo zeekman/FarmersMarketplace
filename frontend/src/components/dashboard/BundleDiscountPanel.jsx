@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 /**
  * BundleDiscountPanel — lets farmers configure automatic multi-product
@@ -10,8 +10,15 @@ import React from 'react';
  *   bdForm          – { min_products: string, discount_percent: string }
  *   bdMsg           – { type: 'ok'|'error', text: string } | null
  *   onFormChange    – (field: string, value: string) => void
- *   onSubmit        – (e: Event) => void
+ *   onSubmit        – (e: Event, editingId: number|null) => void — editingId is set when
+ *                      the form was populated via the row "Edit" button, so the caller can
+ *                      call update instead of create.
  *   onDelete        – (id: number) => void
+ *
+ * Clicking a row's "Edit" button populates the form (via onFormChange) with that tier's
+ * values and switches the submit button to "Update Tier". Before calling onSubmit, the
+ * form is checked client-side for a min_products conflict with another existing tier
+ * (excluding the tier being edited) and the submit is rejected locally if one is found.
  */
 export default function BundleDiscountPanel({
   bundleDiscounts = [],
@@ -21,6 +28,31 @@ export default function BundleDiscountPanel({
   onSubmit,
   onDelete,
 }) {
+  const [editingId, setEditingId] = useState(null);
+  const [conflictError, setConflictError] = useState(null);
+
+  function startEdit(tier) {
+    setEditingId(tier.id);
+    setConflictError(null);
+    onFormChange?.('min_products', String(tier.min_products));
+    onFormChange?.('discount_percent', String(tier.discount_percent));
+  }
+
+  function handleSubmit(e) {
+    const minProducts = Number(bdForm.min_products);
+    const conflict = bundleDiscounts.some(
+      (bd) => bd.id !== editingId && bd.min_products === minProducts
+    );
+    if (conflict) {
+      e.preventDefault();
+      setConflictError(`A tier for ${minProducts}+ products already exists.`);
+      return;
+    }
+    setConflictError(null);
+    onSubmit?.(e, editingId);
+    setEditingId(null);
+  }
+
   const s = {
     card: { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginTop: 24 },
     label: { display: 'block', fontSize: 13, marginBottom: 4, color: '#555' },
@@ -53,8 +85,11 @@ export default function BundleDiscountPanel({
           {bdMsg.text}
         </div>
       )}
+      {conflictError && (
+        <div style={{ ...s.msg, background: '#fee', color: '#c0392b' }}>{conflictError}</div>
+      )}
       <form
-        onSubmit={onSubmit}
+        onSubmit={handleSubmit}
         style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}
       >
         <div>
@@ -83,7 +118,7 @@ export default function BundleDiscountPanel({
             required
           />
         </div>
-        <button type="submit" style={s.btn}>Add Tier</button>
+        <button type="submit" style={s.btn}>{editingId ? 'Update Tier' : 'Add Tier'}</button>
       </form>
 
       {bundleDiscounts.length === 0 ? (
@@ -111,6 +146,12 @@ export default function BundleDiscountPanel({
                   {bd.discount_percent}% off
                 </td>
                 <td style={{ padding: '8px 10px', borderBottom: '1px solid #f0f0f0', textAlign: 'right' }}>
+                  <button
+                    style={{ background: '#eee', color: '#333', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, marginRight: 6 }}
+                    onClick={() => startEdit(bd)}
+                  >
+                    Edit
+                  </button>
                   <button
                     style={{ background: '#fee', color: '#c0392b', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 }}
                     onClick={() => onDelete?.(bd.id)}
