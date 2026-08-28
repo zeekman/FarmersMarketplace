@@ -30,6 +30,11 @@ pub enum DataKey {
     PendingAdmin,
     /// Vesting lock entry: maps (address, mint_ledger) → VestingEntry (#693).
     Vesting(Address, u32),
+    /// On-chain index of every mint_ledger at which `Address` received a
+    /// vesting entry. Source of truth for vested_balance()/transfer_vested()
+    /// (#1235) — never trust a caller-supplied list of mint_ledgers, since
+    /// omitting an entry would let a holder understate their locked balance.
+    VestingIndex(Address),
     /// Global vesting period in ledgers (#693).
     VestingPeriod,
     /// Maximum mintable supply cap (#696). Set once at initialize; 0 = uncapped.
@@ -134,6 +139,14 @@ impl RewardToken {
     /// tokens = xlm_amount * reward_rate_bps / 10000
     /// Returns MaxSupplyExceeded error code (via panic) if minting would exceed the cap.
     /// Admin must authorize this call.
+    ///
+    /// #1234 — this reads then writes `DataKey::TotalSupply` without a
+    /// compare-and-swap. That's sound only because Soroban serializes
+    /// contract invocations within a ledger close (no two invocations of this
+    /// contract interleave their reads/writes), so this and `mint()` can
+    /// never race against each other or against themselves. If invocation
+    /// execution ever becomes concurrent/batched, this check-then-act must be
+    /// replaced with an atomic update.
     pub fn mint_for_order(env: Env, to: Address, xlm_amount: i128) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
@@ -169,6 +182,9 @@ impl RewardToken {
         }
 
         // #696 — enforce total supply cap if one is set.
+        // #1234 — see the atomicity note on mint_for_order(): this
+        // check-then-act on TotalSupply relies on Soroban's per-ledger
+        // invocation serialization, not on any lock here.
         let supply: i128 = env.storage().instance().get(&DataKey::TotalSupply).unwrap_or(0);
         let max_supply: i128 = env.storage().instance().get(&DataKey::MaxSupply).unwrap_or(0);
         if max_supply > 0 && supply + amount > max_supply {
@@ -193,6 +209,15 @@ impl RewardToken {
             // Keep the vesting entry alive at least until it unlocks.
             let ttl = vesting_period.saturating_add(Self::vesting_ttl_buffer());
             env.storage().persistent().extend_ttl(&vesting_key, ttl, ttl);
+
+            // #1235 — record this mint_ledger in the holder's own index so
+            // vested_balance()/transfer_vested() never have to trust a
+            // caller-supplied list of mint_ledgers.
+            let index_key = DataKey::VestingIndex(to.clone());
+            let mut index: Vec<u32> = env.storage().persistent().get(&index_key).unwrap_or(Vec::new(&env));
+            index.push_back(current_ledger);
+            env.storage().persistent().set(&index_key, &index);
+            env.storage().persistent().extend_ttl(&index_key, ttl, ttl);
         }
 
         env.events().publish(("mint", to.clone()), amount);
@@ -221,13 +246,20 @@ impl RewardToken {
 
     /// Returns the vested (transferable) balance for `id` at the current ledger.
     ///
-    /// `mint_ledgers` is the list of ledger sequence numbers at which tokens
-    /// were minted to `id` (used as the second component of the `Vesting` key).
+    /// Walks `id`'s own on-chain `VestingIndex` (populated by `mint()`) rather
+    /// than a caller-supplied list of mint_ledgers (#1235) — a caller-supplied
+    /// list could omit a still-locked entry and inflate the reported vested
+    /// balance, defeating the vesting mechanism.
     ///
     /// vested_balance = total_balance − Σ locked_amount for all unexpired entries
-    pub fn vested_balance(env: Env, id: Address, mint_ledgers: Vec<u32>) -> i128 {
+    pub fn vested_balance(env: Env, id: Address) -> i128 {
         let total = Self::balance(env.clone(), id.clone());
         let current = env.ledger().sequence();
+        let mint_ledgers: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::VestingIndex(id.clone()))
+            .unwrap_or(Vec::new(&env));
         let mut locked: i128 = 0;
         for mint_ledger in mint_ledgers.iter() {
             let key = DataKey::Vesting(id.clone(), mint_ledger);
@@ -476,16 +508,15 @@ impl RewardToken {
 
     /// Transfer tokens while explicitly checking vesting locks (#693).
     ///
-    /// `mint_ledgers` is the list of ledger sequence numbers at which tokens
-    /// were minted to `from`.  The contract uses these to look up vesting
-    /// entries and compute the locked amount.  The transfer is rejected if
-    /// `amount` exceeds the vested (unlocked) balance.
+    /// Vesting entries are looked up via `from`'s own on-chain `VestingIndex`
+    /// (#1235) rather than a caller-supplied list, so a holder can't bypass a
+    /// lock by omitting an entry.  The transfer is rejected if `amount`
+    /// exceeds the vested (unlocked) balance.
     pub fn transfer_vested(
         env: Env,
         from: Address,
         to: Address,
         amount: i128,
-        mint_ledgers: Vec<u32>,
     ) {
         from.require_auth();
 
@@ -493,7 +524,7 @@ impl RewardToken {
             panic!("amount must be positive");
         }
 
-        let vested = Self::vested_balance(env.clone(), from.clone(), mint_ledgers);
+        let vested = Self::vested_balance(env.clone(), from.clone());
         if amount > vested {
             panic!("transfer amount exceeds vested balance");
         }
