@@ -20,14 +20,16 @@ export function getLocaleDirection(lng) {
   return LOCALE_DIRECTIONS[lng] ?? 'ltr';
 }
 
-i18n
-  .use(initReactI18next)
-  .init({
-    resources: { en: { translation: en }, sw: { translation: sw }, ar: { translation: ar } },
-    lng: localStorage.getItem('lang') || 'en',
-    fallbackLng: 'en',
-    interpolation: { escapeValue: false },
-  });
+i18n.use(initReactI18next).init({
+  resources: { en: { translation: en }, sw: { translation: sw }, ar: { translation: ar } },
+  lng: localStorage.getItem('lang') || 'en',
+  fallbackLng: 'en',
+  // Resources are statically bundled — no network fetch occurs.
+  // initImmediate:false makes init synchronous so the bundled fallback
+  // is always available before the first render, preventing raw key display.
+  initImmediate: false,
+  interpolation: { escapeValue: false },
+});
 
 i18n.on('languageChanged', (lng) => {
   localStorage.setItem('lang', lng);
