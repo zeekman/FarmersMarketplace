@@ -47,16 +47,18 @@ async function isAlreadyProcessed(sub) {
       [key, new Date().toISOString()]
     );
     return rows.length > 0;
-  } catch {
+  } catch (error) {
+    logger.warn('[subscriptions] Idempotency table check failed; using order fallback', {
+      error: error.message,
+    });
     // Fallback: check orders table for a paid order in this cycle
-    const row = db
-      .prepare(
-        `SELECT id FROM orders
-         WHERE buyer_id = ? AND product_id = ? AND status = 'paid'
-           AND created_at >= ?`
-      )
-      .get(sub.buyer_id, sub.product_id, sub.next_order_at);
-    return !!row;
+    const { rows } = await db.query(
+      `SELECT id FROM orders
+           WHERE buyer_id = $1 AND product_id = $2 AND status = 'paid'
+           AND created_at >= $3`,
+      [sub.buyer_id, sub.product_id, sub.next_order_at]
+    );
+    return rows.length > 0;
   }
 }
 
@@ -70,17 +72,17 @@ async function markProcessed(sub) {
        ON CONFLICT (key) DO UPDATE SET response = EXCLUDED.response, expires_at = EXCLUDED.expires_at`,
       [key, JSON.stringify({ success: true }), expiresAt]
     );
-  } catch {
+  } catch (error) {
     // Non-fatal: idempotency_keys table may not exist in all environments
+    logger.warn('[subscriptions] Could not persist idempotency key', { error: error.message });
   }
 }
 
 async function processSubscriptions() {
   const now = new Date().toISOString();
 
-  const due = db
-    .prepare(
-      `SELECT s.*,
+  const { rows: due } = await db.query(
+    `SELECT s.*,
               u.stellar_public_key  AS buyer_wallet,
               u.stellar_secret_key  AS buyer_secret,
               p.price,
@@ -91,19 +93,21 @@ async function processSubscriptions() {
        JOIN products p  ON s.product_id = p.id
        JOIN users    fu ON p.farmer_id  = fu.id
        WHERE s.status = 'active'
-         AND s.next_order_at <= ?
-         AND (s.retry_after IS NULL OR s.retry_after <= ?)`
-    )
-    .all(now, now);
+         AND s.next_order_at <= $1
+            AND (s.retry_after IS NULL OR s.retry_after <= $2)`,
+          [now, now]
+        );
 
   if (due.length === 0) return;
   logger.info(`[subscriptions] Processing ${due.length} due subscription(s)`);
 
   for (const sub of due) {
     // Guard: re-check status inside loop (another worker may have processed it)
-    const current = db
-      .prepare('SELECT status, retry_count FROM subscriptions WHERE id = ?')
-      .get(sub.id);
+    const { rows: currentRows } = await db.query(
+      'SELECT status, retry_count FROM subscriptions WHERE id = $1',
+      [sub.id]
+    );
+    const current = currentRows[0];
     if (!current || current.status !== 'active') {
       logger.info(`[subscriptions] Sub ${sub.id} skipped (status=${current?.status})`);
       continue;
@@ -120,21 +124,16 @@ async function processSubscriptions() {
     // Atomic stock check + order creation
     let orderId;
     try {
-      orderId = db.transaction(() => {
-        const deducted = db
-          .prepare(
-            'UPDATE products SET quantity = quantity - ? WHERE id = ? AND quantity >= ?'
-          )
-          .run(sub.quantity, sub.product_id, sub.quantity);
-        if (deducted.changes === 0) throw new Error('Insufficient stock');
-
-        const order = db
-          .prepare(
-            'INSERT INTO orders (buyer_id, product_id, quantity, total_price, status) VALUES (?, ?, ?, ?, ?)'
-          )
-          .run(sub.buyer_id, sub.product_id, sub.quantity, totalPrice, 'pending');
-        return order.lastInsertRowid;
-      })();
+      const { rows: deducted } = await db.query(
+        'UPDATE products SET quantity = quantity - $1 WHERE id = $2 AND quantity >= $1 RETURNING id',
+        [sub.quantity, sub.product_id]
+      );
+      if (deducted.length === 0) throw new Error('Insufficient stock');
+      const { rows: orders } = await db.query(
+        'INSERT INTO orders (buyer_id, product_id, quantity, total_price, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        [sub.buyer_id, sub.product_id, sub.quantity, totalPrice, 'pending']
+      );
+      orderId = orders[0].id;
     } catch (e) {
       logger.warn(`[subscriptions] Sub ${sub.id} stock reservation failed: ${e.message}`);
       continue;
@@ -150,16 +149,14 @@ async function processSubscriptions() {
       });
 
       // Confirm success atomically
-      db.transaction(() => {
-        db.prepare('UPDATE orders SET status = ?, stellar_tx_hash = ? WHERE id = ?').run(
-          'paid',
-          txHash,
-          orderId
-        );
-        db.prepare(
-          'UPDATE subscriptions SET next_order_at = ?, retry_count = 0, retry_after = NULL WHERE id = ?'
-        ).run(nextOrderDate(sub.frequency), sub.id);
-      })();
+      await db.query(
+        'UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3',
+        ['paid', txHash, orderId]
+      );
+      await db.query(
+        'UPDATE subscriptions SET next_order_at = $1, retry_count = 0, retry_after = NULL WHERE id = $2',
+        [nextOrderDate(sub.frequency), sub.id]
+      );
 
       await markProcessed(sub);
 
@@ -170,17 +167,16 @@ async function processSubscriptions() {
       });
     } catch (e) {
       // Restore stock
-      db.transaction(() => {
-        db.prepare('UPDATE orders SET status = ? WHERE id = ?').run('failed', orderId);
-        db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?').run(
-          sub.quantity,
-          sub.product_id
-        );
-      })();
+      await db.query('UPDATE orders SET status = $1 WHERE id = $2', ['failed', orderId]);
+      await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [
+        sub.quantity,
+        sub.product_id,
+      ]);
 
       const retryCount = (current.retry_count || 0) + 1;
 
       if (isPermanentError(e) || retryCount > MAX_RETRIES) {
+<<<<<<< HEAD
         db.prepare(
           "UPDATE subscriptions SET status = 'payment_failed', active = 0, retry_count = ? WHERE id = ?"
         ).run(retryCount, sub.id);
@@ -198,6 +194,12 @@ async function processSubscriptions() {
           logger.warn('[subscriptions] Failed to send payment_failed email', { subscriptionId: sub.id });
         }
 
+=======
+        await db.query(
+          "UPDATE subscriptions SET status = 'failed', active = 0, retry_count = $1 WHERE id = $2",
+          [retryCount, sub.id]
+        );
+>>>>>>> 58a75df (feat: improve email verification and password reset)
         logger.error(`[subscriptions] Sub ${sub.id} permanently failed`, {
           subscriptionId: sub.id,
           reason: isPermanentError(e) ? 'permanent_error' : 'retry_exhausted',
@@ -205,9 +207,10 @@ async function processSubscriptions() {
           retryCount,
         });
       } else {
-        db.prepare(
-          'UPDATE subscriptions SET retry_count = ?, retry_after = ? WHERE id = ?'
-        ).run(retryCount, retryAfterDate(), sub.id);
+        await db.query(
+          'UPDATE subscriptions SET retry_count = $1, retry_after = $2 WHERE id = $3',
+          [retryCount, retryAfterDate(), sub.id]
+        );
         logger.warn(`[subscriptions] Sub ${sub.id} payment failed, scheduled retry ${retryCount}/${MAX_RETRIES}`, {
           subscriptionId: sub.id,
           retryCount,

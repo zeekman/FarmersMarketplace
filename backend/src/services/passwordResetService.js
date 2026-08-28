@@ -12,41 +12,50 @@ function hashToken(token) {
 }
 
 async function createResetToken(db, email) {
-  const user = await db("users").where({ email: email.toLowerCase() }).first();
+  const { rows: users } = await db.query(
+    'SELECT id, email FROM users WHERE email = $1 LIMIT 1',
+    [email.toLowerCase()]
+  );
+  const user = users[0];
   if (!user) return null;
 
   const token = generateToken();
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MINUTES * 60 * 1000);
 
-  await db("password_reset_tokens")
-    .where({ user_id: user.id, used_at: null })
-    .update({ used_at: new Date() });
+  await db.query(
+    'UPDATE password_reset_tokens SET used_at = $1 WHERE user_id = $2 AND used_at IS NULL',
+    [new Date(), user.id]
+  );
 
-  await db("password_reset_tokens").insert({
-    user_id: user.id,
-    token_hash: tokenHash,
-    expires_at: expiresAt,
-  });
+  await db.query(
+    'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
+    [user.id, tokenHash, expiresAt]
+  );
 
   return { token, user };
 }
 
 async function consumeResetToken(db, token, newPassword) {
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
+    return { ok: false, error: "Password must be at least 8 characters." };
+  }
   const tokenHash = hashToken(token);
-  const record = await db("password_reset_tokens")
-    .where({ token_hash: tokenHash, used_at: null })
-    .where("expires_at", ">", new Date())
-    .first();
+  const { rows } = await db.query(
+    `SELECT id, user_id
+     FROM password_reset_tokens
+     WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2
+     LIMIT 1`,
+    [tokenHash, new Date()]
+  );
+  const record = rows[0];
 
   if (!record) return { ok: false, error: "Token is invalid or expired." };
 
   const passwordHash = await bcrypt.hash(newPassword, 12);
 
-  await db.transaction(async (trx) => {
-    await trx("users").where({ id: record.user_id }).update({ password_hash: passwordHash });
-    await trx("password_reset_tokens").where({ id: record.id }).update({ used_at: new Date() });
-  });
+  await db.query('UPDATE users SET password = $1 WHERE id = $2', [passwordHash, record.user_id]);
+  await db.query('UPDATE password_reset_tokens SET used_at = $1 WHERE id = $2', [new Date(), record.id]);
 
   return { ok: true };
 }
