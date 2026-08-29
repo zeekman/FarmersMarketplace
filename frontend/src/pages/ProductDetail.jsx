@@ -1,11 +1,14 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { getStellarErrorMessage } from '../utils/stellarErrors';
 import { getErrorMessage } from '../utils/errorMessages';
+import { showToast } from '../utils/toast';
 import { useXlmRate } from '../utils/useXlmRate';
+import { calculateHaversineDistance, formatDistanceLabel } from '../utils/distance';
+import { buildSrcSet } from '../utils/imageUtils';
 import StarRating from '../components/StarRating';
 import Spinner from '../components/Spinner';
 import FlashSaleCountdown from '../components/FlashSaleCountdown';
@@ -14,8 +17,35 @@ import PriceHistoryChart from '../components/PriceHistoryChart';
 import { Helmet } from 'react-helmet-async';
 import { useTranslation } from 'react-i18next';
 
-const POLL_INTERVAL_MS = 3000;
-const TIMEOUT_MS = 60000;
+const MapView = lazy(() => import('../components/MapView'));
+
+function LazyMapView(props) {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setVisible(true); obs.disconnect(); } },
+      { rootMargin: '200px' }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  return (
+    <div ref={ref} style={{ minHeight: 300 }}>
+      {visible && (
+        <Suspense fallback={<div style={{ height: 300, background: '#f0faf4', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Loading map…</div>}>
+          <MapView {...props} />
+        </Suspense>
+      )}
+    </div>
+  );
+}
+import QRCode from 'qrcode.react';
+import { useReviewForm } from '../hooks/useReviewForm';
+import { usePaymentLink } from '../hooks/usePaymentLink';
+import { addRecentlyViewed } from '../utils/recentlyViewed';
 
 const s = {
   page: { maxWidth: 640, margin: "40px auto", padding: 16 },
@@ -56,12 +86,34 @@ const s = {
   empty:      { color: '#aaa', fontSize: 14, textAlign: 'center', padding: '24px 0' },
   badge:      { display: 'inline-block', fontSize: 11, borderRadius: 4, padding: '2px 7px' },
   select:     { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 12 },
-  galleryMain:   { width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 10, marginBottom: 10, display: 'block' },
+  galleryMain:   { width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 10, marginBottom: 10, display: 'block', transition: 'transform 0.3s ease' },
+  galleryMainContainer: { overflow: 'hidden', borderRadius: 10, marginBottom: 10, cursor: 'zoom-in' },
   thumbRow:      { display: 'flex', gap: 8, marginBottom: 16, overflowX: 'auto' },
   thumb:         { width: 64, height: 64, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', border: '2px solid transparent', flexShrink: 0 },
   thumbActive:   { border: '2px solid #2d6a4f' },
   navBtn:        { background: 'rgba(0,0,0,0.35)', color: '#fff', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  dotRow:        { display: 'flex', justifyContent: 'center', gap: 6, marginTop: 8 },
+  dot:           { width: 8, height: 8, borderRadius: '50%', background: '#ccc', border: 'none', padding: 0, cursor: 'pointer' },
+  dotActive:     { background: '#2d6a4f' },
 };
+
+function CopyButton({ url }) {
+  const [copied, setCopied] = useState(false);
+  function handleCopy() {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+  return (
+    <button
+      style={{ ...{ background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', cursor: 'pointer', fontWeight: 600, fontSize: 14, width: '100%' } }}
+      onClick={handleCopy}
+    >
+      {copied ? 'Copied!' : 'Copy link'}
+    </button>
+  );
+}
 
 export default function ProductDetail() {
   const { t } = useTranslation();
@@ -76,24 +128,80 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [confirming, setConfirming] = useState(null); // { orderId, startedAt }
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState('');
-  const { usd } = useXlmRate();
+   const [progress, setProgress] = useState(0);
+   const [error, setError] = useState('');
+   const { usd } = useXlmRate();
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
+  const [isOutOfDeliveryZone, setIsOutOfDeliveryZone] = useState(false);
   const [useEscrow, setUseEscrow] = useState(false);
   const [alertSet, setAlertSet] = useState(false);
   const [alertLoading, setAlertLoading] = useState(false);
   const [images, setImages] = useState([]);
-  const [activeImg, setActiveImg] = useState(0);
-  const [paidOrders, setPaidOrders] = useState([]);
-  const [reviewRating, setReviewRating] = useState(5);
-  const [reviewComment, setReviewComment] = useState('');
-  const [reviewOrderId, setReviewOrderId] = useState('');
-  const [reviewLoading, setReviewLoading] = useState(false);
-  const [reviewError, setReviewError] = useState('');
-  const [reviewSuccess, setReviewSuccess] = useState('');
-  const [customPrice, setCustomPrice] = useState('');
+   const [activeImg, setActiveImg] = useState(0);
+   const [paidOrders, setPaidOrders] = useState([]);
+   const [customPrice, setCustomPrice] = useState('');
+  const [liveStock, setLiveStock] = useState(null); // Real-time stock from SSE
+  const [isOnWaitlist, setIsOnWaitlist] = useState(false);
+  const [waitlistPosition, setWaitlistPosition] = useState(null);
+  const [waitlistLoading, setWaitlistLoading] = useState(false);
+  const [waitlistError, setWaitlistError] = useState('');
+  const [buyerLocation, setBuyerLocation] = useState(null);
+  const [distanceLabel, setDistanceLabel] = useState('');
+  const [distanceLoading, setDistanceLoading] = useState(false);
+  const [distanceError, setDistanceError] = useState('');
+
+   const BUYER_LOCATION_KEY = 'buyer_location';
+
+  const loadBuyerLocation = () => {
+    try {
+      const raw = sessionStorage.getItem(BUYER_LOCATION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.lat === 'number' && typeof parsed?.lng === 'number') {
+        return parsed;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  };
+
+  const cacheBuyerLocation = (loc) => {
+    try {
+      sessionStorage.setItem(BUYER_LOCATION_KEY, JSON.stringify(loc));
+    } catch {
+      // ignore
+    }
+  };
+
+  const updateDistance = (location, productItem) => {
+    if (!location || !productItem?.farm_lat || !productItem?.farm_lng) return;
+    const distanceKm = calculateHaversineDistance(location.lat, location.lng, Number(productItem.farm_lat), Number(productItem.farm_lng));
+    setDistanceLabel(formatDistanceLabel(distanceKm));
+  };
+
+  const requestDistance = () => {
+    if (!navigator.geolocation) {
+      setDistanceError('Geolocation is not available');
+      return;
+    }
+    setDistanceLoading(true);
+    setDistanceError('');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        cacheBuyerLocation(location);
+        setBuyerLocation(location);
+        updateDistance(location, product);
+        setDistanceLoading(false);
+      },
+      (err) => {
+        setDistanceLoading(false);
+        setDistanceError(err.code === 1 ? 'Permission denied' : 'Unable to determine location');
+      }
+    );
+  };
 
   // Price tiers state
   const [tiers, setTiers] = useState([]);
@@ -105,6 +213,14 @@ export default function ProductDetail() {
   const [couponResult, setCouponResult] = useState(null); // { discount, final_total, discount_type, discount_value }
   const [couponError, setCouponError] = useState('');
   const [couponLoading, setCouponLoading] = useState(false);
+  const [walletPaymentOpen, setWalletPaymentOpen] = useState(false);
+  const [walletOrderId, setWalletOrderId] = useState(null);
+  const [paymentLink, setPaymentLink] = useState('');
+  const [walletLoading, setWalletLoading] = useState(false);
+  const [walletStatus, setWalletStatus] = useState('pending');
+  const walletPollingIntervalRef = useRef(null);
+  const walletPollingTimeoutRef = useRef(null);
+  const mountedRef = useRef(true);
 
   // Nutrition state
   const [nutritionExpanded, setNutritionExpanded] = useState(false);
@@ -120,39 +236,83 @@ export default function ProductDetail() {
   // Platform fee state
   const [feeInfo, setFeeInfo] = useState(null); // { feePercent, feeAmount, farmerAmount }
   const [shareMeta, setShareMeta] = useState(null);
+  // Auction state
+  const [auctionData, setAuctionData] = useState(null); // { current_bid, auction_end, highest_bidder }
+  const [bidAmount, setBidAmount] = useState('');
+  const [bidError, setBidError] = useState('');
+  const [bidLoading, setBidLoading] = useState(false);
+  const [bidSuccess, setBidSuccess] = useState(false);
+  const [auctionCountdown, setAuctionCountdown] = useState(null); // { days, hours, mins, secs, ended }
 
-  const loadReviews = useCallback(async () => {
-    try { const res = await api.getProductReviews(id); setReviews(res.data ?? []); }
-    catch { setReviews([]); }
-  }, [id]);
+   // Helper to calculate distance between two coordinates in km
+   const calculateDistance = (lat1, lng1, lat2, lng2) => {
+     const R = 6371;
+     const dLat = (lat2 - lat1) * Math.PI / 180;
+     const dLng = (lng2 - lng1) * Math.PI / 180;
+     const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+     return R * c;
+   };
 
-  useEffect(() => {
+   // Check geo-fencing when selected address changes
+   useEffect(() => {
+     if (!product || !selectedAddressId || !addresses.length) {
+       setIsOutOfDeliveryZone(false);
+       return;
+     }
+     const addr = addresses.find(a => a.id === selectedAddressId);
+     if (!addr || !product.delivery_radius || !product.origin_lat || !product.origin_lng) {
+       setIsOutOfDeliveryZone(false);
+       return;
+     }
+     // Address coordinates might be stored as lat/lng or latitude/longitude
+     const addrLat = addr.latitude ?? addr.lat;
+     const addrLng = addr.longitude ?? addr.lng;
+     if (addrLat == null || addrLng == null) {
+       setIsOutOfDeliveryZone(false);
+       return;
+     }
+     const distance = calculateDistance(product.origin_lat, product.origin_lng, addrLat, addrLng);
+     const radiusKm = product.delivery_radius > 1000 ? product.delivery_radius / 1000 : product.delivery_radius;
+     setIsOutOfDeliveryZone(distance > radiusKm);
+   }, [product, selectedAddressId, addresses]);
+
+   const loadReviews = useCallback(async () => {
+     try { const res = await api.getProductReviews(id); setReviews(res.data ?? []); }
+     catch { setReviews([]); }
+   }, [id]);
+
+   const handleReviewSuccess = useCallback(() => {
+     loadReviews();
+     api.getProduct(id).then(res => setProduct(res.data ?? res)).catch(() => {});
+   }, [loadReviews, id]);
+
+   const review = useReviewForm(id, { onSuccess: handleReviewSuccess });
+   const { setReviewOrderId } = review;
+
+   const { paymentLinkData, paymentLinkLoading, paymentLinkError, generatePaymentLink, setPaymentLinkError } = usePaymentLink();
+
+   useEffect(() => {
     api.getProduct(id).then(res => {
       const p = res.data ?? res;
       setProduct(p);
       setQty(p.min_order_quantity || 1);
+      if (p.pricing_model === 'pwyw') setCustomPrice(String(p.min_price));
+      else if (p.pricing_model === 'donation') setCustomPrice('1.00');
     }).catch(() => navigate('/marketplace'));
     api.getProductShareMeta(id).then(res => setShareMeta(res.data ?? null)).catch(() => setShareMeta(null));
     loadReviews();
     api.getProductImages(id).then(res => {
       const imgs = res.data ?? [];
       setImages(imgs);
-      if (imgs.length > 0) setActiveImg(0);
+      setActiveImg(0);
     }).catch(() => {});
     api.getProductTiers(id).then(res => setTiers(res.data ?? [])).catch(() => setTiers([]));
     api.getPriceHistory(id).then(res => setPriceHistory(res.data ?? [])).catch(() => setPriceHistory([]));
-    api.getProductShareMeta(id).then(res => setShareMeta(res.data ?? null)).catch(() => setShareMeta(null));
-    loadReviews();
-    api.getProduct(id).then(res => {
-      const p = res.data ?? res;
-      setProduct(p);
-      if (p.pricing_model === 'pwyw') setCustomPrice(String(p.min_price));
-      else if (p.pricing_model === 'donation') setCustomPrice('1.00');
-    }).catch(() => navigate('/marketplace'));
     api.getCalendar(id).then(res => {
       const weeks = res.data ?? [];
       setCalendar(weeks);
-      // Default to first available week
       const first = weeks.find(w => w.available);
       if (first) setSelectedWeek(first.week_start);
     }).catch(() => {});
@@ -170,18 +330,41 @@ export default function ProductDetail() {
   }, [user]);
 
   useEffect(() => {
+    if (!product) return;
+    const cached = loadBuyerLocation();
+    if (cached) {
+      setBuyerLocation(cached);
+      updateDistance(cached, product);
+    }
+  }, [product]);
+
+  useEffect(() => {
     if (user?.role !== 'buyer') return;
     api.getMyAlert(id).then(res => setAlertSet(res.subscribed)).catch(() => {});
   }, [id, user]);
 
   useEffect(() => {
+    if (product) {
+      addRecentlyViewed(product);
+    }
+  }, [product?.id]);
+
+  useEffect(() => {
     if (user?.role !== 'buyer') return;
-    api.getOrders({ limit: 100 }).then(res => {
-      const orders = (res.data ?? []).filter(o => o.product_id === parseInt(id) && o.status === 'paid');
-      setPaidOrders(orders);
-      if (orders.length > 0) setReviewOrderId(String(orders[0].id));
+    api.getWaitlistStatus(id).then(res => {
+      setIsOnWaitlist(res.is_on_waitlist);
+      setWaitlistPosition(res.position || null);
     }).catch(() => {});
   }, [id, user]);
+
+   useEffect(() => {
+     if (user?.role !== 'buyer') return;
+     api.getOrders({ limit: 100 }).then(res => {
+       const orders = (res.data ?? []).filter(o => o.product_id === parseInt(id) && o.status === 'paid');
+       setPaidOrders(orders);
+       if (orders.length > 0) setReviewOrderId(String(orders[0].id));
+     }).catch(() => {});
+   }, [id, user, setReviewOrderId]);
 
   // Load buyer's non-XLM assets for path payment selector
   useEffect(() => {
@@ -209,7 +392,108 @@ export default function ProductDetail() {
     }).finally(() => setPathEstimateLoading(false));
   }, [sourceAsset, qty, couponResult, product]);
 
+  const handleGeneratePaymentLink = useCallback(() => {
+    if (!user) return navigate('/login');
+    if (user.role === 'farmer') return setPaymentLinkError(t('productDetail.farmersCannotOrder'));
+    if (addresses.length > 0 && !selectedAddressId) return setPaymentLinkError(t('productDetail.selectAddress'));
+    if (!product) return;
+    generatePaymentLink({
+      productId: product.id,
+      quantity: qty,
+      addressId: selectedAddressId,
+      couponCode: couponResult ? couponCode : undefined
+    });
+  }, [user, navigate, addresses.length, selectedAddressId, generatePaymentLink, product, qty, couponResult, couponCode, t]);
+
+  // Compute total for fee preview (safe to call before product loads)
+  const _previewTotal = product
+    ? (() => {
+        const tiers_ = tiers ?? [];
+        const getTierPrice_ = (q) => {
+          for (let i = tiers_.length - 1; i >= 0; i--) {
+            if (q >= tiers_[i].min_quantity) return tiers_[i].price_per_unit;
+          }
+          return product.price;
+        };
+        const isFlash = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
+        const uPrice = isFlash ? Number(product.flash_sale_price) : getTierPrice_(qty);
+        const effPrice = (product.pricing_model === 'pwyw' || product.pricing_model === 'donation') ? (parseFloat(customPrice) || 0) : uPrice;
+        const sub = product.pricing_type === 'weight' ? (product.price * (parseFloat(weight) || 0)).toFixed(2) : (effPrice * qty).toFixed(2);
+        return couponResult ? couponResult.final_total.toFixed(2) : sub;
+      })()
+    : '0';
+  useEffect(() => {
+    const n = parseFloat(_previewTotal);
+    if (!n) return;
+    api.getFeePreview(n).then(r => setFeeInfo(r)).catch(() => setFeeInfo(null));
+  }, [_previewTotal]); // eslint-disable-line react-hooks/exhaustive-deps
+  // SSE: connect to stock-stream for real-time stock updates
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (walletPollingIntervalRef.current) {
+        clearInterval(walletPollingIntervalRef.current);
+        walletPollingIntervalRef.current = null;
+      }
+      if (walletPollingTimeoutRef.current) {
+        clearTimeout(walletPollingTimeoutRef.current);
+        walletPollingTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!id) return;
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+    const es = new EventSource(`${apiBase}/api/products/${id}/stock-stream`);
+    es.onmessage = (e) => {
+      try {
+        const { quantity } = JSON.parse(e.data);
+        setLiveStock(quantity);
+      } catch { /* ignore malformed events */ }
+    };
+    return () => es.close();
+  }, [id]);
+
+  // Load auction details if product is auction
+  useEffect(() => {
+    if (!product || !product.type || product.type !== 'auction') return;
+    api.getAuction(product.id).then(res => {
+      setAuctionData(res.data ?? res);
+    }).catch(() => setAuctionData(null));
+  }, [product?.id, product?.type]);
+
+  // Countdown timer for auction
+  useEffect(() => {
+    if (!auctionData || !auctionData.auction_end) return;
+    const tick = () => {
+      const now = Date.now();
+      const end = new Date(auctionData.auction_end).getTime();
+      const diff = Math.max(0, end - now);
+      if (diff <= 0) {
+        setAuctionCountdown({ days: 0, hours: 0, mins: 0, secs: 0, ended: true });
+        return;
+      }
+      const secs = Math.floor(diff / 1000);
+      const days = Math.floor(secs / 86400);
+      const hours = Math.floor((secs % 86400) / 3600);
+      const mins = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      setAuctionCountdown({ days, hours, mins, secs: s, ended: false });
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [auctionData?.auction_end]);
+
   if (!product) return <Spinner />;
+
+  // Clamp activeImg to valid range
+  const safeActiveImg = images.length > 0 ? Math.min(activeImg, images.length - 1) : 0;
+
+  // Use live SSE stock if available, fall back to product.quantity
+  const currentStock = liveStock !== null ? liveStock : product.quantity;
 
   const shareUrl = shareMeta?.url || `${window.location.origin}/product/${id}`;
   const shareTitle = shareMeta?.title || `${product.name} on Farmers Marketplace`;
@@ -228,13 +512,6 @@ export default function ProductDetail() {
     return product.price;
   };
 
-  const isFlashSaleActive = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
-  const baseUnitPrice = getTierPrice(qty);
-  const unitPrice = isFlashSaleActive ? Number(product.flash_sale_price) : baseUnitPrice;
-  const subtotal = product?.pricing_type === 'weight'
-    ? (product.price * (parseFloat(weight) || 0)).toFixed(2)
-    : (unitPrice * qty).toFixed(2);
-  const total = couponResult ? couponResult.final_total.toFixed(2) : subtotal;
     const isFlashSaleActive = Boolean(product.flash_sale_price && product.flash_sale_ends_at && new Date(product.flash_sale_ends_at).getTime() > Date.now());
     const baseUnitPrice = getTierPrice(qty);
     const unitPrice = isFlashSaleActive ? Number(product.flash_sale_price) : baseUnitPrice;
@@ -261,13 +538,40 @@ export default function ProductDetail() {
     } catch { /* ignore */ }
     setAlertLoading(false);
   }
-  // Fetch fee info whenever total changes
-  const totalNum = parseFloat(total);
-  React.useEffect(() => {
-    if (!totalNum) return;
-    api.getFeePreview(totalNum).then(r => setFeeInfo(r)).catch(() => setFeeInfo(null));
-  }, [total]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  async function handleJoinWaitlist() {
+    if (!user) return navigate('/login');
+    if (!selectedAddressId) return setWaitlistError('Please select a delivery address');
+    setWaitlistLoading(true);
+    setWaitlistError('');
+    try {
+      const res = await api.joinWaitlist(product.id, { address_id: selectedAddressId });
+      setIsOnWaitlist(true);
+      setWaitlistPosition(res.position || 1);
+      showToast('Successfully joined waitlist', 'success');
+    } catch (e) {
+      setWaitlistError(getErrorMessage(e));
+      showToast(getErrorMessage(e), 'error');
+    } finally {
+      setWaitlistLoading(false);
+    }
+  }
+
+  async function handleLeaveWaitlist() {
+    setWaitlistLoading(true);
+    setWaitlistError('');
+    try {
+      await api.leaveWaitlist(product.id);
+      setIsOnWaitlist(false);
+      setWaitlistPosition(null);
+      showToast('Removed from waitlist', 'success');
+    } catch (e) {
+      setWaitlistError(getErrorMessage(e));
+      showToast(getErrorMessage(e), 'error');
+    } finally {
+      setWaitlistLoading(false);
+    }
+  }
   async function handleApplyCoupon() {
     if (!couponCode.trim()) return;
     setCouponLoading(true);
@@ -318,31 +622,106 @@ export default function ProductDetail() {
       });
       setResult({ ...res, escrow: useEscrow });
     } catch (e) {
-      setError(getStellarErrorMessage(e) || getErrorMessage(e));
+      const msg = getStellarErrorMessage(e) || getErrorMessage(e);
+      setError(msg);
+      showToast(msg, 'error');
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleReviewSubmit(e) {
-    e.preventDefault();
-    setReviewError('');
-    setReviewSuccess('');
-    if (!reviewOrderId) return setReviewError(t('productDetail.noEligibleOrder'));
-    setReviewLoading(true);
+  async function handleWalletPay() {
+    if (!user) return navigate('/login');
+    if (walletPollingIntervalRef.current) {
+      clearInterval(walletPollingIntervalRef.current);
+      walletPollingIntervalRef.current = null;
+    }
+    if (walletPollingTimeoutRef.current) {
+      clearTimeout(walletPollingTimeoutRef.current);
+      walletPollingTimeoutRef.current = null;
+    }
+
+    setWalletLoading(true);
     try {
-      await api.submitReview({ order_id: parseInt(reviewOrderId), rating: reviewRating, comment: reviewComment.trim() || undefined });
-      setReviewSuccess(t('productDetail.reviewSubmitted'));
-      setReviewComment('');
-      setReviewRating(5);
-      loadReviews();
-      api.getProduct(id).then(res => setProduct(res.data ?? res)).catch(() => {});
+      const orderRes = await api.placeOrder({
+        product_id: product.id,
+        quantity: qty,
+        address_id: selectedAddressId || undefined,
+        coupon_code: couponResult ? couponCode.trim() : undefined,
+      });
+      const linkRes = await api.getOrderPaymentLink(orderRes.orderId);
+      setWalletOrderId(orderRes.orderId);
+      setPaymentLink(linkRes.paymentLink);
+      setWalletStatus('pending');
+      setWalletPaymentOpen(true);
+
+      const interval = setInterval(async () => {
+        try {
+          const ordersRes = await api.getOrders({ product_id: product.id });
+          const order = ordersRes.data.find(o => o.id === orderRes.orderId);
+          if (order && order.status === 'paid') {
+            if (mountedRef.current) setWalletStatus('paid');
+            if (walletPollingIntervalRef.current) {
+              clearInterval(walletPollingIntervalRef.current);
+              walletPollingIntervalRef.current = null;
+            }
+            if (walletPollingTimeoutRef.current) {
+              clearTimeout(walletPollingTimeoutRef.current);
+              walletPollingTimeoutRef.current = null;
+            }
+          } else if (order && order.status === 'failed') {
+            if (mountedRef.current) setWalletStatus('failed');
+            if (walletPollingIntervalRef.current) {
+              clearInterval(walletPollingIntervalRef.current);
+              walletPollingIntervalRef.current = null;
+            }
+            if (walletPollingTimeoutRef.current) {
+              clearTimeout(walletPollingTimeoutRef.current);
+              walletPollingTimeoutRef.current = null;
+            }
+          }
+        } catch {}
+      }, 5000);
+      walletPollingIntervalRef.current = interval;
+      walletPollingTimeoutRef.current = setTimeout(() => {
+        if (walletPollingIntervalRef.current) {
+          clearInterval(walletPollingIntervalRef.current);
+          walletPollingIntervalRef.current = null;
+        }
+        walletPollingTimeoutRef.current = null;
+      }, 5 * 60 * 1000); // 5 min
     } catch (e) {
-      setReviewError(getErrorMessage(e));
+      setError(getErrorMessage(e));
     } finally {
-      setReviewLoading(false);
+      setWalletLoading(false);
     }
   }
+
+  async function handlePlaceBid() {
+    setBidError('');
+    setBidSuccess(false);
+    const amount = parseFloat(bidAmount);
+    if (!amount || isNaN(amount)) return setBidError('Enter a valid bid amount');
+    if (auctionCountdown?.ended) return setBidError('Auction has ended');
+    if (amount <= (auctionData?.current_bid || 0)) {
+      return setBidError(`Bid must be higher than current bid (${(auctionData?.current_bid || 0).toFixed(2)} XLM)`);
+    }
+    setBidLoading(true);
+    try {
+      await api.placeBid(product.id, { amount });
+      setBidSuccess(true);
+      setBidAmount('');
+      // Refresh auction data
+      api.getAuction(product.id).then(res => setAuctionData(res.data ?? res)).catch(() => {});
+      setTimeout(() => setBidSuccess(false), 3000);
+    } catch (e) {
+      setBidError(getErrorMessage(e));
+    } finally {
+      setBidLoading(false);
+    }
+  }
+
+   const handleReviewSubmit = review.handleReviewSubmit;
 
   if (result) {
     return (
@@ -386,6 +765,11 @@ export default function ProductDetail() {
                   <p style={{ marginTop: 4, fontSize: 13, color: '#555' }}>Paid via path payment using <strong>{result.sourceAsset}</strong></p>
                 )}
                 <p style={{ marginTop: 4, fontSize: 12, wordBreak: 'break-all', color: '#555' }}>TX: {result.txHash}</p>
+                {result.bundleDiscount && (
+                  <p style={{ marginTop: 4, fontSize: 13, color: '#2d6a4f' }}>
+                    🏷️ Bundle discount applied: −{result.bundleDiscount.amount.toFixed(4)} XLM ({result.bundleDiscount.percent}% off for {result.bundleDiscount.minProducts}+ products)
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -416,11 +800,16 @@ export default function ProductDetail() {
     <div style={s.page}>
       <Helmet>
         <title>{shareTitle}</title>
+        <meta name="description" content={shareDescription} />
         <meta property="og:title" content={shareTitle} />
         <meta property="og:description" content={shareDescription} />
         <meta property="og:url" content={shareUrl} />
         <meta property="og:type" content="product" />
         {shareImage ? <meta property="og:image" content={shareImage} /> : null}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={shareTitle} />
+        <meta name="twitter:description" content={shareDescription} />
+        {shareImage ? <meta name="twitter:image" content={shareImage} /> : null}
       </Helmet>
       <div style={s.card}>
         {product.video_url ? (
@@ -434,9 +823,28 @@ export default function ProductDetail() {
         {/* Image gallery */}
 
         {images.length > 0 ? (
-          <div style={{ marginBottom: 16 }}>
+          <div
+            style={{ marginBottom: 16 }}
+            role="region"
+            aria-label={t('productDetail.imageGallery', 'Image gallery')}
+            tabIndex={0}
+            onKeyDown={images.length > 1 ? (e) => {
+              if (e.key === 'ArrowLeft') { e.preventDefault(); setActiveImg(i => (i - 1 + images.length) % images.length); }
+              else if (e.key === 'ArrowRight') { e.preventDefault(); setActiveImg(i => (i + 1) % images.length); }
+            } : undefined}
+          >
             <div style={{ position: 'relative' }}>
-              <img src={images[activeImg].url} alt={`${product.name} photo ${activeImg + 1}`} style={s.galleryMain} />
+              <div style={s.galleryMainContainer}
+                onMouseEnter={e => e.currentTarget.querySelector('img').style.transform = 'scale(1.35)'}
+                onMouseLeave={e => e.currentTarget.querySelector('img').style.transform = ''}>
+                <img
+                  src={images[safeActiveImg].url}
+                  srcSet={buildSrcSet(images[safeActiveImg].url)}
+                  sizes="(max-width: 640px) 100vw, 640px"
+                  alt={`${product.name} photo ${safeActiveImg + 1}`}
+                  style={s.galleryMain}
+                />
+              </div>
               {images.length > 1 && (
                 <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: '100%', display: 'flex', justifyContent: 'space-between', padding: '0 8px', boxSizing: 'border-box', pointerEvents: 'none' }}>
                   <button style={{ ...s.navBtn, pointerEvents: 'all' }} onClick={() => setActiveImg(i => (i - 1 + images.length) % images.length)} aria-label={t('productDetail.previousImage')}>‹</button>
@@ -445,16 +853,37 @@ export default function ProductDetail() {
               )}
             </div>
             {images.length > 1 && (
-              <div style={s.thumbRow}>
-                {images.map((img, i) => (
-                  <img key={img.id} src={img.url} alt={t('productDetail.thumbnail', { n: i + 1 })}
-                    style={{ ...s.thumb, ...(i === activeImg ? s.thumbActive : {}) }} onClick={() => setActiveImg(i)} />
-                ))}
-              </div>
+              <>
+                <div style={s.thumbRow}>
+                  {images.map((img, i) => (
+                    <img
+                      key={img.id}
+                      src={img.url}
+                      srcSet={buildSrcSet(img.url)}
+                      sizes="(max-width: 600px) 25vw, 80px"
+                      alt={t('productDetail.thumbnail', { n: i + 1 })}
+                      loading="lazy"
+                      style={{ ...s.thumb, ...(i === safeActiveImg ? s.thumbActive : {}) }}
+                      onClick={() => setActiveImg(i)}
+                    />
+                  ))}
+                </div>
+                <div style={s.dotRow} aria-hidden="true">
+                  {images.map((_, i) => (
+                    <button
+                      key={i}
+                      style={{ ...s.dot, ...(i === safeActiveImg ? s.dotActive : {}) }}
+                      onClick={() => setActiveImg(i)}
+                      tabIndex={-1}
+                      aria-label={t('productDetail.thumbnail', { n: i + 1 })}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         ) : product.image_url ? (
-          <img src={product.image_url} alt={product.name} style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 10, marginBottom: 16 }} />
+          <img src={product.image_url} srcSet={buildSrcSet(product.image_url)} sizes="(max-width: 640px) 100vw, 640px" alt={product.name} style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 10, marginBottom: 16 }} />
         ) : (
           <div style={{ fontSize: 48, marginBottom: 12 }}>🥬</div>
         )}
@@ -469,6 +898,33 @@ export default function ProductDetail() {
                 {product.farmer_name}
               </span>
             </div>
+            {product.farm_lat != null && product.farm_lng != null && (
+              <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>
+                {distanceLabel ? (
+                  <span>{distanceLabel}</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={requestDistance}
+                    disabled={distanceLoading}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#2d6a4f',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      padding: 0,
+                      fontSize: 13,
+                    }}
+                  >
+                    {distanceLoading ? 'Locating…' : 'Show distance'}
+                  </button>
+                )}
+                {distanceError && (
+                  <span style={{ color: '#c0392b', marginLeft: 10 }}>{distanceError}</span>
+                )}
+              </div>
+            )}
             {product.harvest_batch_code && (
               <div style={{ fontSize: 14, color: '#555', marginTop: 6 }}>
                 <span style={{ fontWeight: 600, color: '#2d6a4f' }}>Harvest batch:</span>{' '}
@@ -492,6 +948,17 @@ export default function ProductDetail() {
         <div style={s.desc}>
           {product.description || "Fresh from the farm."}
         </div>
+
+        {product.farm_lat != null && product.farm_lng != null ? (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#2d6a4f', marginBottom: 12 }}>Farm Location</div>
+          <LazyMapView lat={product.farm_lat} lng={product.farm_lng} farmerName={product.farmer_name} />
+          </div>
+        ) : (
+          <div style={{ marginBottom: 20, padding: '16px', borderRadius: 10, background: '#f8fdf9', color: '#555' }}>
+            Location not provided
+          </div>
+        )}
 
         <ShareButtons
           title={shareTitle}
@@ -572,15 +1039,51 @@ export default function ProductDetail() {
         ) : null}
         {isFlashSaleActive ? (
           <>
+            {/* Prominent flash sale banner — amber background meets WCAG AA at 4.5:1 contrast */}
+            <div
+              role="region"
+              aria-label={t('productDetail.flashSaleBanner')}
+              style={{
+                background: '#fbbf24',
+                border: '2px solid #f59e0b',
+                borderRadius: 10,
+                padding: '14px 18px',
+                marginBottom: 16,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 15, fontWeight: 800, color: '#78350f' }}>
+                  ⚡ {t('productDetail.flashSaleTitle')}
+                </span>
+                <span style={{ fontSize: 22, fontWeight: 800, color: '#78350f' }}>
+                  {unitPrice.toFixed(2)} XLM
+                </span>
+                <span style={{ fontSize: 14, textDecoration: 'line-through', color: '#92400e', fontWeight: 500 }}>
+                  {baseUnitPrice.toFixed(2)} XLM
+                </span>
+                <span style={{
+                  background: '#ef4444',
+                  color: '#fff',
+                  borderRadius: 20,
+                  padding: '2px 10px',
+                  fontSize: 13,
+                  fontWeight: 700,
+                }}>
+                  {t('productDetail.flashSaleSavings', {
+                    pct: Math.round((1 - unitPrice / baseUnitPrice) * 100),
+                  })}
+                </span>
+              </div>
+              <FlashSaleCountdown endsAt={product.flash_sale_ends_at} />
+            </div>
+            {/* Price line below banner (no extra countdown — already shown in banner) */}
             <div style={s.price}>
               {unitPrice.toFixed(2)} XLM{' '}
               <span style={{ fontSize: 14, fontWeight: 400 }}>/ {product.unit}</span>
-              <span style={{ marginLeft: 8, fontSize: 13, textDecoration: 'line-through', color: '#888' }}>
-                {baseUnitPrice.toFixed(2)} XLM
-              </span>
             </div>
-            <div style={{ ...s.badge, background: '#fee2e2', color: '#b42318', fontWeight: 700, marginBottom: 8 }}>Flash Sale</div>
-            <FlashSaleCountdown endsAt={product.flash_sale_ends_at} />
           </>
         ) : (
           <div style={s.price}>
@@ -591,27 +1094,7 @@ export default function ProductDetail() {
             )}
           </div>
         )}
-        {product.pricing_model === 'fixed' ? (
-          <>
-            <div style={s.price}>
-              {unitPrice.toFixed(2)} XLM{" "}
-              <span style={{ fontSize: 14, fontWeight: 400 }}>
-                / {product.unit}
-              </span>
-              {tiers.length > 0 && (
-                <span style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>
-                  (bulk pricing available)
-                </span>
-              )}
-            </div>
-            {isFlashSaleActive && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ ...s.badge, background: '#fee2e2', color: '#b42318', fontWeight: 700, marginBottom: 4 }}>Flash Sale</div>
-                <FlashSaleCountdown endsAt={product.flash_sale_ends_at} />
-              </div>
-            )}
-          </>
-        ) : (
+        {product.pricing_model !== 'fixed' && (
           <div style={{ marginBottom: 20 }}>
             <label style={s.label}>{product.pricing_model === 'pwyw' ? 'Pay What You Want' : 'Donation'}</label>
             <div style={s.row}>
@@ -657,17 +1140,6 @@ export default function ProductDetail() {
         })()}
 
         <PriceHistoryChart data={priceHistory} />
-        <div style={s.price}>
-          {unitPrice} XLM{" "}
-          <span style={{ fontSize: 14, fontWeight: 400 }}>
-            / {product.unit}
-          </span>
-          {tiers.length > 0 && (
-            <span style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>
-              (bulk pricing available)
-            </span>
-          )}
-        </div>
         {usd(unitPrice) && (
           <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
             {usd(unitPrice)} {t('productDetail.perUnit', { unit: product.unit })} <span style={{ fontSize: 11, color: '#bbb' }}>{t('productDetail.approxRate')}</span>
@@ -697,13 +1169,35 @@ export default function ProductDetail() {
         )}
 
         <div style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
-          {t('productDetail.inStock', { qty: product.quantity, unit: product.unit })}
+          {t('productDetail.inStock', { qty: currentStock, unit: product.unit })}
+          {currentStock > 0 && currentStock <= 5 && (
+            <span style={{ marginLeft: 8, color: '#c0392b', fontWeight: 700 }}>
+              ⚠️ Only {currentStock} left!
+            </span>
+          )}
           {product.min_order_quantity > 1 && (
             <span style={{ marginLeft: 10, color: '#e67e22', fontWeight: 600 }}>
               Min. order: {product.min_order_quantity} {product.unit}
             </span>
           )}
         </div>
+        {product.harvest_date && (
+          <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
+            Harvested: {new Date(product.harvest_date).toLocaleDateString()}
+          </div>
+        )}
+        {product.best_before && (
+          <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
+            Best before: {new Date(product.best_before).toLocaleDateString()}
+          </div>
+        )}
+        {(product.available_from || product.available_until) && (
+          <div style={{ fontSize: 13, color: '#2d6a4f', background: '#f0faf4', border: '1px solid #b7e4c7', borderRadius: 6, padding: '6px 10px', marginBottom: 12, display: 'inline-block' }}>
+            🗓 Availability window:
+            {product.available_from ? ` from ${new Date(product.available_from).toLocaleString()}` : ''}
+            {product.available_until ? ` until ${new Date(product.available_until).toLocaleString()}` : ''}
+          </div>
+        )}
 
         {product.pricing_type === 'weight' ? (
           <div style={{ marginBottom: 20 }}>
@@ -728,9 +1222,9 @@ export default function ProductDetail() {
         ) : (
           <div style={s.row}>
             <label style={{ fontSize: 14 }}>{t('productDetail.quantity')}</label>
-            <input style={s.input} type="number" min={product.min_order_quantity || 1} max={product.quantity} value={qty}
+            <input style={s.input} type="number" min={product.min_order_quantity || 1} max={currentStock} value={qty}
               onChange={e => {
-                setQty(Math.max(product.min_order_quantity || 1, Math.min(product.quantity, parseInt(e.target.value) || (product.min_order_quantity || 1))));
+                setQty(Math.max(product.min_order_quantity || 1, Math.min(currentStock, parseInt(e.target.value) || (product.min_order_quantity || 1))));
                 setCouponResult(null);
                 setCouponError('');
               }} />
@@ -753,10 +1247,15 @@ export default function ProductDetail() {
               onClick={() => navigate('/addresses')}>
               {t('productDetail.manageAddresses')}
             </button>
+            {isOutOfDeliveryZone && (
+              <div style={{ background: '#fee', border: '1px solid #f5a5a5', borderRadius: 8, padding: 12, marginTop: 12, fontSize: 14, color: '#c0392b' }}>
+                ⚠️ This product does not deliver to your selected address location.
+              </div>
+            )}
           </div>
         )}
 
-        {user?.role === 'buyer' && product.quantity > 0 && (
+        {user?.role === 'buyer' && currentStock > 0 && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
@@ -795,10 +1294,13 @@ export default function ProductDetail() {
               <div style={{ fontWeight: 600, color: '#2d6a4f' }}>Farmer receives: {feeInfo.farmerAmount.toFixed(7)} XLM</div>
             </div>
           )}
+          <div style={{ marginTop: 6, fontSize: 12, color: '#2d6a4f' }}>
+            🏷️ Bundle discount may apply if you order multiple products from this farmer
+          </div>
         </div>
 
         {/* Path payment asset selector */}
-        {user?.role === 'buyer' && product.quantity > 0 && (
+        {user?.role === 'buyer' && currentStock > 0 && (
           <div style={{ marginBottom: 16 }}>
             <label style={s.label}>Pay with</label>
             <select
@@ -851,38 +1353,124 @@ export default function ProductDetail() {
         })()}
 
         {/* Availability Calendar */}
-        {calendar.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#333', marginBottom: 8 }}>📅 Weekly Availability</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {calendar.map(w => (
-                <button
-                  key={w.week_start}
-                  disabled={!w.available}
-                  onClick={() => w.available && setSelectedWeek(w.week_start)}
-                  style={{
-                    padding: '5px 10px', borderRadius: 6, fontSize: 12, cursor: w.available ? 'pointer' : 'not-allowed',
-                    border: selectedWeek === w.week_start ? '2px solid #2d6a4f' : '1px solid #ddd',
-                    background: !w.available ? '#f5f5f5' : selectedWeek === w.week_start ? '#d8f3dc' : '#fff',
-                    color: !w.available ? '#bbb' : '#333',
-                    fontWeight: selectedWeek === w.week_start ? 700 : 400,
-                  }}
-                >
-                  {w.available ? '' : '✗ '}{new Date(w.week_start + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                </button>
-              ))}
+        {calendar.length > 0 && (() => {
+          // Build a set of available week_start dates for quick lookup
+          const availableWeeks = new Set(calendar.filter(w => w.available).map(w => w.week_start));
+          // Determine the month to display: month of the first week in the calendar
+          const firstDate = new Date(calendar[0].week_start + 'T00:00:00Z');
+          const year = firstDate.getUTCFullYear();
+          const month = firstDate.getUTCMonth();
+          const monthLabel = firstDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+          // Days in month
+          const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+          // Day of week for the 1st (0=Sun)
+          const firstDow = new Date(Date.UTC(year, month, 1)).getUTCDay();
+          // For each day, find which week_start (Monday) it belongs to
+          function getMondayOf(y, m, d) {
+            const date = new Date(Date.UTC(y, m, d));
+            const dow = date.getUTCDay(); // 0=Sun
+            const diff = dow === 0 ? -6 : 1 - dow;
+            const mon = new Date(date);
+            mon.setUTCDate(date.getUTCDate() + diff);
+            return mon.toISOString().slice(0, 10);
+          }
+          const cells = [];
+          for (let i = 0; i < firstDow; i++) cells.push(null); // leading blanks
+          for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+          return (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#333', marginBottom: 8 }}>📅 Availability — {monthLabel}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, maxWidth: 280 }}>
+                {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
+                  <div key={d} style={{ textAlign: 'center', fontSize: 11, color: '#888', fontWeight: 600, padding: '2px 0' }}>{d}</div>
+                ))}
+                {cells.map((day, i) => {
+                  if (!day) return <div key={`blank-${i}`} />;
+                  const weekKey = getMondayOf(year, month, day);
+                  const isAvail = availableWeeks.has(weekKey);
+                  const isSelected = selectedWeek === weekKey;
+                  return (
+                    <button
+                      key={day}
+                      disabled={!isAvail}
+                      onClick={() => isAvail && setSelectedWeek(weekKey)}
+                      title={isAvail ? `Week of ${weekKey}` : 'Unavailable'}
+                      style={{
+                        padding: '4px 0', borderRadius: 4, fontSize: 12, cursor: isAvail ? 'pointer' : 'default',
+                        border: isSelected ? '2px solid #2d6a4f' : '1px solid transparent',
+                        background: !isAvail ? '#f5f5f5' : isSelected ? '#d8f3dc' : '#e8f5e9',
+                        color: !isAvail ? '#ccc' : isSelected ? '#1b4332' : '#2d6a4f',
+                        fontWeight: isSelected ? 700 : 400,
+                      }}
+                    >{day}</button>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: '#888' }}>
+                <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#e8f5e9', border: '1px solid #b7e4c7', borderRadius: 2, marginRight: 4 }} />Available</span>
+                <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#f5f5f5', borderRadius: 2, marginRight: 4 }} />Unavailable</span>
+              </div>
+              {selectedWeek && <div style={{ fontSize: 12, color: '#2d6a4f', marginTop: 4 }}>Week of {selectedWeek} selected</div>}
             </div>
-            {selectedWeek && <div style={{ fontSize: 12, color: '#2d6a4f', marginTop: 4 }}>Week of {selectedWeek} selected</div>}
-          </div>
-        )}
+          );
+        })()}
 
-        {product.quantity === 0 ? (
+        {product?.type === 'auction' && auctionData ? (
+          <div style={{ border: '2px solid #2d6a4f', borderRadius: 12, padding: 20, marginBottom: 20, background: '#f8fdf9' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#2d6a4f', marginBottom: 16 }}>🏆 Active Auction</div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>Current Highest Bid</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#2d6a4f' }}>{(auctionData.current_bid || 0).toFixed(2)} XLM</div>
+              {auctionData.highest_bidder && <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>by {auctionData.highest_bidder}</div>}
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>Time Remaining</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: auctionCountdown?.ended ? '#c0392b' : '#2d6a4f' }}>
+                {auctionCountdown?.ended ? 'Auction Ended' : `${auctionCountdown?.days}d ${auctionCountdown?.hours}h ${auctionCountdown?.mins}m ${auctionCountdown?.secs}s`}
+              </div>
+            </div>
+            {!auctionCountdown?.ended && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                <input
+                  type="number"
+                  placeholder={`Higher than ${(auctionData.current_bid || 0).toFixed(2)} XLM`}
+                  value={bidAmount}
+                  onChange={e => { setBidAmount(e.target.value); setBidError(''); }}
+                  step="0.01"
+                  min={(auctionData.current_bid || 0) + 0.01}
+                  style={{ flex: 1, ...s.input, marginBottom: 0 }}
+                />
+                <button
+                  onClick={handlePlaceBid}
+                  disabled={bidLoading}
+                  style={{ ...s.btn, flex: '0 0 auto', whiteSpace: 'nowrap' }}
+                >
+                  {bidLoading ? 'Placing...' : 'Place Bid'}
+                </button>
+              </div>
+            )}
+            {bidError && <div style={{ ...s.err, marginBottom: 12 }}>{bidError}</div>}
+            {bidSuccess && <div style={{ background: '#d8f3dc', color: '#2d6a4f', padding: 12, borderRadius: 8, marginBottom: 12 }}>✅ Bid placed successfully!</div>}
+          </div>
+        ) : currentStock === 0 ? (
           <div>
             <div style={{ color: '#c0392b', fontWeight: 600, marginBottom: 12 }}>{t('productDetail.outOfStock')}</div>
             {user?.role === 'buyer' && (
-              <button style={{ ...s.btn, background: alertSet ? '#888' : '#2d6a4f' }} onClick={handleAlert} disabled={alertLoading}>
-                {alertLoading ? '...' : alertSet ? t('productDetail.alertSet') : t('productDetail.notifyMe')}
-              </button>
+              <>
+                {isOnWaitlist ? (
+                  <>
+                    {waitlistPosition && <div style={{ fontSize: 14, color: '#2d6a4f', marginBottom: 12 }}>You're #{waitlistPosition} on the waitlist</div>}
+                    <button style={{ ...s.btn, background: '#888', marginBottom: 8 }} onClick={handleLeaveWaitlist} disabled={waitlistLoading}>
+                      {waitlistLoading ? '...' : 'Leave Waitlist'}
+                    </button>
+                  </>
+                ) : (
+                  <button style={{ ...s.btn, background: '#2d6a4f', marginBottom: 8 }} onClick={handleJoinWaitlist} disabled={waitlistLoading}>
+                    {waitlistLoading ? '...' : 'Join Waitlist'}
+                  </button>
+                )}
+                {waitlistError && <div style={s.err}>{waitlistError}</div>}
+              </>
             )}
           </div>
         ) : (
@@ -894,10 +1482,40 @@ export default function ProductDetail() {
               </label>
             )}
             <button style={{ ...s.btn, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
-              onClick={handleBuy} disabled={loading || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}>
+              onClick={handleBuy}
+              disabled={loading || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}
+              aria-disabled={loading}
+              aria-busy={loading}
+              data-testid="buy-now-btn">
               {loading && <div className="spinner-sm" style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />}
               {loading ? t('productDetail.processing') : `${useEscrow ? t('productDetail.payToEscrow') : t('productDetail.buyNow')} · ${sourceAsset && pathEstimate ? `~${pathEstimate.sourceAmount.toFixed(4)} ${pathEstimate.sourceCode}` : `${total} XLM`}`}
             </button>
+            {user?.role === 'buyer' && (
+              <button style={{ ...s.btn, background: '#1e40af', marginBottom: 12 }} onClick={handleWalletPay} disabled={walletLoading || currentStock === 0}>
+                {walletLoading ? '...' : `💳 Pay with Stellar Wallet · ${total} XLM`}
+              </button>
+            )}
+            <button style={{ ...s.btn, marginTop: 12, background: '#006d77', fontSize: 14 }} onClick={handleGeneratePaymentLink} disabled={paymentLinkLoading || loading}>
+              {paymentLinkLoading ? '...' : 'Pay with Stellar Wallet (SEP-0007)'}
+            </button>
+            {paymentLinkError && <div style={{ ...s.err, marginTop: 8 }}>{paymentLinkError}</div>}
+            {paymentLinkData && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                <div style={{ background: '#fff', borderRadius: 12, padding: 24, maxWidth: 360, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: '#2d6a4f' }}>SEP-0007 Payment Link</div>
+                    <button onClick={() => setPaymentLinkData(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888' }} aria-label="Close">✕</button>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                    <QRCode value={paymentLinkData.paymentLink} size={200} />
+                  </div>
+                  <CopyButton url={paymentLinkData.paymentLink} />
+                  <div style={{ marginTop: 8, fontSize: 12, color: '#888', textAlign: 'center' }}>
+                    Expires: {new Date(paymentLinkData.expiresAt).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+            )}
             <style>{`@keyframes spin { to { transform: rotate(360deg); } } .spinner-sm { display: inline-block; }`}</style>
           </>
         )}
@@ -920,34 +1538,34 @@ export default function ProductDetail() {
           ))
         )}
 
-        {user?.role === 'buyer' && paidOrders.length > 0 && !reviewSuccess && (
-          <form onSubmit={handleReviewSubmit} style={{ marginTop: 24, borderTop: '1px solid #f0f0f0', paddingTop: 20 }}>
-            <div style={{ ...s.sectionTitle, fontSize: 15, marginBottom: 12 }}>{t('productDetail.leaveReview')}</div>
-            {paidOrders.length > 1 && (
-              <div style={{ marginBottom: 12 }}>
-                <label style={s.label}>{t('productDetail.order')}</label>
-                <select style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}
-                  value={reviewOrderId} onChange={e => setReviewOrderId(e.target.value)}>
-                  {paidOrders.map(o => <option key={o.id} value={o.id}>Order #{o.id} — {o.quantity} {o.unit}</option>)}
-                </select>
-              </div>
-            )}
-            <div style={{ marginBottom: 12 }}>
-              <label style={s.label}>{t('productDetail.rating')}</label>
-              <StarRating value={reviewRating} size={28} onChange={setReviewRating} />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={s.label}>{t('productDetail.comment')}</label>
-              <textarea style={s.textarea} placeholder={t('productDetail.commentPlaceholder')}
-                value={reviewComment} onChange={e => setReviewComment(e.target.value)} maxLength={1000} />
-            </div>
-            {reviewError && <div style={s.err}>{reviewError}</div>}
-            <button type="submit" style={s.btnSm} disabled={reviewLoading}>
-              {reviewLoading ? t('productDetail.submitting') : t('productDetail.submitReview')}
-            </button>
-          </form>
-        )}
-        {reviewSuccess && <div style={{ ...s.success, marginTop: 16 }}>{reviewSuccess}</div>}
+         {user?.role === 'buyer' && paidOrders.length > 0 && !review.reviewSuccess && (
+           <form onSubmit={handleReviewSubmit} style={{ marginTop: 24, borderTop: '1px solid #f0f0f0', paddingTop: 20 }}>
+             <div style={{ ...s.sectionTitle, fontSize: 15, marginBottom: 12 }}>{t('productDetail.leaveReview')}</div>
+             {paidOrders.length > 1 && (
+               <div style={{ marginBottom: 12 }}>
+                 <label style={s.label}>{t('productDetail.order')}</label>
+                 <select style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}
+                   value={review.reviewOrderId} onChange={e => review.setReviewOrderId(e.target.value)}>
+                   {paidOrders.map(o => <option key={o.id} value={o.id}>Order #{o.id} — {o.quantity} {o.unit}</option>)}
+                 </select>
+               </div>
+             )}
+             <div style={{ marginBottom: 12 }}>
+               <label style={s.label}>{t('productDetail.rating')}</label>
+               <StarRating value={review.reviewRating} size={28} onChange={review.setReviewRating} />
+             </div>
+             <div style={{ marginBottom: 14 }}>
+               <label style={s.label}>{t('productDetail.comment')}</label>
+               <textarea style={s.textarea} placeholder={t('productDetail.commentPlaceholder')}
+                 value={review.reviewComment} onChange={e => review.setReviewComment(e.target.value)} maxLength={1000} />
+             </div>
+             {review.reviewError && <div style={s.err}>{review.reviewError}</div>}
+             <button type="submit" style={s.btnSm} disabled={review.reviewLoading}>
+               {review.reviewLoading ? t('productDetail.submitting') : t('productDetail.submitReview')}
+             </button>
+           </form>
+         )}
+         {review.reviewSuccess && <div style={{ ...s.success, marginTop: 16 }}>{review.reviewSuccess}</div>}
       </div>
     </div>
   );

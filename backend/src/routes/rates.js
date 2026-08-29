@@ -2,7 +2,7 @@ const router = require('express').Router();
 const { err } = require('../middleware/error');
 
 let cache = { rate: null, fetchedAt: 0 };
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 60 * 1000; // 60 seconds
 
 // GET /api/rates/xlm-usd
 router.get('/xlm-usd', async (req, res) => {

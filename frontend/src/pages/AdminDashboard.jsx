@@ -1,5 +1,148 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
+import AdminAnalyticsSummary from '../components/admin/AdminAnalyticsSummary';
+import AdminUsersPanel from '../components/admin/AdminUsersPanel';
+import AdminOrdersPanel from '../components/admin/AdminOrdersPanel';
+import AdminDisputesPanel from '../components/admin/AdminDisputesPanel';
+import AdminAnnouncementsPanel from '../components/admin/AdminAnnouncementsPanel';
+
+function DeactivateModal({ user, onConfirm, onCancel }) {
+  const confirmRef = useRef(null);
+  useEffect(() => { confirmRef.current?.focus(); }, []);
+  function handleKeyDown(e) {
+    if (e.key === 'Escape') onCancel();
+  }
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="deactivate-modal-title"
+      onKeyDown={handleKeyDown}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+    >
+      <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 400, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+        <div id="deactivate-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 10, color: '#333' }}>
+          Deactivate {user.name}?
+        </div>
+        <p style={{ fontSize: 14, color: '#555', marginBottom: 20 }}>
+          They will lose access immediately.
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+            Cancel
+          </button>
+          <button ref={confirmRef} onClick={onConfirm} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#c0392b', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+            Confirm Deactivate
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BanModal({ user, onConfirm, onCancel, loading }) {
+  const confirmRef = useRef(null);
+  const [reason, setReason] = useState('');
+  useEffect(() => { confirmRef.current?.focus(); }, []);
+  function handleKeyDown(e) {
+    if (e.key === 'Escape') onCancel();
+  }
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ban-modal-title"
+      onKeyDown={handleKeyDown}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+    >
+      <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 400, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+        <div id="ban-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 10, color: '#333' }}>
+          Ban {user.name}?
+        </div>
+        <p style={{ fontSize: 14, color: '#555', marginBottom: 14 }}>
+          This user will be unable to access the platform.
+        </p>
+        <textarea
+          ref={confirmRef}
+          value={reason}
+          onChange={e => setReason(e.target.value)}
+          placeholder="Optional ban reason (visible to user)…"
+          style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, resize: 'vertical', minHeight: 60, boxSizing: 'border-box', marginBottom: 16 }}
+        />
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} disabled={loading} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 600, color: loading ? '#aaa' : '#333' }}>
+            Cancel
+          </button>
+          <button onClick={() => onConfirm(reason)} disabled={loading} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: loading ? '#ccc' : '#c0392b', color: '#fff', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
+            {loading ? 'Banning…' : 'Ban User'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResolveDisputeModal({ dispute, onConfirm, onCancel }) {
+  const confirmRef = useRef(null);
+  const [resolution, setResolution] = useState('farmer');
+  const [splitPercentBuyer, setSplitPercentBuyer] = useState('50');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { confirmRef.current?.focus(); }, []);
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr('');
+    const body = resolution === 'split'
+      ? { resolution, split_percent_buyer: Number(splitPercentBuyer) }
+      : { resolution };
+    try { await onConfirm(dispute.id, body); }
+    catch (e) { setErr(e.message); setBusy(false); }
+  }
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="resolve-modal-title"
+      onKeyDown={e => e.key === 'Escape' && onCancel()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 460, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+        <div id="resolve-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 6, color: '#333' }}>
+          Resolve Dispute #{dispute.id}
+        </div>
+        <div style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>
+          <strong>{dispute.product_name}</strong> · {dispute.buyer_name} · {Number(dispute.total_price).toFixed(2)} XLM
+        </div>
+        <div style={{ fontSize: 13, color: '#555', marginBottom: 16, background: '#f8f8f8', borderRadius: 8, padding: '10px 12px' }}>
+          <strong>Reason:</strong> {dispute.reason}
+        </div>
+        <form onSubmit={handleSubmit}>
+          <label style={{ display: 'block', fontSize: 13, color: '#555', marginBottom: 4 }}>Resolve in favor of</label>
+          <select ref={confirmRef} value={resolution} onChange={e => setResolution(e.target.value)}
+            style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 14 }}>
+            <option value="farmer">Farmer (release funds)</option>
+            <option value="buyer">Buyer (refund)</option>
+            <option value="split">Split</option>
+          </select>
+          {resolution === 'split' && (
+            <>
+              <label style={{ display: 'block', fontSize: 13, color: '#555', marginBottom: 4 }}>Buyer share (%)</label>
+              <input type="number" min="0" max="100" required value={splitPercentBuyer}
+                onChange={e => setSplitPercentBuyer(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 14, boxSizing: 'border-box' }} />
+            </>
+          )}
+          {err && <div style={{ color: '#c0392b', fontSize: 13, marginBottom: 10 }}>{err}</div>}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onCancel} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
+            <button type="submit" disabled={busy}
+              style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: busy ? '#ccc' : '#2d6a4f', color: '#fff', cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
+              {busy ? 'Saving…' : 'Confirm'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 const s = {
   page: { maxWidth: 1000, margin: '0 auto', padding: 24 },
@@ -27,14 +170,33 @@ const s = {
 };
 
 export default function AdminDashboard() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
+  const [orders, setOrders] = useState([]);
+  const [orderPagination, setOrderPagination] = useState({ page: 1, pages: 1, total: 0 });
   const [error, setError] = useState('');
+  const [deactivateTarget, setDeactivateTarget] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [verifiedFilter, setVerifiedFilter] = useState('');
+  const [bannedFilter, setBannedFilter] = useState('');
+  const [banModalData, setBanModalData] = useState(null);
+  const [banBusy, setBanBusy] = useState(false);
   const [contracts, setContracts] = useState([]);
   const [contractForm, setContractForm] = useState({ contract_id: '', name: '', type: 'escrow', network: 'testnet' });
   const [contractMsg, setContractMsg] = useState('');
   const [contractFilter, setContractFilter] = useState({ network: '', type: '' });
+
+  // Disputes
+  const [disputes, setDisputes] = useState([]);
+  const [resolveTarget, setResolveTarget] = useState(null);
+
+  // Contract deployment
+  const [deployForm, setDeployForm] = useState({ name: '', type: 'escrow', wasm: null });
+  const [deployMsg, setDeployMsg] = useState('');
+  const [deployBusy, setDeployBusy] = useState(false);
 
   // Contract state viewer
   const [contractId, setContractId] = useState('');
@@ -42,6 +204,8 @@ export default function AdminDashboard() {
   const [contractState, setContractState] = useState(null);
   const [contractLoading, setContractLoading] = useState(false);
   const [contractError, setContractError] = useState('');
+  const [exportFormat, setExportFormat] = useState('json');
+  const [exportSinceLedger, setExportSinceLedger] = useState('');
 
   const [simContractId, setSimContractId] = useState('');
   const [simMethod, setSimMethod] = useState('');
@@ -57,6 +221,12 @@ export default function AdminDashboard() {
   const [upgradeForm, setUpgradeForm] = useState({ old_wasm_hash: '', new_wasm_hash: '' });
   const [upgradeSubmitBusy, setUpgradeSubmitBusy] = useState(false);
   const [upgradeSubmitMsg, setUpgradeSubmitMsg] = useState('');
+  const [upgradeHashErrors, setUpgradeHashErrors] = useState({ old_wasm_hash: '', new_wasm_hash: '' });
+
+  const WASM_HASH_RE = /^[0-9a-f]{64}$/i;
+  function validateWasmHash(value) {
+    return WASM_HASH_RE.test(value) ? '' : 'WASM hash must be a 64-character hex string.';
+  }
 
   const inputStyle = { padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 };
   const monoInputStyle = { ...inputStyle, fontFamily: 'monospace' };
@@ -74,6 +244,47 @@ export default function AdminDashboard() {
   const [aclForm, setAclForm] = useState({ address: '', role: 'admin' });
   const [aclMsg, setAclMsg] = useState('');
 
+  // Contract version comparison
+  const [cmpRegistryId, setCmpRegistryId] = useState('');
+  const [cmpV1, setCmpV1] = useState('');
+  const [cmpV2, setCmpV2] = useState('');
+  const [cmpResult, setCmpResult] = useState(null);
+  const [cmpLoading, setCmpLoading] = useState(false);
+  const [cmpError, setCmpError] = useState('');
+  // Contract alerts
+  const [contractAlerts, setContractAlerts] = useState([]);
+  const [alertsFilter, setAlertsFilter] = useState('unacknowledged');
+  const [alertsLoading, setAlertsLoading] = useState(false);
+
+  async function loadContractAlerts(filter = alertsFilter) {
+    setAlertsLoading(true);
+    try {
+      const acknowledged = filter === 'all' ? undefined : filter === 'acknowledged' ? true : false;
+      const res = await api.adminGetContractAlerts(acknowledged);
+      setContractAlerts(res.data ?? []);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error(e);
+    }
+    finally { setAlertsLoading(false); }
+  }
+
+  async function acknowledgeAlert(id) {
+    await api.adminAcknowledgeContractAlert(id);
+    loadContractAlerts();
+  }
+  // Contract invocation history
+  const [invocRegistryId, setInvocRegistryId] = useState('');
+  const [invocFilters, setInvocFilters] = useState({ method: '', from: '', to: '' });
+  const [invocPage, setInvocPage] = useState(1);
+  const [invocData, setInvocData] = useState(null);
+  const [invocLoading, setInvocLoading] = useState(false);
+  const [invocError, setInvocError] = useState('');
+
+  async function loadDisputes() {
+    try { const res = await api.adminGetDisputes(); setDisputes(res.data ?? res); } catch {}
+  }
+
   async function loadStats() {
     try {
       const res = await api.adminGetStats();
@@ -83,19 +294,34 @@ export default function AdminDashboard() {
 
   async function loadUsers(page = 1) {
     try {
-      const res = await api.adminGetUsers(page);
+      const res = await api.adminGetUsers(page, { search: searchQuery, role: roleFilter, verified: verifiedFilter, banned: bannedFilter });
       setUsers(res.data);
       setPagination(res.pagination);
+      setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('usersPage', page); return p; });
+    } catch (e) { setError(e.message); }
+  }
+
+  async function loadOrders(page = 1) {
+    try {
+      const res = await api.adminGetOrders(page);
+      setOrders(res.data);
+      setOrderPagination(res.pagination);
+      setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('ordersPage', page); return p; });
     } catch (e) { setError(e.message); }
   }
 
   useEffect(() => {
+    const usersPage = parseInt(searchParams.get('usersPage') || '1');
+    const ordersPage = parseInt(searchParams.get('ordersPage') || '1');
     loadStats();
-    loadUsers(1);
+    loadUsers(usersPage);
+    loadOrders(ordersPage);
     loadContracts();
+    loadContractAlerts('unacknowledged');
+    loadDisputes();
   }, []);
 
-  async function loadContracts(filters = contractFilter) {
+    async function loadContracts(filters = contractFilter) {
     try {
       const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString();
       const res = await api.adminGetContracts(params ? `?${params}` : '');
@@ -114,6 +340,30 @@ export default function AdminDashboard() {
     } catch (err) { setContractMsg(err.message); }
   }
 
+  async function handleDeployContract(e) {
+    e.preventDefault();
+    setDeployMsg('');
+    if (!deployForm.wasm) {
+      setDeployMsg('Please select a WASM file.');
+      return;
+    }
+    setDeployBusy(true);
+    try {
+      const formData = new FormData();
+      formData.append('wasm', deployForm.wasm);
+      formData.append('name', deployForm.name);
+      formData.append('type', deployForm.type);
+      const res = await api.adminDeployContract(formData);
+      setDeployForm({ name: '', type: 'escrow', wasm: null });
+      setDeployMsg(`Contract deployed! ID: ${res.data.contract_id}`);
+      loadContracts();
+    } catch (err) {
+      setDeployMsg(err.message);
+    } finally {
+      setDeployBusy(false);
+    }
+  }
+
   async function handleDeregisterContract(id) {
     if (!confirm('Deregister this contract?')) return;
     try {
@@ -123,11 +373,48 @@ export default function AdminDashboard() {
   }
 
   async function handleDeactivate(id, name) {
-    if (!confirm(`Deactivate user "${name}"?`)) return;
+    setDeactivateTarget({ id, name });
+  }
+
+  async function confirmDeactivate() {
+    const { id } = deactivateTarget;
+    setDeactivateTarget(null);
     try {
       await api.adminDeactivateUser(id);
       loadUsers(pagination.page);
     } catch (e) { setError(e.message); }
+  }
+
+  function handleBan(id, name) {
+    setBanModalData({ id, name });
+  }
+
+  async function confirmBan(reason) {
+    const { id } = banModalData;
+    // Optimistic update
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, banned_at: new Date().toISOString() } : u));
+    setBanBusy(true);
+    try {
+      await api.adminBanUser(id, reason);
+      setBanModalData(null);
+    } catch (e) {
+      // Revert on error
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, banned_at: null } : u));
+      setError(e.message);
+    }
+    setBanBusy(false);
+  }
+
+  async function confirmUnban(id) {
+    // Optimistic update
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, banned_at: null } : u));
+    try {
+      await api.adminUnbanUser(id);
+    } catch (e) {
+      // Revert on error
+      loadUsers(pagination.page);
+      setError(e.message);
+    }
   }
 
   async function loadContractState(e) {
@@ -212,6 +499,9 @@ export default function AdminDashboard() {
       setSimFormError(err.message);
     } finally {
       setSimBusy(false);
+    }
+  }
+
   async function loadContractEvents(e, page = 1) {
     if (e) e.preventDefault();
     if (!evtContractId.trim()) return;
@@ -230,89 +520,141 @@ export default function AdminDashboard() {
     }
   }
 
+  async function loadContractInvocations(e, page = 1) {
+    if (e) e.preventDefault();
+    if (!invocRegistryId) return;
+    setInvocLoading(true);
+    setInvocError('');
+    try {
+      const params = { ...invocFilters, page };
+      Object.keys(params).forEach((k) => { if (!params[k]) delete params[k]; });
+      const res = await api.adminGetContractInvocations(invocRegistryId, params);
+      setInvocData(res);
+      setInvocPage(page);
+    } catch (e) {
+      setInvocError(e.message);
+    } finally {
+      setInvocLoading(false);
+    }
+  }
+
   return (
     <div style={s.page}>
+      {deactivateTarget && (
+        <DeactivateModal
+          user={deactivateTarget}
+          onConfirm={confirmDeactivate}
+          onCancel={() => setDeactivateTarget(null)}
+        />
+      )}
+      {resolveTarget && (
+        <ResolveDisputeModal
+          dispute={resolveTarget}
+          onConfirm={async (id, body) => {
+            await api.adminResolveDispute(id, body);
+            setResolveTarget(null);
+            loadDisputes();
+          }}
+          onCancel={() => setResolveTarget(null)}
+        />
+      )}
+      {banModalData && (
+        <BanModal
+          user={banModalData}
+          onConfirm={confirmBan}
+          onCancel={() => setBanModalData(null)}
+          loading={banBusy}
+        />
+      )}
       <div style={s.title}>🛡️ Admin Dashboard</div>
       {error && <div style={s.err}>{error}</div>}
 
-      {stats && (
-        <div style={s.grid}>
-          <div style={s.stat}>
-            <div style={s.statVal}>{stats.users}</div>
-            <div style={s.statLabel}>Total Users</div>
-          </div>
-          <div style={s.stat}>
-            <div style={s.statVal}>{stats.products}</div>
-            <div style={s.statLabel}>Products Listed</div>
-          </div>
-          <div style={s.stat}>
-            <div style={s.statVal}>{stats.orders}</div>
-            <div style={s.statLabel}>Total Orders</div>
-          </div>
-          <div style={s.stat}>
-            <div style={s.statVal}>{Number(stats.total_revenue_xlm).toFixed(2)}</div>
-            <div style={s.statLabel}>Revenue (XLM)</div>
-          </div>
-          {stats.fee_bump_enabled && (
-            <div style={s.stat}>
-              <div style={s.statVal}>{stats.fee_bump_count ?? 0}</div>
-              <div style={s.statLabel}>Fee Bumps Used</div>
-            </div>
-          )}
-        </div>
-      )}
+      <AdminAnalyticsSummary stats={stats} />
 
-      <div style={s.card}>
-        <h3 style={{ marginBottom: 16, color: '#333' }}>Users ({pagination.total})</h3>
-        <table style={s.table}>
-          <thead>
-            <tr>
-              <th style={s.th}>ID</th>
-              <th style={s.th}>Name</th>
-              <th style={s.th}>Email</th>
-              <th style={s.th}>Role</th>
-              <th style={s.th}>Joined</th>
-              <th style={s.th}>Status</th>
-              <th style={s.th}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(u => (
-              <tr key={u.id}>
-                <td style={s.td}>{u.id}</td>
-                <td style={s.td}>{u.name}</td>
-                <td style={s.td}>{u.email}</td>
-                <td style={s.td}><span style={s.badge(u.role)}>{u.role}</span></td>
-                <td style={s.td}>{new Date(u.created_at).toLocaleDateString()}</td>
-                <td style={s.td}>
-                  {u.active === 0
-                    ? <span style={s.inactive}>Inactive</span>
-                    : <span style={{ color: '#2d6a4f', fontSize: 12 }}>Active</span>}
-                </td>
-                <td style={s.td}>
-                  {u.role !== 'admin' && u.active !== 0 && (
-                    <button style={s.deactivate} onClick={() => handleDeactivate(u.id, u.name)}>
-                      Deactivate
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <AdminUsersPanel
+        users={users}
+        pagination={pagination}
+        searchQuery={searchQuery}
+        roleFilter={roleFilter}
+        verifiedFilter={verifiedFilter}
+        bannedFilter={bannedFilter}
+        onSearchChange={setSearchQuery}
+        onRoleChange={setRoleFilter}
+        onVerifiedChange={setVerifiedFilter}
+        onBannedChange={setBannedFilter}
+        onSearch={() => loadUsers(1)}
+        onPageChange={loadUsers}
+        onDeactivate={handleDeactivate}
+        onBan={handleBan}
+        onUnban={confirmUnban}
+      />
 
-        <div style={s.pagination}>
+            {/* Orders Table */}
+      <AdminOrdersPanel
+        orders={orders}
+        orderPagination={orderPagination}
+        onPageChange={loadOrders}
+      />
+
+            {/* Disputes */}
+      <AdminDisputesPanel
+        disputes={disputes}
+        onResolve={setResolveTarget}
+      />
+
+            {/* Contract Deployment */}
+      <div style={{ ...s.card, marginTop: 32 }}>
+        <h3 style={{ marginBottom: 16, color: '#333' }}>🚀 Deploy Soroban Contract</h3>
+        {deployMsg && (
+          <div style={{
+            color: deployMsg.includes('deployed') ? '#2d6a4f' : '#c0392b',
+            fontSize: 14,
+            marginBottom: 12,
+          }}
+          >{deployMsg}</div>
+        )}
+        <form onSubmit={handleDeployContract} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+          <input
+            style={{ ...inputStyle, flex: '1 1 140px' }}
+            placeholder="Display name"
+            value={deployForm.name}
+            onChange={e => setDeployForm(f => ({ ...f, name: e.target.value }))}
+            required
+          />
+          <select
+            style={{ ...inputStyle }}
+            value={deployForm.type}
+            onChange={e => setDeployForm(f => ({ ...f, type: e.target.value }))}
+          >
+            <option value="escrow">escrow</option>
+            <option value="token">token</option>
+            <option value="other">other</option>
+          </select>
+          <input
+            type="file"
+            accept=".wasm"
+            onChange={e => setDeployForm(f => ({ ...f, wasm: e.target.files[0] }))}
+            style={{ ...inputStyle, flex: '2 1 200px' }}
+            required
+          />
           <button
-            style={s.pgBtn(pagination.page <= 1)}
-            disabled={pagination.page <= 1}
-            onClick={() => loadUsers(pagination.page - 1)}
-          >← Prev</button>
-          <span style={{ fontSize: 13, color: '#666' }}>Page {pagination.page} of {pagination.pages}</span>
-          <button
-            style={s.pgBtn(pagination.page >= pagination.pages)}
-            disabled={pagination.page >= pagination.pages}
-            onClick={() => loadUsers(pagination.page + 1)}
-          >Next →</button>
+            type="submit"
+            disabled={deployBusy}
+            style={{
+              padding: '8px 18px',
+              borderRadius: 8,
+              border: 'none',
+              background: deployBusy ? '#ccc' : '#2d6a4f',
+              color: '#fff',
+              fontWeight: 600,
+              cursor: deployBusy ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {deployBusy ? 'Deploying...' : 'Deploy Contract'}
+          </button>
+        </form>
+        <div style={{ fontSize: 13, color: '#666' }}>
+          Upload a compiled .wasm file to deploy a new Soroban contract to the network.
         </div>
       </div>
 
@@ -455,20 +797,38 @@ export default function AdminDashboard() {
             )}
             <div style={{ fontWeight: 600, marginBottom: 8, color: '#444' }}>Record upgrade</div>
             <form onSubmit={handleRecordUpgrade} style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 560 }}>
-              <input
-                style={monoInputStyle}
-                placeholder="Previous WASM hash (64 hex chars)"
-                value={upgradeForm.old_wasm_hash}
-                onChange={(e) => setUpgradeForm((f) => ({ ...f, old_wasm_hash: e.target.value }))}
-                required
-              />
-              <input
-                style={monoInputStyle}
-                placeholder="New WASM hash — must match Soroban RPC (64 hex)"
-                value={upgradeForm.new_wasm_hash}
-                onChange={(e) => setUpgradeForm((f) => ({ ...f, new_wasm_hash: e.target.value }))}
-                required
-              />
+              <div>
+                <input
+                  style={{ ...monoInputStyle, borderColor: upgradeHashErrors.old_wasm_hash ? '#c0392b' : '#ddd' }}
+                  placeholder="Previous WASM hash (64 hex chars)"
+                  value={upgradeForm.old_wasm_hash}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setUpgradeForm((f) => ({ ...f, old_wasm_hash: v }));
+                    setUpgradeHashErrors((err) => ({ ...err, old_wasm_hash: v ? validateWasmHash(v) : '' }));
+                  }}
+                  required
+                />
+                {upgradeHashErrors.old_wasm_hash && (
+                  <div style={{ color: '#c0392b', fontSize: 12, marginTop: 2 }}>{upgradeHashErrors.old_wasm_hash}</div>
+                )}
+              </div>
+              <div>
+                <input
+                  style={{ ...monoInputStyle, borderColor: upgradeHashErrors.new_wasm_hash ? '#c0392b' : '#ddd' }}
+                  placeholder="New WASM hash — must match Soroban RPC (64 hex)"
+                  value={upgradeForm.new_wasm_hash}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setUpgradeForm((f) => ({ ...f, new_wasm_hash: v }));
+                    setUpgradeHashErrors((err) => ({ ...err, new_wasm_hash: v ? validateWasmHash(v) : '' }));
+                  }}
+                  required
+                />
+                {upgradeHashErrors.new_wasm_hash && (
+                  <div style={{ color: '#c0392b', fontSize: 12, marginTop: 2 }}>{upgradeHashErrors.new_wasm_hash}</div>
+                )}
+              </div>
               {upgradeSubmitMsg && (
                 <div style={{
                   fontSize: 13,
@@ -478,16 +838,16 @@ export default function AdminDashboard() {
               )}
               <button
                 type="submit"
-                disabled={upgradeSubmitBusy}
+                disabled={upgradeSubmitBusy || !!upgradeHashErrors.old_wasm_hash || !!upgradeHashErrors.new_wasm_hash}
                 style={{
                   alignSelf: 'flex-start',
                   padding: '8px 18px',
                   borderRadius: 8,
                   border: 'none',
-                  background: '#2d6a4f',
+                  background: (upgradeSubmitBusy || upgradeHashErrors.old_wasm_hash || upgradeHashErrors.new_wasm_hash) ? '#ccc' : '#2d6a4f',
                   color: '#fff',
                   fontWeight: 600,
-                  cursor: upgradeSubmitBusy ? 'not-allowed' : 'pointer',
+                  cursor: (upgradeSubmitBusy || upgradeHashErrors.old_wasm_hash || upgradeHashErrors.new_wasm_hash) ? 'not-allowed' : 'pointer',
                 }}
               >{upgradeSubmitBusy ? 'Saving…' : 'Save upgrade record'}</button>
             </form>
@@ -579,30 +939,60 @@ export default function AdminDashboard() {
           contractState.length === 0
             ? <div style={{ color: '#888', fontSize: 14 }}>No storage entries found{contractPrefix ? ` matching prefix "${contractPrefix}"` : ''}.</div>
             : (
-              <table style={s.table}>
-                <thead>
-                  <tr>
-                    <th style={s.th}>Key</th>
-                    <th style={s.th}>Value</th>
-                    <th style={s.th}>Durability</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {contractState.map((entry, i) => (
-                    <tr key={i}>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{String(entry.key)}</td>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{JSON.stringify(entry.val)}</td>
-                      <td style={{ ...s.td, fontSize: 12 }}>
-                        <span style={{ padding: '2px 8px', borderRadius: 12, fontWeight: 600, fontSize: 11,
-                          background: entry.durability === 'Temporary' ? '#fff3cd' : '#d8f3dc',
-                          color: entry.durability === 'Temporary' ? '#856404' : '#2d6a4f' }}>
-                          {entry.durability}
-                        </span>
-                      </td>
+              <>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+                  <select
+                    value={exportFormat}
+                    onChange={e => setExportFormat(e.target.value)}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }}
+                  >
+                    <option value="json">JSON</option>
+                    <option value="csv">CSV</option>
+                  </select>
+                  <input
+                    type="number"
+                    placeholder="Since ledger (optional)"
+                    value={exportSinceLedger}
+                    onChange={e => setExportSinceLedger(e.target.value)}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13, width: 180 }}
+                  />
+                  {(() => {
+                    const reg = contracts.find(c => c.contract_id === contractId.trim());
+                    if (!reg) return null;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => api.adminExportContractState(reg.id, exportFormat, exportSinceLedger || undefined).catch(e => setContractError(e.message))}
+                        style={{ padding: '6px 16px', borderRadius: 6, background: '#1d4ed8', color: '#fff', fontWeight: 600, fontSize: 13, border: 'none', cursor: 'pointer' }}
+                      >⬇ Export</button>
+                    );
+                  })()}
+                </div>
+                <table style={s.table}>
+                  <thead>
+                    <tr>
+                      <th style={s.th}>Key</th>
+                      <th style={s.th}>Value</th>
+                      <th style={s.th}>Durability</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {contractState.map((entry, i) => (
+                      <tr key={i}>
+                        <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{String(entry.key)}</td>
+                        <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{JSON.stringify(entry.val)}</td>
+                        <td style={{ ...s.td, fontSize: 12 }}>
+                          <span style={{ padding: '2px 8px', borderRadius: 12, fontWeight: 600, fontSize: 11,
+                            background: entry.durability === 'Temporary' ? '#fff3cd' : '#d8f3dc',
+                            color: entry.durability === 'Temporary' ? '#856404' : '#2d6a4f' }}>
+                            {entry.durability}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
             )
         )}
       </div>
@@ -810,6 +1200,243 @@ export default function AdminDashboard() {
           </>
         )}
       </div>
+
+      {/* Contract Version Comparison */}
+      <div style={{ ...s.card, marginTop: 24 }}>
+        <h3 style={{ marginBottom: 16, color: '#333' }}>🔀 Contract Version Comparison</h3>
+        <p style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>
+          Compare function signatures between two WASM versions of a registered contract.
+          Results are cached for 10 minutes.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 10, alignItems: 'end', marginBottom: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#555' }}>Registry ID</label>
+            <input style={inputStyle} type="number" placeholder="Contract registry ID" value={cmpRegistryId} onChange={(e) => setCmpRegistryId(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#555' }}>v1 WASM Hash (old)</label>
+            <input style={monoInputStyle} placeholder="64-char hex" value={cmpV1} onChange={(e) => setCmpV1(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#555' }}>v2 WASM Hash (new)</label>
+            <input style={monoInputStyle} placeholder="64-char hex" value={cmpV2} onChange={(e) => setCmpV2(e.target.value)} />
+          </div>
+          <button
+            style={s.btn(cmpLoading)}
+            disabled={cmpLoading}
+            onClick={async () => {
+              setCmpError('');
+              setCmpResult(null);
+              if (!cmpRegistryId || !cmpV1.trim() || !cmpV2.trim()) {
+                setCmpError('Registry ID, v1, and v2 are required.');
+                return;
+              }
+              setCmpLoading(true);
+              try {
+                const res = await api.adminCompareContractVersions(cmpRegistryId, cmpV1.trim(), cmpV2.trim());
+                setCmpResult(res.data);
+              } catch (err) {
+                setCmpError(err.message || 'Comparison failed');
+              } finally {
+                setCmpLoading(false);
+              }
+            }}
+          >
+            {cmpLoading ? 'Comparing…' : 'Compare'}
+          </button>
+        </div>
+        {cmpError && <div style={{ color: '#c0392b', fontSize: 13, marginBottom: 12 }}>{cmpError}</div>}
+        {cmpResult && (
+          <div>
+            {cmpResult.added.length === 0 && cmpResult.removed.length === 0 && cmpResult.changed.length === 0 ? (
+              <div style={{ color: '#2d6a4f', fontSize: 14 }}>✅ Identical — no differences found.</div>
+            ) : (
+              <>
+                {cmpResult.added.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, color: '#2d6a4f', marginBottom: 6 }}>➕ Added ({cmpResult.added.length})</div>
+                    {cmpResult.added.map((fn) => (
+                      <div key={fn.name} style={{ background: '#d8f3dc', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
+                        <strong>{fn.name}</strong> {fn.signature}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {cmpResult.removed.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, color: '#c0392b', marginBottom: 6 }}>➖ Removed ({cmpResult.removed.length})</div>
+                    {cmpResult.removed.map((fn) => (
+                      <div key={fn.name} style={{ background: '#fee', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
+                        <strong>{fn.name}</strong> {fn.signature}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {cmpResult.changed.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, color: '#b8860b', marginBottom: 6 }}>✏️ Changed ({cmpResult.changed.length})</div>
+                    {cmpResult.changed.map((fn) => (
+                      <div key={fn.name} style={{ background: '#ffeaa7', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
+                        <strong>{fn.name}</strong><br />
+                        <span style={{ color: '#c0392b' }}>− {fn.old_signature}</span><br />
+                        <span style={{ color: '#2d6a4f' }}>+ {fn.new_signature}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+            {cmpResult.cached && <div style={{ fontSize: 11, color: '#aaa', marginTop: 8 }}>Cached result</div>}
+          </div>
+        )}
+      </div>
+      {/* Contract Alerts */}
+      <div style={{ background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 }}>
+        <h3 style={{ marginBottom: 16, color: '#333' }}>🚨 Contract Monitoring Alerts</h3>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          {['unacknowledged', 'acknowledged', 'all'].map((f) => (
+            <button
+              key={f}
+              onClick={() => { setAlertsFilter(f); loadContractAlerts(f); }}
+              style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #ddd', cursor: 'pointer', fontWeight: alertsFilter === f ? 700 : 400, background: alertsFilter === f ? '#2d6a4f' : '#fff', color: alertsFilter === f ? '#fff' : '#333' }}
+            >
+              {f.charAt(0).toUpperCase() + f.slice(1)}
+            </button>
+          ))}
+        </div>
+        {alertsLoading ? (
+          <div style={{ color: '#888', fontSize: 14 }}>Loading…</div>
+        ) : contractAlerts.length === 0 ? (
+          <div style={{ color: '#888', fontSize: 14 }}>No alerts.</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid #eee', textAlign: 'left' }}>
+                <th style={{ padding: '8px 10px' }}>Contract ID</th>
+                <th style={{ padding: '8px 10px' }}>Type</th>
+                <th style={{ padding: '8px 10px' }}>Message</th>
+                <th style={{ padding: '8px 10px' }}>Time</th>
+                <th style={{ padding: '8px 10px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {contractAlerts.map((a) => (
+                <tr key={a.id} style={{ borderBottom: '1px solid #f0f0f0', background: a.acknowledged ? '#fafafa' : '#fffbf0' }}>
+                  <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12 }}>{a.contract_id}</td>
+                  <td style={{ padding: '8px 10px' }}>
+                    <span style={{ background: a.alert_type === 'large_transfer' ? '#ffeaa7' : '#fde8e8', color: a.alert_type === 'large_transfer' ? '#b8860b' : '#c0392b', borderRadius: 4, padding: '2px 8px', fontWeight: 600, fontSize: 12 }}>
+                      {a.alert_type}
+                    </span>
+                  </td>
+                  <td style={{ padding: '8px 10px', color: '#444' }}>{a.message}</td>
+                  <td style={{ padding: '8px 10px', color: '#888', whiteSpace: 'nowrap' }}>{new Date(a.created_at).toLocaleString()}</td>
+                  <td style={{ padding: '8px 10px' }}>
+                    {!a.acknowledged && (
+                      <button
+                        onClick={() => acknowledgeAlert(a.id)}
+                        style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: '#d8f3dc', color: '#2d6a4f', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}
+                      >
+                        Acknowledge
+                      </button>
+                    )}
+                    {!!a.acknowledged && <span style={{ color: '#aaa', fontSize: 12 }}>✓ Acknowledged</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {/* Contract Invocation History */}
+      <div style={{ ...s.card, marginTop: 32 }}>
+        <h3 style={{ marginBottom: 16, color: '#333' }}>📑 Contract Invocation History</h3>
+        <form onSubmit={(e) => loadContractInvocations(e, 1)} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+          <select
+            style={{ ...s.input, flex: '2 1 200px' }}
+            value={invocRegistryId}
+            onChange={(e) => { setInvocRegistryId(e.target.value); setInvocData(null); }}
+            required
+          >
+            <option value="">— Select contract —</option>
+            {contracts.map((c) => (
+              <option key={c.id} value={c.id}>{c.name} · {c.network}</option>
+            ))}
+          </select>
+          <input
+            style={{ ...s.input, flex: '1 1 120px' }}
+            placeholder="Method filter"
+            value={invocFilters.method}
+            onChange={(e) => setInvocFilters((f) => ({ ...f, method: e.target.value }))}
+          />
+          <input
+            type="datetime-local"
+            style={{ ...s.input, flex: '1 1 160px' }}
+            value={invocFilters.from}
+            onChange={(e) => setInvocFilters((f) => ({ ...f, from: e.target.value }))}
+          />
+          <input
+            type="datetime-local"
+            style={{ ...s.input, flex: '1 1 160px' }}
+            value={invocFilters.to}
+            onChange={(e) => setInvocFilters((f) => ({ ...f, to: e.target.value }))}
+          />
+          <button type="submit" disabled={invocLoading || !invocRegistryId} style={s.btn(invocLoading)}>
+            {invocLoading ? 'Loading…' : 'Fetch'}
+          </button>
+        </form>
+        {invocError && <div style={s.err}>{invocError}</div>}
+        {invocData && (
+          invocData.data.length === 0
+            ? <div style={{ color: '#888', fontSize: 14 }}>No invocations found.</div>
+            : <>
+              <table style={s.table}>
+                <thead>
+                  <tr>
+                    <th style={s.th}>When</th>
+                    <th style={s.th}>Method</th>
+                    <th style={s.th}>Status</th>
+                    <th style={s.th}>TX Hash</th>
+                    <th style={s.th}>Invoked by</th>
+                    <th style={s.th}>Result / Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invocData.data.map((inv) => (
+                    <tr key={inv.id}>
+                      <td style={{ ...s.td, fontSize: 12 }}>{new Date(inv.invoked_at).toLocaleString()}</td>
+                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12 }}>{inv.method}</td>
+                      <td style={s.td}>
+                        <span style={{
+                          padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+                          background: inv.success ? '#d8f3dc' : '#fee',
+                          color: inv.success ? '#2d6a4f' : '#c0392b',
+                        }}>
+                          {inv.success ? 'success' : 'failed'}
+                        </span>
+                      </td>
+                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 160 }}>
+                        {inv.tx_hash || '—'}
+                      </td>
+                      <td style={{ ...s.td, fontSize: 12 }}>{inv.invoked_by_name || `#${inv.invoked_by || '?'}`}</td>
+                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 200, color: inv.success ? '#333' : '#c0392b' }}>
+                        {inv.success ? (inv.result ? JSON.stringify(JSON.parse(inv.result)) : '—') : (inv.error || '—')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={s.pagination}>
+                <button style={s.pgBtn(invocPage <= 1)} disabled={invocPage <= 1} onClick={() => loadContractInvocations(null, invocPage - 1)}>← Prev</button>
+                <span style={{ fontSize: 13, color: '#666' }}>
+                  Page {invocData.pagination.page} of {invocData.pagination.pages} ({invocData.pagination.total} total)
+                </span>
+                <button style={s.pgBtn(invocPage >= invocData.pagination.pages)} disabled={invocPage >= invocData.pagination.pages} onClick={() => loadContractInvocations(null, invocPage + 1)}>Next →</button>
+              </div>
+            </>
+        )}
+      </div>
+      {/* Announcements Management */}
+      <AdminAnnouncementsPanel />
     </div>
   );
 }

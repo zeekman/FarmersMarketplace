@@ -199,7 +199,6 @@ describe('sendPayment()', () => {
 });
 
 // ── getTransactions ───────────────────────────────────────────────────────────
-describe('getTransactions()', () => {
   const PUBLIC_KEY = 'GPUBLIC';
 
   const makeRecord = (overrides = {}) => ({
@@ -287,5 +286,49 @@ describe('getTransactions()', () => {
     expect(mockPaymentsBuilder.forAccount).toHaveBeenCalledWith(PUBLIC_KEY);
     expect(mockPaymentsBuilder.order).toHaveBeenCalledWith('desc');
     expect(mockPaymentsBuilder.limit).toHaveBeenCalledWith(20);
+  });
+});
+
+// ── generatePaymentLink ─────────────────────────────────────────────────────
+describe("generatePaymentLink()", () => {
+  beforeAll(() => {
+    process.env.STELLAR_NETWORK = 'testnet';
+  });
+
+  it('generates testnet stellar:pay URI with required params', () => {
+    const link = stellar.generatePaymentLink({
+      destination: 'GDSTRADDR1234567890',
+      amount: 10.5,
+      memo: 'Order #123',
+      assetCode: 'XLM'
+    });
+    expect(link).toBe('stellar:pay?destination=GDSTRADDR1234567890&amount=10.5000000&asset_code=XLM&memo=Order%20%23123');
+  });
+
+  it('uses stellar-pay: scheme on mainnet', () => {
+    process.env.STELLAR_NETWORK = 'mainnet';
+    const link = stellar.generatePaymentLink({
+      destination: 'GDSTRADDR1234567890',
+      amount: 5
+    });
+    expect(link).toBe('stellar-pay:?destination=GDSTRADDR1234567890&amount=5.0000000&asset_code=XLM');
+  });
+
+  it('defaults assetCode to XLM and memo to empty', () => {
+    const link = stellar.generatePaymentLink({
+      destination: 'GDSTRADDR1234567890',
+      amount: 1.23
+    });
+    expect(link).toBe('stellar:pay?destination=GDSTRADDR1234567890&amount=1.2300000&asset_code=XLM');
+  });
+
+  it('throws on invalid destination', () => {
+    expect(() => stellar.generatePaymentLink({ destination: 'invalid', amount: 10 })).toThrow('Invalid destination public key');
+  });
+
+  it('throws on invalid amount', () => {
+    expect(() => stellar.generatePaymentLink({ destination: 'GDSTR...', amount: 0 })).toThrow('Invalid amount');
+    expect(() => stellar.generatePaymentLink({ destination: 'GDSTR...', amount: -1 })).toThrow('Invalid amount');
+    expect(() => stellar.generatePaymentLink({ destination: 'GDSTR...', amount: 'abc' })).toThrow('Invalid amount');
   });
 });

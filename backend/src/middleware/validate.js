@@ -92,8 +92,16 @@ module.exports = {
   }, { message: 'Incomplete pricing configuration: weight-based requires min<max, and PWYW requires min_price' })),
 
   order: validate(z.object({
-    product_id: z.coerce.number().int().positive('product_id must be a positive integer'),
-    quantity: z.coerce.number().int().positive('quantity must be a positive integer'),
+    product_id: z.coerce.number().int().positive('product_id must be a positive integer').optional(),
+    quantity: z.coerce
+      .number()
+      .int()
+      .positive('quantity must be a positive integer')
+      .max(
+        parseInt(process.env.MAX_ORDER_QUANTITY, 10) || 10000,
+        `quantity cannot exceed ${parseInt(process.env.MAX_ORDER_QUANTITY, 10) || 10000}`
+      )
+      .optional(),
     address_id: z.coerce.number().int().positive().optional(),
     use_soroban_escrow: z.coerce.boolean().optional(),
     weight: z.coerce.number().positive('weight must be a positive number').optional(),
@@ -103,57 +111,24 @@ module.exports = {
       code: z.string(),
       issuer: z.string().optional(),
     }).optional(),
-  })),
-  product: validate(
-    z
-      .object({
-        name: z.string().min(1, 'name is required').trim(),
-        price: z.coerce.number().positive('price must be a positive number'),
-        quantity: z.coerce.number().int().positive('quantity must be a positive integer'),
-        unit: z.string().trim().optional(),
-        description: z.string().optional(),
-        category: z.string().optional(),
-        low_stock_threshold: z.coerce.number().int().nonnegative().optional(),
-        image_url: z.string().optional().or(z.literal('')),
-        tags: z.array(z.string()).optional(),
-        nutrition: z
-          .object({
-            calories: z.coerce.number().nonnegative('calories must be non-negative').optional(),
-            protein: z.coerce.number().nonnegative('protein must be non-negative').optional(),
-            carbs: z.coerce.number().nonnegative('carbs must be non-negative').optional(),
-            fat: z.coerce.number().nonnegative('fat must be non-negative').optional(),
-            fiber: z.coerce.number().nonnegative('fiber must be non-negative').optional(),
-            vitamins: z
-              .record(z.coerce.number().nonnegative('vitamin values must be non-negative'))
-              .optional(),
-          })
-          .optional(),
-        pricing_type: z.enum(['unit', 'weight']).optional(),
-        min_weight: z.coerce.number().positive('min_weight must be positive').optional(),
-        max_weight: z.coerce.number().positive('max_weight must be positive').optional(),
-      })
-      .refine(
-        (d) => {
-          if (d.pricing_type === 'weight') {
-            if (!d.min_weight || !d.max_weight) return false;
-            if (d.min_weight >= d.max_weight) return false;
-          }
-          return true;
-        },
-        { message: 'weight-based products require min_weight < max_weight' }
-      )
-  ),
-
-  order: validate(
-    z.object({
-      product_id: z.coerce.number().int().positive('product_id must be a positive integer'),
-      quantity: z.coerce.number().int().positive('quantity must be a positive integer'),
-      address_id: z.coerce.number().int().positive().optional(),
-      use_soroban_escrow: z.coerce.boolean().optional(),
-      weight: z.coerce.number().positive('weight must be a positive number').optional(),
-    })
-  ),
-
+    source_asset_code: z.string().optional(),
+    source_asset_issuer: z.string().optional(),
+    max_source_amount: z.coerce.number().positive('max_source_amount must be a positive number').optional(),
+    bundle_id: z.coerce.number().int().positive('bundle_id must be a positive integer').optional(),
+  }).refine(data => {
+    // Either product_id (single product) or bundle_id (bundle) must be provided
+    if (!data.product_id && !data.bundle_id) {
+      return false;
+    }
+    if (data.product_id && data.bundle_id) {
+      return false;
+    }
+    // If bundle_id is provided, quantity should not be used (bundle has its own quantities)
+    if (data.bundle_id && data.quantity) {
+      return false;
+    }
+    return true;
+  }, { message: 'Either product_id (with quantity) or bundle_id must be provided, but not both' })),
   updateOrderStatus: validate(
     z.object({
       status: z.enum(['processing', 'shipped', 'delivered']),
@@ -182,7 +157,7 @@ module.exports = {
 
   review: validate(
     z.object({
-      order_id: z.coerce.number().int().positive('order_id must be a positive integer'),
+      product_id: z.coerce.number().int().positive('product_id must be a positive integer'),
       rating: z.coerce.number().int().min(1).max(5, 'rating must be an integer between 1 and 5'),
       comment: z.string().max(1000, 'comment must be 1000 characters or fewer').optional(),
     })
@@ -236,6 +211,40 @@ module.exports = {
       email: z.string().email('valid email required'),
       password: z.string().min(1, 'password is required'),
       mnemonic: z.string().min(1, 'mnemonic is required'),
+    })
+  ),
+
+  dispute: validate(
+    z.object({
+      order_id: z.coerce.number().int().positive('order_id must be a positive integer'),
+      reason: z.string().min(1, 'reason is required').max(1000, 'reason must be 1000 characters or fewer').trim(),
+    })
+  ),
+
+  resolveDispute: validate(
+    z.object({
+      status: z.enum(['under_review', 'resolved']),
+      resolution: z.string().max(1000, 'resolution must be 1000 characters or fewer').optional(),
+    })
+  ),
+
+  // monthly_limit: 0 disables the budget guard, >0 enforces it, <0 or non-numeric rejected
+  updateBudget: validate(
+    z.object({
+      monthly_limit: z
+        .number({
+          invalid_type_error: 'monthly_limit must be a number',
+          required_error: 'monthly_limit is required',
+        })
+        .nonnegative('monthly_limit cannot be negative'),
+    })
+  ),
+
+  verify2FA: validate(
+    z.object({
+      secret: z.string().min(1, 'secret is required'),
+      code: z.string().regex(/^\d{6}$/, 'code must be a 6-digit number'),
+      backupCodes: z.array(z.string()).min(1, 'at least one backup code is required'),
     })
   ),
 };

@@ -2,7 +2,7 @@
  * Cooperative multi-signature payment routes
  *
  * POST /api/cooperatives                       — create a cooperative
- * GET  /api/cooperatives                       — list cooperatives the user belongs to
+ * GET  /api/cooperatives                       — list cooperatives (see below)
  * POST /api/cooperatives/:id/multisig-setup    — configure signers + threshold
  * POST /api/cooperatives/:id/transactions      — initiate a pending transaction
  * POST /api/transactions/:id/sign              — member signs a pending transaction
@@ -15,6 +15,8 @@ const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 const { createWallet, server, networkPassphrase } = require('../utils/stellar');
+const { encrypt, decrypt } = require('../utils/crypto');
+const logger = require('../logger');
 
 const MULTISIG_THRESHOLD_XLM = 50; // payments above this require multi-sig
 const TX_EXPIRY_HOURS = 24;
@@ -25,26 +27,51 @@ router.post('/', auth, async (req, res) => {
   if (!name) return err(res, 400, 'name is required', 'validation_error');
 
   const wallet = createWallet();
+  const encryptedSecret = await encrypt(wallet.secretKey);
   const { rows } = await db.query(
     `INSERT INTO cooperatives (name, stellar_public_key, stellar_secret_key)
      VALUES ($1, $2, $3) RETURNING id`,
-    [name, wallet.publicKey, wallet.secretKey]
+    [name, wallet.publicKey, encryptedSecret]
   );
   const coopId = rows[0].id;
 
-  // Add creator as first member
-  await db.query(`INSERT INTO cooperative_members (cooperative_id, user_id) VALUES ($1, $2)`, [
-    coopId,
-    req.user.id,
-  ]);
+  // Add creator as first member and admin
+  await db.query(
+    `INSERT INTO cooperative_members (cooperative_id, user_id, is_admin) VALUES ($1, $2, TRUE)`,
+    [coopId, req.user.id]
+  );
 
   res.status(201).json({ success: true, id: coopId, publicKey: wallet.publicKey });
 });
 
-// GET /api/cooperatives — list cooperatives the user belongs to
-router.get('/', auth, async (req, res) => {
+// GET /api/cooperatives — list cooperatives
+//   ?farmer_id=:id  → public route: cooperatives a specific farmer belongs to (buyer profile view)
+//   (no query param) → authenticated: cooperatives the current user belongs to
+router.get('/', async (req, res) => {
+  const { farmer_id } = req.query;
+
+  if (farmer_id) {
+    // Public — no auth required; returns cooperative name + member count for the given farmer
+    const fid = parseInt(farmer_id, 10);
+    if (!fid || isNaN(fid)) return err(res, 400, 'Invalid farmer_id', 'validation_error');
+
+    const { rows } = await db.query(
+      `SELECT c.id, c.name, c.created_at,
+              COUNT(cm2.user_id)::int AS member_count
+       FROM cooperatives c
+       JOIN cooperative_members cm  ON cm.cooperative_id  = c.id AND cm.user_id = $1
+       JOIN cooperative_members cm2 ON cm2.cooperative_id = c.id
+       GROUP BY c.id, c.name, c.created_at
+       ORDER BY c.created_at DESC`,
+      [fid]
+    );
+    return res.json({ success: true, data: rows });
+  }
+
+  // Authenticated: list cooperatives the current user belongs to
+  if (!req.user) return err(res, 401, 'Unauthorized', 'unauthorized');
   const { rows } = await db.query(
-    `SELECT c.id, c.name, c.stellar_public_key, c.multisig_threshold, c.created_at
+    `SELECT c.id, c.name, c.stellar_public_key, c.multisig_threshold, c.royalty_bps, c.created_at
      FROM cooperatives c
      JOIN cooperative_members cm ON cm.cooperative_id = c.id
      WHERE cm.user_id = $1
@@ -72,12 +99,13 @@ router.post('/:id/multisig-setup', auth, async (req, res) => {
     );
   }
 
-  // Verify caller is a member
-  const { rows: memCheck } = await db.query(
-    `SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2`,
+  // Only cooperative administrators may change signers or thresholds.
+  const { rows: adminCheck } = await db.query(
+    `SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2 AND is_admin = TRUE`,
     [coopId, req.user.id]
   );
-  if (!memCheck.length) return err(res, 403, 'Not a member of this cooperative', 'forbidden');
+  if (!adminCheck.length)
+    return err(res, 403, 'Only cooperative admins may configure multisig', 'forbidden');
 
   const { rows: coopRows } = await db.query(
     `SELECT stellar_secret_key, stellar_public_key FROM cooperatives WHERE id = $1`,
@@ -97,14 +125,16 @@ router.post('/:id/multisig-setup', auth, async (req, res) => {
   // Add members to cooperative_members (upsert)
   for (const m of members) {
     await db.query(
-      `INSERT OR IGNORE INTO cooperative_members (cooperative_id, user_id) VALUES ($1, $2)`,
+      `INSERT INTO cooperative_members (cooperative_id, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (cooperative_id, user_id) DO NOTHING`,
       [coopId, m.id]
     );
   }
 
   // Configure Stellar multi-sig on the cooperative account
   try {
-    const coopKeypair = StellarSdk.Keypair.fromSecret(coop.stellar_secret_key);
+    const coopKeypair = StellarSdk.Keypair.fromSecret(await decrypt(coop.stellar_secret_key));
     const coopAccount = await server.loadAccount(coopKeypair.publicKey());
 
     const txBuilder = new StellarSdk.TransactionBuilder(coopAccount, {
@@ -138,7 +168,9 @@ router.post('/:id/multisig-setup', auth, async (req, res) => {
     await server.submitTransaction(tx);
   } catch (e) {
     // If account not funded yet, just save the config — Stellar setup will happen when funded
-    console.warn('[multisig-setup] Stellar setup skipped (account may not be funded):', e.message);
+    logger.warn('[multisig-setup] Stellar setup skipped (account may not be funded)', {
+      error: e.message,
+    });
   }
 
   // Save threshold
@@ -179,7 +211,7 @@ router.post('/:id/transactions', auth, async (req, res) => {
     const { sendPayment } = require('../utils/stellar');
     try {
       const txHash = await sendPayment({
-        senderSecret: coop.stellar_secret_key,
+        senderSecret: await decrypt(coop.stellar_secret_key),
         receiverPublicKey: destination,
         amount,
         memo,
@@ -323,6 +355,143 @@ router.post('/transactions/:id/sign', auth, async (req, res) => {
     signaturesCollected: signatures.length,
     required: ptx.multisig_threshold,
   });
+});
+
+// POST /api/cooperatives/:id/join — farmer joins a cooperative
+router.post('/:id/join', auth, async (req, res) => {
+  const coopId = parseInt(req.params.id, 10);
+  const { rows: coopRows } = await db.query('SELECT id FROM cooperatives WHERE id = $1', [coopId]);
+  if (!coopRows.length) return err(res, 404, 'Cooperative not found', 'not_found');
+
+  const { rows: existing } = await db.query(
+    'SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2',
+    [coopId, req.user.id]
+  );
+  if (existing.length) return err(res, 409, 'Already a member', 'already_member');
+
+  await db.query('INSERT INTO cooperative_members (cooperative_id, user_id) VALUES ($1, $2)', [
+    coopId,
+    req.user.id,
+  ]);
+  res.status(201).json({ success: true });
+});
+
+// POST /api/cooperatives/:id/leave — farmer leaves a cooperative
+router.post('/:id/leave', auth, async (req, res) => {
+  const coopId = parseInt(req.params.id, 10);
+  const { rows: memRows } = await db.query(
+    'SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2',
+    [coopId, req.user.id]
+  );
+  if (!memRows.length) return err(res, 404, 'Not a member', 'not_found');
+
+  // Check if farmer is the last admin
+  const { rows: adminRows } = await db.query(
+    'SELECT user_id FROM cooperative_members WHERE cooperative_id = $1 AND is_admin = TRUE',
+    [coopId]
+  );
+  const adminIds = adminRows.map((r) => r.user_id);
+  if (adminIds.length === 1 && adminIds[0] === req.user.id)
+    return err(res, 400, 'Transfer admin role before leaving.', 'last_admin');
+
+  await db.query('DELETE FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2', [
+    coopId,
+    req.user.id,
+  ]);
+  res.json({ success: true });
+});
+
+// PATCH /api/cooperatives/:id/royalty — set cooperative royalty rate (admin-only)
+// Body: { royalty_bps: N }  where N is 0–2000 (max 20%)
+router.patch('/:id/royalty', auth, async (req, res) => {
+  const coopId = parseInt(req.params.id, 10);
+  const { royalty_bps } = req.body;
+
+  if (
+    royalty_bps == null ||
+    typeof royalty_bps !== 'number' ||
+    !Number.isInteger(royalty_bps) ||
+    royalty_bps < 0 ||
+    royalty_bps > 2000
+  ) {
+    return err(res, 400, 'royalty_bps must be an integer between 0 and 2000', 'validation_error');
+  }
+
+  // Only cooperative admins may change the royalty rate.
+  const { rows: callerRows } = await db.query(
+    'SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2 AND is_admin = TRUE',
+    [coopId, req.user.id]
+  );
+  if (!callerRows.length)
+    return err(res, 403, 'Only cooperative admins can set royalty rate', 'forbidden');
+
+  const { rows: coopRows } = await db.query('SELECT id FROM cooperatives WHERE id = $1', [coopId]);
+  if (!coopRows.length) return err(res, 404, 'Cooperative not found', 'not_found');
+
+  await db.query('UPDATE cooperatives SET royalty_bps = $1 WHERE id = $2', [royalty_bps, coopId]);
+  res.json({ success: true, royalty_bps });
+});
+
+// PATCH /api/cooperatives/:id/admin — transfer admin role
+router.patch('/:id/admin', auth, async (req, res) => {
+  const coopId = parseInt(req.params.id, 10);
+  const { new_admin_id } = req.body;
+  if (!new_admin_id) return err(res, 400, 'new_admin_id is required', 'validation_error');
+
+  // Verify caller is admin
+  const { rows: callerRows } = await db.query(
+    'SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2 AND is_admin = TRUE',
+    [coopId, req.user.id]
+  );
+  if (!callerRows.length) return err(res, 403, 'Only admins can transfer admin role', 'forbidden');
+
+  // Verify target is a member
+  const { rows: targetRows } = await db.query(
+    'SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2',
+    [coopId, new_admin_id]
+  );
+  if (!targetRows.length) return err(res, 404, 'Target user is not a member', 'not_found');
+
+  await db.query(
+    'UPDATE cooperative_members SET is_admin = FALSE WHERE cooperative_id = $1 AND user_id = $2',
+    [coopId, req.user.id]
+  );
+  await db.query(
+    'UPDATE cooperative_members SET is_admin = TRUE WHERE cooperative_id = $1 AND user_id = $2',
+    [coopId, new_admin_id]
+  );
+  res.json({ success: true });
+});
+
+// GET /api/cooperatives/:id/products — all products from member farmers, paginated
+router.get('/:id/products', async (req, res) => {
+  const coopId = parseInt(req.params.id, 10);
+  const page = Math.max(1, parseInt(req.query.page || '1', 10));
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '20', 10)));
+  const offset = (page - 1) * limit;
+
+  const { rows: coopRows } = await db.query('SELECT id FROM cooperatives WHERE id = $1', [coopId]);
+  if (!coopRows.length) return err(res, 404, 'Cooperative not found', 'not_found');
+
+  const { rows } = await db.query(
+    `SELECT p.*, u.name as farmer_name
+     FROM products p
+     JOIN users u ON p.farmer_id = u.id
+     WHERE p.farmer_id IN (
+       SELECT user_id FROM cooperative_members WHERE cooperative_id = $1
+     )
+     ORDER BY p.created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [coopId, limit, offset]
+  );
+
+  const { rows: countRows } = await db.query(
+    `SELECT COUNT(*)::int as total FROM products p
+     WHERE p.farmer_id IN (SELECT user_id FROM cooperative_members WHERE cooperative_id = $1)`,
+    [coopId]
+  );
+
+  res.json({ success: true, data: rows, total: countRows[0].total, page, limit });
 });
 
 // GET /api/cooperatives/:id/pending — list pending transactions for a cooperative

@@ -1,6 +1,8 @@
 const StellarSdk = require('@stellar/stellar-sdk');
+const { recordContractInvocation } = require('../jobs/contractMonitor');
 const bip39 = require('bip39');
 const StellarHDWallet = require('stellar-hd-wallet');
+const logger = require('../logger');
 
 const STELLAR_NETWORK = (process.env.STELLAR_NETWORK || 'testnet').toLowerCase();
 
@@ -150,7 +152,7 @@ async function sendPayment({ senderSecret, receiverPublicKey, amount, memo }) {
 
   let txToSubmit = transaction;
   if (usedFeeBump) {
-    console.log(
+    logger.info(
       `[FeeBump] Buyer balance ${buyerBalance} XLM < threshold ${FEE_BUMP_THRESHOLD_XLM} XLM — wrapping with fee bump`
     );
     txToSubmit = await wrapWithFeeBump(transaction, feeAccountSecret);
@@ -159,7 +161,7 @@ async function sendPayment({ senderSecret, receiverPublicKey, amount, memo }) {
   const result = await server.submitTransaction(txToSubmit);
 
   if (usedFeeBump) {
-    console.log(
+    logger.info(
       `[FeeBump] Fee bump used for tx ${result.hash} — buyer: ${senderKeypair.publicKey()}`
     );
   }
@@ -345,7 +347,8 @@ async function createPreorderClaimableBalance({
   return { txHash: result.hash, balanceId: balance.id };
 }
 
-async function getContractState(contractId, prefix = null) {
+// Get the shared Soroban RPC server instance
+function getSorobanServer() {
   const sorobanRpcUrl =
     process.env.SOROBAN_RPC_URL ||
     (isTestnet ? 'https://soroban-testnet.stellar.org' : 'https://soroban.stellar.org');
@@ -694,6 +697,12 @@ async function invokeEscrowContract({
   for (let i = 0; i < 15; i += 1) {
     const txResult = await sorobanServer.getTransaction(hash);
     if (txResult.status === 'SUCCESS') {
+      recordContractInvocation({
+        contractId,
+        action,
+        args: { orderId, buyerPublicKey, farmerPublicKey, amount, timeoutUnix },
+        txHash: hash,
+      }).catch(() => {});
       return { txHash: hash, contractId };
     }
     if (txResult.status === 'FAILED') {
@@ -703,6 +712,116 @@ async function invokeEscrowContract({
   }
 
   throw new Error('Soroban transaction confirmation timed out');
+}
+
+// Record a delivered order's carbon offset on the carbon_offset Soroban contract.
+// Only the platform (holder of CARBON_OFFSET_ADMIN_SECRET, matching the contract's
+// configured admin) can call this — the contract itself enforces that via require_auth.
+async function recordCarbonOffset({ orderId, kgCo2, verifierPublicKey }) {
+  const contractId = process.env.SOROBAN_CARBON_OFFSET_CONTRACT_ID;
+  const adminSecret = process.env.CARBON_OFFSET_ADMIN_SECRET;
+  if (!contractId) {
+    throw new Error('SOROBAN_CARBON_OFFSET_CONTRACT_ID is not configured');
+  }
+  if (!adminSecret) {
+    throw new Error('CARBON_OFFSET_ADMIN_SECRET is not configured');
+  }
+
+  const keypair = StellarSdk.Keypair.fromSecret(adminSecret);
+  const source = await server.loadAccount(keypair.publicKey());
+  const sorobanRpcUrl =
+    process.env.SOROBAN_RPC_URL ||
+    (isTestnet ? 'https://soroban-testnet.stellar.org' : 'https://soroban.stellar.org');
+  const sorobanServer = new StellarSdk.SorobanRpc.Server(sorobanRpcUrl);
+  const contract = new StellarSdk.Contract(contractId);
+
+  const operation = contract.call(
+    'record_offset',
+    StellarSdk.nativeToScVal(Number(orderId), { type: 'u64' }),
+    StellarSdk.nativeToScVal(Math.round(Number(kgCo2)), { type: 'u64' }),
+    StellarSdk.nativeToScVal(verifierPublicKey, { type: 'address' })
+  );
+
+  let tx = new StellarSdk.TransactionBuilder(source, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(operation)
+    .setTimeout(60)
+    .build();
+
+  tx = await sorobanServer.prepareTransaction(tx);
+  tx.sign(keypair);
+
+  const sendResult = await sorobanServer.sendTransaction(tx);
+  if (sendResult.status === 'ERROR') {
+    throw new Error(sendResult.errorResultXdr || 'Soroban transaction submission failed');
+  }
+
+  const hash = sendResult.hash || tx.hash().toString('hex');
+  for (let i = 0; i < 15; i += 1) {
+    const txResult = await sorobanServer.getTransaction(hash);
+    if (txResult.status === 'SUCCESS') {
+      recordContractInvocation({
+        contractId,
+        action: 'record_offset',
+        args: { orderId, kgCo2, verifierPublicKey },
+        txHash: hash,
+      }).catch(() => {});
+      return { txHash: hash, contractId };
+    }
+    if (txResult.status === 'FAILED') {
+      throw new Error('Soroban transaction failed');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  throw new Error('Soroban transaction confirmation timed out');
+}
+
+// Read an order's on-chain carbon offset record via the carbon_offset contract's
+// public get_offset function.
+async function getCarbonOffset(orderId) {
+  const contractId = process.env.SOROBAN_CARBON_OFFSET_CONTRACT_ID;
+  if (!contractId) {
+    throw new Error('SOROBAN_CARBON_OFFSET_CONTRACT_ID is not configured');
+  }
+  return simulateContractCall(contractId, 'get_offset', [
+    { type: 'u64', value: Number(orderId) },
+  ]);
+}
+
+// Health check for Soroban RPC endpoint
+async function checkSorobanRPC() {
+  const startTime = Date.now();
+  try {
+    const sorobanServer = getSorobanServer();
+    // Use getHealth method from SorobanRpc.Server
+    const healthResponse = await sorobanServer.getHealth();
+    const responseTime = Date.now() - startTime;
+    
+    return {
+      status: 'healthy',
+      responseTime,
+      details: {
+        status: healthResponse.status,
+        latestLedger: healthResponse.latestLedger,
+        oldestLedger: healthResponse.oldestLedger,
+        ledgerRetentionWindow: healthResponse.ledgerRetentionWindow
+      }
+    };
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    return {
+      status: 'unhealthy',
+      responseTime,
+      error: error.message || 'Unknown error',
+      details: {
+        code: error.code,
+        type: error.constructor.name
+      }
+    };
+  }
 }
 
 // Resolve a federation address (e.g. farmer*farmersmarket.io) to a Stellar public key.
@@ -739,13 +858,13 @@ async function resolveFederationAddress(address, db) {
 async function mintRewardTokens(buyerAddress, amount) {
   const contractId = process.env.REWARD_TOKEN_CONTRACT_ID;
   if (!contractId) {
-    console.warn('[Stellar] REWARD_TOKEN_CONTRACT_ID not set, skipping reward mint');
+    logger.warn('[Stellar] REWARD_TOKEN_CONTRACT_ID not set, skipping reward mint');
     return null;
   }
 
   const adminSecret = process.env.REWARD_TOKEN_ADMIN_SECRET;
   if (!adminSecret) {
-    console.warn('[Stellar] REWARD_TOKEN_ADMIN_SECRET not set, skipping reward mint');
+    logger.warn('[Stellar] REWARD_TOKEN_ADMIN_SECRET not set, skipping reward mint');
     return null;
   }
 
@@ -772,7 +891,7 @@ async function mintRewardTokens(buyerAddress, amount) {
     const result = await server.submitTransaction(transaction);
     return result.hash;
   } catch (error) {
-    console.error('[Stellar] Failed to mint reward tokens:', error.message);
+    logger.error('[Stellar] Failed to mint reward tokens', { error: error.message });
     return null;
   }
 }
@@ -1055,7 +1174,7 @@ async function getContractABI(contractId) {
     return functions;
   } catch (error) {
     if (error.code === 404) throw error;
-    console.error("[Stellar] Error fetching contract ABI:", error.message);
+    logger.error("[Stellar] Error fetching contract ABI", { error: error.message });
     return [];
   }
 }
@@ -1212,4 +1331,14 @@ module.exports = {
   analyzeContractFees,
   resolveFederationAddress,
   mintRewardTokens,
+  recordCarbonOffset,
+  getCarbonOffset,
 };
+// Backward-compatible barrel — all callers continue to require('./utils/stellar').
+// Internals are split into domain modules for maintainability.
+const config = require('./stellar-config');
+const accounts = require('./stellar-accounts');
+const payments = require('./stellar-payments');
+const contracts = require('./stellar-contracts');
+
+module.exports = { ...config, ...accounts, ...payments, ...contracts };

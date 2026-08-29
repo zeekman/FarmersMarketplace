@@ -6,6 +6,8 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "jest --forceExit",
+    "test:coverage": "jest --forceExit --coverage",
+    "test:contracts": "SKIP_CONTRACT_TESTS=false jest --forceExit --testPathPattern=escrow.contracts.test",
     "migrate": "node migrate.js",
     "migrate:rollback": "node migrate.js rollback",
     "backup": "node scripts/backup.js",
@@ -26,9 +28,31 @@
     "setupFilesAfterEnv": [
       "<rootDir>/tests/jest.setup.js"
     ],
+    "moduleNameMapper": {
+      "^uuid$": "<rootDir>/node_modules/uuid/dist-node/index.js"
+    },
     "testEnvironmentOptions": {
       "env": {
         "NODE_ENV": "test"
+      }
+    },
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/__tests__/**",
+      "!src/index.js"
+    ],
+    "coverageDirectory": "coverage",
+    "coverageReporters": [
+      "text-summary",
+      "lcov",
+      "html"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 40,
+        "branches": 30,
+        "functions": 40,
+        "lines": 40
       }
     }
   },
@@ -44,8 +68,8 @@
     "dotenv": "^16.4.5",
     "express": "^4.18.3",
     "express-rate-limit": "^8.3.1",
-    "express-validator": "^7.3.1",
     "helmet": "^8.1.0",
+    "ioredis": "^5.3.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.2.1",
@@ -53,7 +77,9 @@
     "pdfkit": "^0.18.0",
     "pg": "^8.20.0",
     "qrcode": "^1.5.4",
+    "redis": "^4.7.0",
     "sanitize-html": "^2.17.2",
+    "speakeasy": "^2.0.0",
     "stellar-hd-wallet": "^0.0.8",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
@@ -65,7 +91,7 @@
   "devDependencies": {
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
-    "jest": "^30.3.0",
+    "jest": "^30.4.2",
     "nodemon": "^3.1.0",
     "supertest": "^7.2.2"
   }

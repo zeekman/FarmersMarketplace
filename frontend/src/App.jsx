@@ -1,5 +1,7 @@
 import React, { lazy, Suspense, useEffect, useContext } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { HelmetProvider } from 'react-helmet-async';
+import { useTranslation } from 'react-i18next';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { FavoritesProvider } from './context/FavoritesContext';
 import { CompareProvider } from './context/CompareContext';
@@ -7,8 +9,12 @@ import { LoadingProvider, LoadingContext } from './context/LoadingContext';
 import { setLoadingCallback, setLogoutCallback } from './api/client';
 import ErrorBoundary from './components/ErrorBoundary';
 import Navbar from './components/Navbar';
+import AnnouncementBanner from './components/AnnouncementBanner';
 import LoadingSpinner from './components/LoadingSpinner';
 import PageLoader from './components/PageLoader';
+import UpdatePrompt from './components/UpdatePrompt';
+import { initSentry } from './utils/sentry';
+import { getLocaleDirection } from './i18n';
 
 const LoginPage = lazy(() => import('./pages/Auth').then(m => ({ default: m.LoginPage })));
 const RegisterPage = lazy(() => import('./pages/Auth').then(m => ({ default: m.RegisterPage })));
@@ -42,14 +48,26 @@ function Home() {
 }
 
 function AppContent() {
-  const { setLoading } = useContext(LoadingContext);
+  const { startLoading, stopLoading } = useContext(LoadingContext);
   const { logout } = useAuth();
   const location = useLocation();
+  const { i18n } = useTranslation();
 
   useEffect(() => {
-    setLoadingCallback(setLoading);
+    setLoadingCallback((isStart) => isStart ? startLoading() : stopLoading());
     setLogoutCallback(logout);
-  }, [setLoading, logout]);
+  }, [startLoading, stopLoading, logout]);
+
+  // Keep document dir/lang in sync with the active i18n language
+  useEffect(() => {
+    const apply = (lng) => {
+      document.documentElement.setAttribute('dir', getLocaleDirection(lng));
+      document.documentElement.setAttribute('lang', lng);
+    };
+    apply(i18n.language);
+    i18n.on('languageChanged', apply);
+    return () => i18n.off('languageChanged', apply);
+  }, [i18n]);
 
   // Announce page changes to screen readers
   useEffect(() => {
@@ -59,9 +77,18 @@ function AppContent() {
 
   return (
     <>
+      <a
+        href="#main-content"
+        className="skip-link"
+        onClick={() => document.getElementById('main-content')?.focus()}
+      >
+        Skip to main content
+      </a>
+      <AnnouncementBanner />
       <Navbar />
       <LoadingSpinner />
-      <main id="main-content" style={{ paddingTop: 24 }}>
+      <UpdatePrompt />
+      <main id="main-content" tabIndex={-1} style={{ paddingTop: 24, outline: 'none' }}>
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Home />} />
@@ -87,17 +114,23 @@ function AppContent() {
 }
 
 export default function App() {
+  React.useEffect(() => {
+    initSentry();
+  }, []);
+
   return (
-    <ErrorBoundary>
-      <AuthProvider>
-        <FavoritesProvider>
-          <CompareProvider>
-            <LoadingProvider>
-              <AppContent />
-            </LoadingProvider>
-          </CompareProvider>
-        </FavoritesProvider>
-      </AuthProvider>
-    </ErrorBoundary>
+    <HelmetProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          <FavoritesProvider>
+            <CompareProvider>
+              <LoadingProvider>
+                <AppContent />
+              </LoadingProvider>
+            </CompareProvider>
+          </FavoritesProvider>
+        </AuthProvider>
+      </ErrorBoundary>
+    </HelmetProvider>
   );
 }

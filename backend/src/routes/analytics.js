@@ -1,10 +1,14 @@
 const router = require('express').Router();
 const db = require('../db/schema');
+const { monthBucket, sixMonthsAgo } = require('../db/dialect');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 
+// All analytics routes require authentication
+router.use(auth);
+
 // GET /api/analytics/farmer
-router.get('/farmer', auth, async (req, res) => {
+router.get('/farmer', async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
   const farmerId = req.user.id;
 
@@ -23,15 +27,14 @@ router.get('/farmer', auth, async (req, res) => {
     [farmerId]
   );
 
-  const { rows: monthly } = await db.query(
-    `SELECT TO_CHAR(o.created_at, 'YYYY-MM') as month,
-            COALESCE(SUM(o.total_price), 0) as revenue, COUNT(*) as orders
-     FROM orders o JOIN products p ON o.product_id = p.id
-     WHERE p.farmer_id = $1 AND o.status = 'paid'
-       AND o.created_at >= NOW() - INTERVAL '6 months'
-     GROUP BY month ORDER BY month ASC`,
-    [farmerId]
-  );
+  const monthlyQuery = `SELECT ${monthBucket('o.created_at', db.isPostgres)} as month,
+          COALESCE(SUM(o.total_price), 0) as revenue, COUNT(*) as orders
+   FROM orders o JOIN products p ON o.product_id = p.id
+   WHERE p.farmer_id = $1 AND o.status = 'paid'
+     AND o.created_at >= ${sixMonthsAgo(db.isPostgres)}
+   GROUP BY month ORDER BY month ASC`;
+
+  const { rows: monthly } = await db.query(monthlyQuery, [farmerId]);
 
   res.json({
     success: true,
@@ -44,8 +47,80 @@ router.get('/farmer', auth, async (req, res) => {
   });
 });
 
+// GET /api/analytics/farmer/waitlist — waitlist analytics per product (farmer only)
+router.get('/farmer/waitlist', async (req, res) => {
+  if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
+  const farmerId = req.user.id;
+
+  // Queue length: active waitlist entries per product
+  const { rows: queueRows } = await db.query(
+    `SELECT w.product_id, p.name AS product_name, COUNT(*) AS queue_length
+     FROM waitlist_entries w
+     JOIN products p ON w.product_id = p.id
+     WHERE p.farmer_id = $1
+     GROUP BY w.product_id, p.name`,
+    [farmerId]
+  );
+
+  // Average wait time: time from waitlist join to first paid order for that buyer+product
+  const { rows: waitRows } = await db.query(
+    db.isPostgres
+      ? `SELECT w.product_id,
+                AVG(EXTRACT(EPOCH FROM (o.created_at - w.created_at)) / 3600) AS avg_wait_hours
+         FROM waitlist_entries w
+         JOIN orders o ON o.product_id = w.product_id AND o.buyer_id = w.buyer_id AND o.status = 'paid'
+         JOIN products p ON w.product_id = p.id
+         WHERE p.farmer_id = $1
+         GROUP BY w.product_id`
+      : `SELECT w.product_id,
+                AVG((julianday(o.created_at) - julianday(w.created_at)) * 24) AS avg_wait_hours
+         FROM waitlist_entries w
+         JOIN orders o ON o.product_id = w.product_id AND o.buyer_id = w.buyer_id AND o.status = 'paid'
+         JOIN products p ON w.product_id = p.id
+         WHERE p.farmer_id = ?
+         GROUP BY w.product_id`,
+    [farmerId]
+  );
+
+  // Conversion rate: paid orders / total waitlist joins per product
+  const { rows: convRows } = await db.query(
+    `SELECT w.product_id,
+            COUNT(DISTINCT w.buyer_id) AS total_joins,
+            COUNT(DISTINCT o.buyer_id) AS converted
+     FROM waitlist_entries w
+     JOIN products p ON w.product_id = p.id
+     LEFT JOIN orders o ON o.product_id = w.product_id AND o.buyer_id = w.buyer_id AND o.status = 'paid'
+     WHERE p.farmer_id = $1
+     GROUP BY w.product_id`,
+    [farmerId]
+  );
+
+  // Merge results by product_id
+  const waitMap = new Map(waitRows.map((r) => [Number(r.product_id), r]));
+  const convMap = new Map(convRows.map((r) => [Number(r.product_id), r]));
+
+  const ALERT_THRESHOLD = 10;
+  const analytics = queueRows.map((r) => {
+    const pid = Number(r.product_id);
+    const wait = waitMap.get(pid);
+    const conv = convMap.get(pid);
+    const totalJoins = conv ? Number(conv.total_joins) : 0;
+    const converted = conv ? Number(conv.converted) : 0;
+    return {
+      product_id: pid,
+      product_name: r.product_name,
+      queue_length: Number(r.queue_length),
+      avg_wait_hours: wait ? parseFloat(Number(wait.avg_wait_hours).toFixed(2)) : null,
+      conversion_rate: totalJoins > 0 ? parseFloat(((converted / totalJoins) * 100).toFixed(1)) : null,
+      alert: Number(r.queue_length) > ALERT_THRESHOLD,
+    };
+  });
+
+  res.json({ success: true, data: analytics });
+});
+
 // GET /api/analytics/farmer/forecast
-router.get('/farmer/forecast', auth, async (req, res) => {
+router.get('/farmer/forecast', async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
 
   const farmerId = req.user.id;
@@ -128,7 +203,7 @@ router.get('/farmer/forecast', auth, async (req, res) => {
 });
 
 // GET /api/analytics/farmer/demand-heatmap - Geographic demand heatmap
-router.get('/farmer/demand-heatmap', auth, async (req, res) => {
+router.get('/farmer/demand-heatmap', async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
 
   const farmerId = req.user.id;

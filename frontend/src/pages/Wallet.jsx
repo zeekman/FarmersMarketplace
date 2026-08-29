@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import Spinner from '../components/Spinner';
 import { getStellarErrorMessage } from '../utils/stellarErrors';
 import { getErrorMessage } from '../utils/errorMessages';
+import { showToast } from '../utils/toast';
 import { useTranslation } from 'react-i18next';
+import StreamAccrual from '../components/StreamAccrual';
+import { useXlmRate } from '../utils/useXlmRate';
 
 const DISCLAIMER_KEY = 'testnet_disclaimer_dismissed';
 const RECONNECT_BASE_MS = 2000;
@@ -16,148 +20,54 @@ const COMMON_ASSETS = [
 ];
 
 const s = {
-  page:    { maxWidth: 800, margin: '0 auto', padding: 24 },
-  title:   { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 24 },
-  card:    { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 },
-  page: { maxWidth: 800, margin: "0 auto", padding: 16 },
-  disclaimer: {
-    background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 10,
-    padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start',
-    background: "#fff8e1",
-    border: "1px solid #f9a825",
-    borderRadius: 10,
-    padding: "14px 16px",
-    marginBottom: 20,
-    display: "flex",
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  disclaimerIcon: { fontSize: 20, flexShrink: 0, marginTop: 1 },
-  disclaimerBody: { flex: 1, fontSize: 13, color: "#5d4037", lineHeight: 1.5 },
-  disclaimerTitle: {
-    fontWeight: 700,
-    fontSize: 14,
-    marginBottom: 3,
-    color: "#e65100",
-  },
-  disclaimerDismiss: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    color: "#999",
-    fontSize: 18,
-    lineHeight: 1,
-    padding: 0,
-    flexShrink: 0,
-  },
-  title: { fontSize: 24, fontWeight: 700, color: "#2d6a4f", marginBottom: 24 },
-  card: {
-    background: "#fff",
-    borderRadius: 12,
-    padding: 24,
-    boxShadow: "0 1px 8px #0001",
-    marginBottom: 24,
-  },
-  balance: { fontSize: 40, fontWeight: 700, color: "#2d6a4f" },
-  key: {
-    fontSize: 12,
-    color: "#888",
-    wordBreak: "break-all",
-    marginTop: 8,
-    fontFamily: "monospace",
-  },
-  btn: {
-    background: "#2d6a4f",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    padding: "10px 20px",
-    cursor: "pointer",
-    fontWeight: 600,
-    marginTop: 16,
-    minHeight: 44,
-  },
-  btnDanger: {
-    background: "#c0392b",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    padding: "10px 20px",
-    cursor: "pointer",
-    fontWeight: 600,
-  },
-  tx: {
-    borderBottom: "1px solid #eee",
-    padding: "12px 0",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  title: { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 24 },
-  card: { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 },
-  balance: { fontSize: 40, fontWeight: 700, color: '#2d6a4f' },
-  key:     { fontSize: 12, color: '#888', wordBreak: 'break-all', marginTop: 8, fontFamily: 'monospace' },
-  btn:     { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, marginTop: 16 },
-  btnSm:   { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
-  btnDanger: { background: '#c0392b', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
-  btnOutline: { background: '#fff', color: '#2d6a4f', border: '1px solid #2d6a4f', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
-  tx:      { borderBottom: '1px solid #eee', padding: '12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  sent:    { color: '#c0392b', fontWeight: 600 },
-  recv:    { color: '#2d6a4f', fontWeight: 600 },
-  hash:    { fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 2 },
-  msg:     { padding: '10px 14px', borderRadius: 8, marginTop: 12, fontSize: 14 },
-  label:   { display: 'block', fontSize: 13, color: '#555', marginBottom: 4, marginTop: 14 },
-  input:   { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' },
-  disclaimer: { background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 10, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start' },
-  disclaimerIcon: { fontSize: 20, flexShrink: 0, marginTop: 1 },
-  disclaimerBody: { flex: 1, fontSize: 13, color: '#5d4037', lineHeight: 1.5 },
-  disclaimerTitle: { fontWeight: 700, fontSize: 14, marginBottom: 3, color: '#e65100' },
-  disclaimerDismiss: { background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 },
-  toastContainer: { position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 10, pointerEvents: 'none' },
-  toast: { background: '#2d6a4f', color: '#fff', borderRadius: 10, padding: '12px 18px', boxShadow: '0 4px 16px #0003', fontSize: 14, minWidth: 260, maxWidth: 360, pointerEvents: 'auto' },
-  toastTitle: { fontWeight: 700, marginBottom: 3 },
-  toastSub: { fontSize: 12, opacity: 0.85 },
-  assetRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0' },
-  assetCode: { fontWeight: 700, fontSize: 15, color: '#2d6a4f' },
-  assetBal: { fontSize: 14, color: '#333', fontWeight: 600 },
-  assetIssuer: { fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 2 },
-  sent: { color: "#c0392b", fontWeight: 600 },
-  recv: { color: "#2d6a4f", fontWeight: 600 },
-  hash: { fontSize: 11, color: "#aaa", fontFamily: "monospace", marginTop: 2 },
-  msg: { padding: "10px 14px", borderRadius: 8, marginTop: 12, fontSize: 14 },
-  label: {
-    display: "block",
-    fontSize: 13,
-    color: "#555",
-    marginBottom: 4,
-    marginTop: 14,
-  },
-  input: {
-    width: "100%",
-    padding: "9px 12px",
-    border: "1px solid #ddd",
-    borderRadius: 8,
-    fontSize: 16,
-    boxSizing: "border-box",
-    minHeight: 44,
-  },
-  row: { display: "flex", gap: 12, alignItems: "flex-end", marginTop: 16 },
+  page:             { maxWidth: 800, margin: '0 auto', padding: 16 },
+  title:            { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 24 },
+  card:             { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 },
+  disclaimer:       { background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 10, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start' },
+  disclaimerIcon:   { fontSize: 20, flexShrink: 0, marginTop: 1 },
+  disclaimerBody:   { flex: 1, fontSize: 13, color: '#5d4037', lineHeight: 1.5 },
+  disclaimerTitle:  { fontWeight: 700, fontSize: 14, marginBottom: 3, color: '#e65100' },
+  disclaimerDismiss:{ background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 },
+  balance:          { fontSize: 40, fontWeight: 700, color: '#2d6a4f' },
+  key:              { fontSize: 12, color: '#888', wordBreak: 'break-all', marginTop: 8, fontFamily: 'monospace' },
+  btn:              { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, marginTop: 16, minHeight: 44 },
+  btnSm:            { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
+  btnDanger:        { background: '#c0392b', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
+  btnOutline:       { background: '#fff', color: '#2d6a4f', border: '1px solid #2d6a4f', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
+  tx:               { borderBottom: '1px solid #eee', padding: '12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  sent:             { color: '#c0392b', fontWeight: 600 },
+  recv:             { color: '#2d6a4f', fontWeight: 600 },
+  hash:             { fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 2 },
+  msg:              { padding: '10px 14px', borderRadius: 8, marginTop: 12, fontSize: 14 },
+  label:            { display: 'block', fontSize: 13, color: '#555', marginBottom: 4, marginTop: 14 },
+  input:            { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
+  row:              { display: 'flex', gap: 12, alignItems: 'flex-end', marginTop: 16 },
+  toastContainer:   { position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 10, pointerEvents: 'none' },
+  toast:            { background: '#2d6a4f', color: '#fff', borderRadius: 10, padding: '12px 18px', boxShadow: '0 4px 16px #0003', fontSize: 14, minWidth: 260, maxWidth: 360, pointerEvents: 'auto' },
+  toastTitle:       { fontWeight: 700, marginBottom: 3 },
+  toastSub:         { fontSize: 12, opacity: 0.85 },
+  assetRow:         { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0' },
+  assetCode:        { fontWeight: 700, fontSize: 15, color: '#2d6a4f' },
+  assetBal:         { fontSize: 14, color: '#333', fontWeight: 600 },
+  assetIssuer:      { fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 2 },
 };
 
 if (typeof document !== 'undefined' && !document.getElementById('wallet-toast-style')) {
   const style = document.createElement('style');
   style.id = 'wallet-toast-style';
-  style.textContent = '@keyframes slideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }';
+  style.textContent = '@keyframes slideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } } @keyframes spin { to { transform: rotate(360deg); } }';
   document.head.appendChild(style);
 }
 
-function Toast({ toasts }) {
+function Toast({ toasts, usd }) {
   return (
     <div style={s.toastContainer} aria-live="polite">
       {toasts.map(t => (
         <div key={t.id} style={s.toast} role="status">
           <div style={s.toastTitle}>Payment received</div>
-          <div style={s.toastSub}>+{parseFloat(t.amount).toFixed(2)} XLM from {t.from.slice(0, 8)}...{t.from.slice(-4)}</div>
+          <div style={s.toastSub}>
+            +{parseFloat(t.amount).toFixed(2)} XLM {usd(parseFloat(t.amount)) && <span style={{ fontSize: 11, color: '#bbb' }}>({usd(parseFloat(t.amount))})</span>} from {t.from.slice(0, 8)}...{t.from.slice(-4)}
+          </div>
         </div>
       ))}
     </div>
@@ -167,7 +77,8 @@ function Toast({ toasts }) {
 export default function Wallet() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const [disclaimerVisible, setDisclaimerVisible] = useState(() => !sessionStorage.getItem(DISCLAIMER_KEY));
+  const { usd } = useXlmRate();
+  const [disclaimerVisible, setDisclaimerVisible] = useState(() => localStorage.getItem(DISCLAIMER_KEY) !== 'true');
   const [wallet, setWallet]       = useState(null);
   const [txs, setTxs]             = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -184,6 +95,7 @@ export default function Wallet() {
   const [sendForm, setSendForm]   = useState({ destination: '', amount: '', memo: '' });
   const [sending, setSending]     = useState(false);
   const [sendMsg, setSendMsg]     = useState(null);
+  const [network, setNetwork]     = useState(null);
 
   const [showTrustlineForm, setShowTrustlineForm] = useState(false);
   const [tlForm, setTlForm]       = useState({ asset_code: '', asset_issuer: '' });
@@ -191,13 +103,25 @@ export default function Wallet() {
   const [tlLoading, setTlLoading] = useState(false);
   const [removingAsset, setRemovingAsset] = useState(null);
 
+  const [reconnecting, setReconnecting] = useState(false);
+  const [sseConnected, setSseConnected] = useState(false);
+
+  // Claimable balances state
+  const [claimableBalances, setClaimableBalances] = useState([]);
+  const [claimableLoading, setClaimableLoading] = useState(true); // true initially so section shows while loading
+  const [claimingId, setClaimingId] = useState(null); // balance_id currently being claimed
+
+  const [streams, setStreams] = useState([]);
+  const [streamsMsg, setStreamsMsg] = useState(null);
+  const [streamActionId, setStreamActionId] = useState(null);
+
   const esRef = useRef(null);
   const reconnectTimer = useRef(null);
   const reconnectDelay = useRef(RECONNECT_BASE_MS);
   const unmounted = useRef(false);
 
   function dismissDisclaimer() {
-    sessionStorage.setItem(DISCLAIMER_KEY, '1');
+    localStorage.setItem(DISCLAIMER_KEY, 'true');
     setDisclaimerVisible(false);
   }
 
@@ -215,7 +139,9 @@ export default function Wallet() {
       setWallet(w);
       setTxs(txData.data ?? txData);
     } catch (e) {
-      setLoadError(getStellarErrorMessage(e) || getErrorMessage(e));
+      const msg = getStellarErrorMessage(e) || getErrorMessage(e);
+      setLoadError(msg);
+      showToast(msg, 'error');
     } finally {
       setLoading(false);
     }
@@ -223,6 +149,19 @@ export default function Wallet() {
       setAlerts(res.data ?? []);
       setUnreadCount(res.unreadCount ?? 0);
     }).catch(() => {});
+    // Load claimable balances — non-blocking, failure is silent
+    setClaimableLoading(true);
+    api.getClaimableBalances()
+      .then(res => setClaimableBalances(res.data ?? []))
+      .catch(() => setClaimableBalances([]))
+      .finally(() => setClaimableLoading(false));
+  }, []);
+
+  const loadStreams = useCallback(() => {
+    if (typeof api.getPaymentStreams !== 'function') return;
+    api.getPaymentStreams()
+      .then(res => setStreams(res.data ?? res))
+      .catch(() => {});
   }, []);
 
   const connectStream = useCallback(() => {
@@ -253,17 +192,26 @@ export default function Wallet() {
       es.close();
       esRef.current = null;
       if (unmounted.current) return;
+      setSseConnected(false);
+      reconnectDelay.current = Math.min(reconnectDelay.current * 2, RECONNECT_MAX_MS);
+      setReconnecting(true);
+      // The embedded token may have expired mid-stream (a likely cause of the
+      // error); refresh it before reconnecting so we don't loop forever on a stale token.
+      if (typeof api.refresh === 'function') {
+        api.refresh().catch(() => {});
+      }
       reconnectTimer.current = setTimeout(() => {
-        reconnectDelay.current = Math.min(reconnectDelay.current * 2, RECONNECT_MAX_MS);
         connectStream();
       }, reconnectDelay.current);
     });
-    es.onopen = () => { reconnectDelay.current = RECONNECT_BASE_MS; };
+    es.onopen = () => { reconnectDelay.current = RECONNECT_BASE_MS; setReconnecting(false); setSseConnected(true); };
   }, [load]);
 
   useEffect(() => {
     unmounted.current = false;
     load();
+    loadStreams();
+    api.getNetwork().then(res => setNetwork(res.network)).catch(() => {});
     if (user?.role === 'buyer' && typeof api.getBudget === 'function') {
       api.getBudget()
         .then((res) => {
@@ -278,7 +226,7 @@ export default function Wallet() {
       clearTimeout(reconnectTimer.current);
       if (esRef.current) { esRef.current.close(); esRef.current = null; }
     };
-  }, [load, connectStream]);
+  }, [load, loadStreams, connectStream]);
 
   async function handleFund() {
     setFunding(true);
@@ -288,7 +236,9 @@ export default function Wallet() {
       setFundMsg({ type: 'ok', text: res.message });
       load();
     } catch (e) {
-      setFundMsg({ type: 'err', text: getStellarErrorMessage(e) || getErrorMessage(e) });
+      const msg = getStellarErrorMessage(e) || getErrorMessage(e);
+      setFundMsg({ type: 'err', text: msg });
+      showToast(msg, 'error');
     } finally {
       setFunding(false);
     }
@@ -309,6 +259,10 @@ export default function Wallet() {
     }
   }
 
+  const availableBalance = wallet ? (wallet.availableBalance ?? Math.max(0, wallet.balance - 1)) : 0;
+  const sendAmount = parseFloat(sendForm.amount);
+  const sendExceedsBalance = sendForm.amount !== '' && !isNaN(sendAmount) && sendAmount > availableBalance;
+
   async function handleSend(e) {
     e.preventDefault();
     setSendMsg(null);
@@ -319,6 +273,8 @@ export default function Wallet() {
       return setSendMsg({ type: 'err', text: 'Invalid destination. Enter a Stellar public key (G...) or federation address (name*domain).' });
     if (!amount || amount <= 0)
       return setSendMsg({ type: 'err', text: 'Amount must be greater than 0.' });
+    if (amount > availableBalance)
+      return setSendMsg({ type: 'err', text: `Insufficient balance. You have ${availableBalance.toFixed(2)} XLM available.` });
     if (sendForm.memo.length > 28)
       return setSendMsg({ type: 'err', text: 'Memo must be 28 characters or fewer.' });
     setSending(true);
@@ -365,21 +321,153 @@ export default function Wallet() {
     }
   }
 
+  async function handleCancelStream(id) {
+    setStreamActionId(id);
+    setStreamsMsg(null);
+    try {
+      await api.cancelPaymentStream(id);
+      setStreamsMsg({ type: 'ok', text: 'Stream canceled.' });
+      loadStreams();
+    } catch (e) {
+      setStreamsMsg({ type: 'err', text: getStellarErrorMessage(e) || getErrorMessage(e) });
+    } finally {
+      setStreamActionId(null);
+    }
+  }
+
+  async function handleDecreaseStreamRate(id, currentRate) {
+    const input = prompt('New rate per second (must be lower than current rate):', currentRate);
+    if (input == null) return;
+    const rate = parseFloat(input);
+    if (!rate || rate <= 0 || rate >= currentRate) {
+      setStreamsMsg({ type: 'err', text: 'New rate must be a positive number lower than the current rate.' });
+      return;
+    }
+    setStreamActionId(id);
+    setStreamsMsg(null);
+    try {
+      await api.decreasePaymentStreamRate(id, rate);
+      setStreamsMsg({ type: 'ok', text: 'Stream rate decreased.' });
+      loadStreams();
+    } catch (e) {
+      setStreamsMsg({ type: 'err', text: getStellarErrorMessage(e) || getErrorMessage(e) });
+    } finally {
+      setStreamActionId(null);
+    }
+  }
+
+  async function handleWithdrawStream(id) {
+    setStreamActionId(id);
+    setStreamsMsg(null);
+    try {
+      const res = await api.withdrawPaymentStream(id);
+      setStreamsMsg({ type: 'ok', text: `Withdrew ${res.amount ?? ''} from stream.`.trim() });
+      loadStreams();
+      load();
+    } catch (e) {
+      setStreamsMsg({ type: 'err', text: getStellarErrorMessage(e) || getErrorMessage(e) });
+    } finally {
+      setStreamActionId(null);
+    }
+  }
+
+  async function handleClaim(balanceId) {
+    setClaimingId(balanceId);
+    try {
+      const res = await api.claimBalance(balanceId);
+      showToast('Balance claimed successfully!', 'success');
+      // Update wallet balance immediately with the returned value
+      if (res.balance != null) {
+        setWallet(prev => prev ? { ...prev, balance: res.balance } : prev);
+      }
+      // Remove the claimed balance from the list
+      setClaimableBalances(prev => prev.filter(b => b.id !== balanceId));
+    } catch (e) {
+      const msg = getErrorMessage(e);
+      showToast(msg, 'error');
+    } finally {
+      setClaimingId(null);
+    }
+  }
+
   const customBalances = (wallet?.balances ?? []).filter(b => b.asset_type !== 'native');
+
+  /** Returns a human-readable description of a Stellar claimant predicate */
+  function describeCondition(predicate) {
+    if (!predicate || predicate.unconditional) return 'Claimable now';
+    if (predicate.not) {
+      const inner = predicate.not;
+      if (inner.abs_before) {
+        return `Claimable after ${new Date(inner.abs_before).toLocaleString()}`;
+      }
+      if (inner.rel_before) {
+        const days = Math.round(inner.rel_before / 86400);
+        return `Claimable after ~${days} day${days !== 1 ? 's' : ''}`;
+      }
+    }
+    if (predicate.abs_before) {
+      return `Claimable until ${new Date(predicate.abs_before).toLocaleString()}`;
+    }
+    return 'Conditional';
+  }
 
   return (
     <div style={s.page}>
-      <Toast toasts={toasts} />
+      <Helmet>
+        <title>My Wallet – Farmers Marketplace</title>
+        <meta name="description" content="Manage your Stellar XLM wallet, view balance and transaction history." />
+      </Helmet>
+      <Toast toasts={toasts} usd={usd} />
       <div style={s.title}>My Wallet</div>
 
-      {disclaimerVisible && (
-        <div style={s.disclaimer} role="alert">
-          <span style={s.disclaimerIcon}>Warning</span>
-          <div style={s.disclaimerBody}>
-            <div style={s.disclaimerTitle}>Testnet Only - No Real Money</div>
-            This wallet uses <strong>Stellar Testnet XLM</strong>, which has <strong>no monetary value</strong> and cannot be exchanged or withdrawn.
+      {reconnecting && (
+        <div role="status" style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 8, padding: '8px 14px', marginBottom: 16, fontSize: 13, color: '#856404' }}>
+          ⟳ Reconnecting to live updates…
+        </div>
+      )}
+
+      {/* SSE connection indicator */}
+      <div
+        role="status"
+        aria-label={sseConnected ? 'Live updates connected' : 'Live updates disconnected'}
+        title={sseConnected ? 'Live updates connected' : 'Live updates disconnected'}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, fontSize: 12, color: sseConnected ? '#2d6a4f' : '#999' }}
+      >
+        <span
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: '50%',
+            background: sseConnected ? '#40c074' : '#bbb',
+            display: 'inline-block',
+            boxShadow: sseConnected ? '0 0 0 3px #d8f3dc' : 'none',
+            transition: 'background 0.3s, box-shadow 0.3s',
+          }}
+        />
+        {sseConnected ? 'Live' : 'Offline'}
+      </div>
+
+      {disclaimerVisible && network !== 'mainnet' && (
+        <div role="dialog" aria-modal="true" aria-labelledby="disclaimer-modal-title" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 32, maxWidth: 420, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+            <div id="disclaimer-modal-title" style={{ fontSize: 20, fontWeight: 700, color: '#e65100', marginBottom: 12 }}>⚠️ Testnet Only</div>
+            <p style={{ fontSize: 14, color: '#555', lineHeight: 1.6, marginBottom: 20 }}>
+              This wallet uses <strong>Stellar Testnet XLM</strong>, which has <strong>no monetary value</strong> and cannot be exchanged or withdrawn.
+            </p>
+            <button onClick={dismissDisclaimer} style={{ width: '100%', padding: '12px 20px', borderRadius: 8, border: 'none', background: '#2d6a4f', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 14, minHeight: 44 }}>
+              I Understand, Dismiss
+            </button>
           </div>
-          <button style={s.disclaimerDismiss} onClick={dismissDisclaimer} aria-label="Dismiss">x</button>
+        </div>
+      )}
+
+      {network === 'mainnet' && (
+        <div style={{ background: '#c0392b', color: '#fff', borderRadius: 10, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start' }} role="alert">
+          <span style={{ fontSize: 20, flexShrink: 0 }}>⚠️</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 3 }}>Mainnet — Real Funds</div>
+            You are connected to <strong>Stellar Mainnet</strong>. All transactions use <strong>real XLM</strong> with real monetary value. Proceed with caution.
+          </div>
         </div>
       )}
 
@@ -395,29 +483,131 @@ export default function Wallet() {
           <div style={s.card}>
             <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>XLM Balance</div>
             <div style={s.balance}>{wallet ? wallet.balance.toFixed(2) : '-'} XLM</div>
+            {wallet && usd(wallet.balance) && (
+              <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                {usd(wallet.balance)} <span style={{ fontSize: 11, color: '#bbb' }}>approx.</span>
+              </div>
+            )}
             <div style={{ fontSize: 13, color: '#555', marginTop: 6 }}>
               Available to withdraw: {wallet ? (wallet.availableBalance ?? Math.max(0, wallet.balance - 1)).toFixed(2) : '-'} XLM
             </div>
+            {wallet && wallet.availableBalance && usd(wallet.availableBalance) && (
+              <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                {usd(wallet.availableBalance)} <span style={{ fontSize: 11, color: '#bbb' }}>approx.</span>
+              </div>
+            )}
             <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Includes 1.00 XLM base reserve</div>
             <div style={s.key}>{wallet?.publicKey}</div>
             <div style={{ fontSize: 12, color: '#888', marginTop: 10 }}>
               <span style={{ background: '#fff3cd', color: '#856404', border: '1px solid #ffc107', borderRadius: 4, padding: '1px 7px', fontWeight: 600, fontSize: 11 }}>TESTNET</span>
               {' '}XLM shown here has no real-world value.
             </div>
-            <button style={s.btn} onClick={handleFund} disabled={funding}>
-              {funding ? 'Funding...' : 'Fund with Testnet XLM'}
-            </button>
-            {fundMsg && (
-              <div style={{ ...s.msg, background: fundMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: fundMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
-                {fundMsg.text}
-              </div>
+            {network !== 'mainnet' && (
+              <>
+                <button style={s.btn} onClick={handleFund} disabled={funding}>
+                  {funding ? 'Funding...' : 'Fund with Testnet XLM'}
+                </button>
+                {fundMsg && (
+                  <div style={{ ...s.msg, background: fundMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: fundMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
+                    {fundMsg.text}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
+          {/* Pending Claims section — claimable balances from pre-orders / escrow refunds */}
+          {(claimableLoading || claimableBalances.length > 0) && (            <div style={s.card} data-testid="pending-claims-section">
+              <h3 style={{ marginBottom: 4, color: '#333' }}>⏳ Pending Claims</h3>
+              <p style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>
+                Funds locked in Stellar claimable balances (e.g. pre-order refunds) waiting to be claimed.
+              </p>
+              {claimableLoading ? (
+                <p style={{ color: '#aaa', fontSize: 14 }}>Loading...</p>
+              ) : claimableBalances.length === 0 ? (
+                <p style={{ color: '#aaa', fontSize: 14 }}>No pending claims.</p>
+              ) : (
+                <div>
+                  {claimableBalances.map(b => {
+                    const isClaiming = claimingId === b.id;
+                    const shortId = b.id.length > 16
+                      ? `${b.id.slice(0, 8)}…${b.id.slice(-6)}`
+                      : b.id;
+                    const condition = describeCondition(b.claimant_condition);
+                    return (
+                      <div
+                        key={b.id}
+                        data-testid="claimable-balance-row"
+                        style={{
+                          borderBottom: '1px solid #eee',
+                          padding: '12px 0',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 12,
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#888', marginBottom: 3, wordBreak: 'break-all' }}>
+                            ID: {shortId}
+                          </div>
+                          <div style={{ fontWeight: 700, fontSize: 16, color: '#2d6a4f' }}>
+                            {parseFloat(b.amount).toFixed(2)} XLM
+                          </div>
+                          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                            {condition}
+                          </div>
+                        </div>
+                        <button
+                          data-testid={`claim-btn-${b.id}`}
+                          style={{
+                            background: isClaiming ? '#888' : '#2d6a4f',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 8,
+                            padding: '9px 20px',
+                            cursor: isClaiming ? 'not-allowed' : 'pointer',
+                            fontWeight: 600,
+                            fontSize: 14,
+                            minHeight: 44,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            flexShrink: 0,
+                          }}
+                          onClick={() => handleClaim(b.id)}
+                          disabled={isClaiming}
+                          aria-busy={isClaiming}
+                          aria-label={`Claim ${parseFloat(b.amount).toFixed(2)} XLM`}
+                        >
+                          {isClaiming && (
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                width: 14,
+                                height: 14,
+                                border: '2px solid rgba(255,255,255,0.35)',
+                                borderTopColor: '#fff',
+                                borderRadius: '50%',
+                                animation: 'spin 0.6s linear infinite',
+                              }}
+                              aria-hidden="true"
+                            />
+                          )}
+                          {isClaiming ? 'Claiming…' : 'Claim'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {user?.role === 'buyer' && (
             <div style={s.card}>
-              <h3 style={{ marginBottom: 12, color: '#333' }}>Monthly Budget</h3>
-              <form onSubmit={handleSaveBudget}>
+              <h3 style={{ marginBottom: 12, color: '#333' }}>Monthly Budget</h3>              <form onSubmit={handleSaveBudget}>
                 <label style={s.label}>Budget limit (XLM)</label>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input
@@ -485,6 +675,11 @@ export default function Wallet() {
               <div style={{ background: '#f8fdf9', border: '1px solid #b7e4c7', borderRadius: 10, padding: 16, marginBottom: 16 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#2d6a4f', marginBottom: 10 }}>Quick Add</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                  {wallet?.rewardToken && (
+                    <button key={wallet.rewardToken.code} style={{ ...s.btnOutline, background: '#fff8e1', borderColor: '#f9a825' }} disabled={tlLoading} onClick={() => handleAddTrustline(wallet.rewardToken.code, wallet.rewardToken.issuer)}>
+                      ⭐ {wallet.rewardToken.code} (Reward Token)
+                    </button>
+                  )}
                   {COMMON_ASSETS.map(a => (
                     <button key={a.code} style={s.btnOutline} disabled={tlLoading} onClick={() => handleAddTrustline(a.code, a.issuer)}>
                       {a.label}
@@ -521,25 +716,31 @@ export default function Wallet() {
             {customBalances.length === 0 ? (
               <p style={{ color: '#aaa', fontSize: 14 }}>No custom asset trustlines yet. Add one above to hold USDC or other Stellar assets.</p>
             ) : (
-              customBalances.map(b => (
-                <div key={b.asset_code + '-' + b.asset_issuer} style={s.assetRow}>
-                  <div>
-                    <div style={s.assetCode}>{b.asset_code}</div>
-                    <div style={s.assetIssuer}>{b.asset_issuer ? b.asset_issuer.slice(0, 12) + '...' + b.asset_issuer.slice(-6) : ''}</div>
+              customBalances.map(b => {
+                const isRewardToken = wallet?.rewardToken && b.asset_code === wallet.rewardToken.code && b.asset_issuer === wallet.rewardToken.issuer;
+                return (
+                  <div key={b.asset_code + '-' + b.asset_issuer} style={s.assetRow}>
+                    <div>
+                      <div style={s.assetCode}>
+                        {isRewardToken && <span style={{ marginRight: 6 }} title="Reward token">⭐</span>}
+                        {b.asset_code}
+                      </div>
+                      <div style={s.assetIssuer}>{b.asset_issuer ? b.asset_issuer.slice(0, 12) + '...' + b.asset_issuer.slice(-6) : ''}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={s.assetBal}>{b.balance.toFixed(2)}</div>
+                      <button
+                        style={s.btnDanger}
+                        disabled={removingAsset === b.asset_code}
+                        onClick={() => handleRemoveTrustline(b.asset_code, b.asset_issuer)}
+                        title="Remove trustline (requires zero balance)"
+                      >
+                        {removingAsset === b.asset_code ? '...' : 'Remove'}
+                      </button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={s.assetBal}>{b.balance.toFixed(2)}</div>
-                    <button
-                      style={s.btnDanger}
-                      disabled={removingAsset === b.asset_code}
-                      onClick={() => handleRemoveTrustline(b.asset_code, b.asset_issuer)}
-                      title="Remove trustline (requires zero balance)"
-                    >
-                      {removingAsset === b.asset_code ? '...' : 'Remove'}
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -555,17 +756,24 @@ export default function Wallet() {
               />
               <label style={s.label}>Amount (XLM)</label>
               <input
-                style={s.input} type="number" min="0.0000001" step="any" placeholder="0.00"
+                style={{ ...s.input, borderColor: sendExceedsBalance ? '#c0392b' : undefined }}
+                type="number" min="0.0000001" step="any" placeholder="0.00"
                 value={sendForm.amount}
                 onChange={e => setSendForm(f => ({ ...f, amount: e.target.value }))}
+                aria-describedby={sendExceedsBalance ? 'send-balance-warning' : undefined}
               />
+              {sendExceedsBalance && (
+                <div id="send-balance-warning" role="alert" style={{ color: '#c0392b', fontSize: 13, marginTop: 4 }}>
+                  Insufficient balance. You have {availableBalance.toFixed(2)} XLM available.
+                </div>
+              )}
               <label style={s.label}>Memo <span style={{ color: '#aaa', fontWeight: 400 }}>(optional, max 28 chars)</span></label>
               <input
                 style={s.input} type="text" maxLength={28} placeholder="e.g. payment for order #42"
                 value={sendForm.memo}
                 onChange={e => setSendForm(f => ({ ...f, memo: e.target.value }))}
               />
-              <button type="submit" style={s.btn} disabled={sending}>
+              <button type="submit" style={{ ...s.btn, opacity: sendExceedsBalance ? 0.5 : 1 }} disabled={sending || sendExceedsBalance}>
                 {sending ? 'Withdrawing...' : 'Withdraw XLM'}
               </button>
             </form>
@@ -631,6 +839,57 @@ export default function Wallet() {
       </div>
 
       <div style={s.card}>
+        <h3 style={{ marginBottom: 16, color: '#333' }}>Active Payment Streams</h3>
+        {streamsMsg && (
+          <div style={{ ...s.msg, background: streamsMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: streamsMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
+            {streamsMsg.text}
+          </div>
+        )}
+        {streams.length === 0 ? (
+          <p style={{ color: '#888', fontSize: 14 }}>You have no active payment streams yet.</p>
+        ) : (
+          streams.map((stream) => {
+            const isSender = stream.sender === wallet?.publicKey || stream.role === 'sender';
+            const counterparty = isSender ? stream.recipient : stream.sender;
+            return (
+              <div key={stream.id} style={s.tx}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: '#333' }}>
+                    {isSender ? '↑ Streaming to' : '↓ Streaming from'}{' '}
+                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#888' }}>
+                      {counterparty ? `${counterparty.slice(0, 8)}...${counterparty.slice(-4)}` : '-'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                    Rate: {Number(stream.rate).toFixed(4)} XLM/sec · Deposit remaining: {Number(stream.deposit_remaining ?? stream.depositRemaining ?? 0).toFixed(2)} XLM
+                  </div>
+                  <div style={{ fontSize: 13, color: '#2d6a4f', marginTop: 4, fontWeight: 600 }}>
+                    Accrued: <StreamAccrual accrued={stream.accrued} asOf={stream.as_of ?? stream.asOf} rate={stream.rate} /> XLM
+                  </div>
+                </div>
+                <div style={{ flexShrink: 0, marginLeft: 12, display: 'flex', gap: 8 }}>
+                  {isSender ? (
+                    <>
+                      <button style={s.btnOutline} disabled={streamActionId === stream.id} onClick={() => handleDecreaseStreamRate(stream.id, stream.rate)}>
+                        Decrease rate
+                      </button>
+                      <button style={s.btnDanger} disabled={streamActionId === stream.id} onClick={() => handleCancelStream(stream.id)}>
+                        {streamActionId === stream.id ? '...' : 'Cancel'}
+                      </button>
+                    </>
+                  ) : (
+                    <button style={s.btnSm} disabled={streamActionId === stream.id} onClick={() => handleWithdrawStream(stream.id)}>
+                      {streamActionId === stream.id ? '...' : 'Withdraw'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div style={s.card}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>Transaction History</h3>
         {txs.length === 0 && <p style={{ color: '#888', fontSize: 14 }}>No transactions yet. Fund your wallet and make a purchase.</p>}
         {txs.map((tx) => {
@@ -642,6 +901,11 @@ export default function Wallet() {
                 <div style={tx.type === 'sent' ? s.sent : s.recv}>
                   {tx.type === 'sent' ? '↑ Sent' : '↓ Received'} {parseFloat(tx.amount).toFixed(2)} XLM
                 </div>
+                {usd(parseFloat(tx.amount)) && (
+                  <div style={{ fontSize: 11, color: '#aaa', marginTop: 1 }}>
+                    {usd(parseFloat(tx.amount))}
+                  </div>
+                )}
                 <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{new Date(tx.created_at).toLocaleString()}</div>
                 <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
                   {tx.type === 'sent' ? 'To: ' : 'From: '}

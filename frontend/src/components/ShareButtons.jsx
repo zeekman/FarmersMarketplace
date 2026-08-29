@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState, useCallback } from "react";
+import { api } from "../api/client";
 
 const s = {
   wrap: { marginTop: 16 },
@@ -14,51 +15,84 @@ const s = {
     fontSize: 13,
     fontWeight: 600,
   },
+  toast: {
+    position: "fixed",
+    bottom: 24,
+    left: "50%",
+    transform: "translateX(-50%)",
+    padding: "10px 20px",
+    borderRadius: 8,
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: 600,
+    zIndex: 9999,
+    transition: "opacity 0.3s ease",
+  },
+  toastSuccess: { background: "#16a34a" },
+  toastError: { background: "#dc2626" },
 };
 
-export default function ShareButtons({ title, url, onShare }) {
+export default function ShareButtons({ productId, title, url, onShare }) {
+  const [toast, setToast] = useState(null);
   const encodedUrl = encodeURIComponent(url);
   const encodedText = encodeURIComponent(`${title} ${url}`);
+  const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
 
-  function track(platform) {
+  const showToast = useCallback((message, type) => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 2000);
+  }, []);
+
+  async function recordShare(platform) {
     if (typeof onShare === "function") onShare(platform);
+    if (productId) {
+      try {
+        await api.trackShareEvent(productId, platform);
+      } catch { /* non-critical */ }
+    }
+  }
+
+  async function shareNative() {
+    try {
+      await navigator.share({ title, url, text: title });
+      await recordShare("native_share");
+    } catch (e) {
+      if (e.name !== "AbortError") showToast("Share failed", "error");
+    }
   }
 
   function shareWhatsApp() {
-    track("whatsapp");
-    window.open(
-      `https://wa.me/?text=${encodedText}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    window.open(`https://wa.me/?text=${encodedText}`, "_blank", "noopener,noreferrer");
+    recordShare("whatsapp");
   }
 
   function shareTwitter() {
-    track("twitter");
     window.open(
-      `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-        title,
-      )}&url=${encodedUrl}`,
+      `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodedUrl}`,
       "_blank",
       "noopener,noreferrer",
     );
-  }
-
-  function shareFacebook() {
-    track("facebook");
-    window.open(
-      `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    recordShare("twitter");
   }
 
   async function copyLink() {
     try {
-      await navigator.clipboard.writeText(url);
-      track("copy_link");
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = url;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      await recordShare("copy_link");
+      showToast("Copied!", "success");
     } catch {
-      // Clipboard may fail on insecure contexts; ignore gracefully.
+      showToast("Failed to copy link", "error");
     }
   }
 
@@ -66,19 +100,34 @@ export default function ShareButtons({ title, url, onShare }) {
     <div style={s.wrap}>
       <div style={s.title}>Share this product</div>
       <div style={s.row}>
-        <button type="button" style={s.btn} onClick={shareWhatsApp}>
-          WhatsApp
-        </button>
-        <button type="button" style={s.btn} onClick={shareTwitter}>
-          Twitter/X
-        </button>
-        <button type="button" style={s.btn} onClick={shareFacebook}>
-          Facebook
-        </button>
-        <button type="button" style={s.btn} onClick={copyLink}>
-          Copy link
-        </button>
+        {canNativeShare ? (
+          <button type="button" style={s.btn} onClick={shareNative}>
+            Share
+          </button>
+        ) : (
+          <>
+            <button type="button" style={s.btn} onClick={shareTwitter}>
+              Twitter/X
+            </button>
+            <button type="button" style={s.btn} onClick={shareWhatsApp}>
+              WhatsApp
+            </button>
+            <button type="button" style={s.btn} onClick={copyLink}>
+              Copy link
+            </button>
+          </>
+        )}
       </div>
+      {toast && (
+        <div
+          style={{
+            ...s.toast,
+            ...(toast.type === "success" ? s.toastSuccess : s.toastError),
+          }}
+        >
+          {toast.message}
+        </div>
+      )}
     </div>
   );
 }

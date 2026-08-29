@@ -22,11 +22,15 @@ router.post('/', auth, async (req, res) => {
   if (!label || !street || !city || !country)
     return err(res, 400, 'label, street, city, and country are required', 'validation_error');
 
-  if (is_default)
-    await db.query('UPDATE addresses SET is_default = 0 WHERE user_id = $1', [req.user.id]);
+  const maxAddresses = parseInt(process.env.MAX_ADDRESSES_PER_USER, 10) || 10;
 
+  // Keep the limit check and insert in one statement so concurrent requests
+  // cannot both pass a stale count and exceed the per-user cap.
   const { rows } = await db.query(
-    'INSERT INTO addresses (user_id, label, street, city, country, postal_code, is_default) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+    `INSERT INTO addresses (user_id, label, street, city, country, postal_code, is_default)
+     SELECT $1, $2, $3, $4, $5, $6, $7
+     WHERE (SELECT COUNT(*) FROM addresses WHERE user_id = $1) < $8
+     RETURNING id`,
     [
       req.user.id,
       label.trim(),
@@ -35,8 +39,15 @@ router.post('/', auth, async (req, res) => {
       country.trim(),
       postal_code?.trim() || null,
       is_default ? 1 : 0,
+      maxAddresses,
     ]
   );
+  if (!rows[0])
+    return err(res, 422, 'Maximum number of addresses reached', 'address_limit_reached');
+
+  if (is_default)
+    await db.query('UPDATE addresses SET is_default = 0 WHERE user_id = $1 AND id <> $2', [req.user.id, rows[0].id]);
+
   const { rows: addr } = await db.query('SELECT * FROM addresses WHERE id = $1', [rows[0].id]);
   res.status(201).json({ success: true, data: addr[0] });
 });
@@ -108,7 +119,25 @@ router.delete('/:id', auth, async (req, res) => {
   if (parseInt(orderRows[0].count) > 0)
     return err(res, 400, 'Cannot delete address that has been used in orders', 'address_in_use');
 
+  const wasDefault = Boolean(rows[0].is_default);
   await db.query('DELETE FROM addresses WHERE id = $1', [req.params.id]);
+
+  if (wasDefault) {
+    // Normalize any remaining rows before promoting the newest address. This
+    // leaves exactly one default even if legacy data contains multiple flags.
+    await db.query('UPDATE addresses SET is_default = 0 WHERE user_id = $1', [req.user.id]);
+    await db.query(
+      `UPDATE addresses SET is_default = 1
+       WHERE id = (
+         SELECT id FROM addresses
+         WHERE user_id = $1
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1
+       )`,
+      [req.user.id]
+    );
+  }
+
   res.json({ success: true, message: 'Address deleted' });
 });
 

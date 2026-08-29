@@ -19,10 +19,19 @@ const helmet = require('helmet');
 const { enforceHttps, hsts } = require('./middleware/https');
 const { csrfProtect, csrfTokenHandler } = require('./middleware/csrf');
 const { errorHandler } = require('./middleware/error');
+const { notFoundHandler } = require('./middleware/error');
 const { sanitizeResponse } = require('./middleware/sanitize');
 const requestLogger = require('./middleware/requestLogger');
+const categoriesRouter = require('./routes/categories');
 
 const app = express();
+
+// Configure proxy trust based on environment
+// In production, set TRUST_PROXY to the number of proxies or 'true' for all
+const trustProxy = process.env.TRUST_PROXY || (process.env.NODE_ENV === 'production' ? 1 : false);
+if (trustProxy) {
+  app.set('trust proxy', trustProxy);
+}
 
 app.use(requestLogger);
 app.use(enforceHttps);
@@ -51,9 +60,6 @@ app.use(helmet({
 }));
 
 const corsOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
-const allowedOrigins = corsOrigins.split(',').map(o => o.trim());
-const corsOrigins =
-  process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
 const allowedOrigins = corsOrigins.split(',').map((o) => o.trim());
 
 app.use(
@@ -61,7 +67,14 @@ app.use(
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
-      callback(new Error('Not allowed by CORS'));
+      const msg = `CORS origin not allowed: ${origin}`;
+      if (process.env.NODE_ENV === 'production') {
+        logger.warn(msg);
+        return callback(new Error('Not allowed by CORS'));
+      }
+      // In non-production environments, log and allow for developer convenience
+      logger.debug(msg);
+      return callback(null, true);
     },
     credentials: true,
   })
@@ -85,6 +98,9 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/uploads/videos', express.static(path.join(__dirname, '../uploads/videos')));
 
 app.get('/api/csrf-token', csrfTokenHandler);
+// #836: Also expose at /api/auth/csrf-token for SPA initialization (duplicated for discoverability).
+app.get('/api/auth/csrf-token', csrfTokenHandler);
+app.use('/api/categories', categoriesRouter);
 
 // Interactive API documentation
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
@@ -95,12 +111,15 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 app.use(require('./routes'));
+app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Start background jobs (skip in test to avoid open handles)
 if (process.env.NODE_ENV !== 'test') {
   const { startActivityMonitor } = require('./jobs/activityMonitor');
   startActivityMonitor();
+  const { startOrphanedUploadsCleanupJob } = require('./jobs/reconcileOrphanedUploads');
+  startOrphanedUploadsCleanupJob();
 }
 
 module.exports = app;

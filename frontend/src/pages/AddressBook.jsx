@@ -14,112 +14,34 @@ const s = {
   btnSecondary: { background: '#f0f0f0', color: '#333', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
   msg: { padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 14 },
   addressCard: { border: '1px solid #e0e0e0', borderRadius: 10, padding: 16, marginBottom: 12, position: 'relative' },
-  defaultBadge: { position: 'absolute', top: 12, right: 12, background: '#2d6a4f', color: '#fff', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 },
+  defaultBadge: { position: 'absolute', top: 12, right: 12, background: '#2d6a4f', color: '#fff', padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, letterSpacing: 0.3 },
   empty: { color: '#888', fontSize: 14, textAlign: 'center', padding: 24 },
+  overlay: { position: 'fixed', inset: 0, background: '#0005', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+  modal: { background: '#fff', borderRadius: 12, padding: 28, maxWidth: 480, width: '90%', boxShadow: '0 4px 24px #0003', maxHeight: '90vh', overflowY: 'auto' },
+  modalTitle: { fontWeight: 700, fontSize: 17, marginBottom: 16, color: '#2d6a4f' },
 };
 
 const EMPTY_FORM = { label: '', street: '', city: '', country: '', postal_code: '', is_default: false };
 
-export default function AddressBook() {
-  const { user } = useAuth();
-  const [addresses, setAddresses] = useState([]);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [editingId, setEditingId] = useState(null);
-  const [msg, setMsg] = useState(null);
-  const [loading, setLoading] = useState(false);
+function AddressFormModal({ initial, onSave, onCancel, loading }) {
+  const [form, setForm] = useState(initial || EMPTY_FORM);
+  const isEdit = Boolean(initial);
 
-  async function load() {
-    try {
-      const res = await api.getAddresses();
-      setAddresses(res.data ?? []);
-    } catch { /* ignore */ }
-  }
+  React.useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onCancel(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
 
-  useEffect(() => { load(); }, []);
-
-  function startEdit(address) {
-    setEditingId(address.id);
-    setForm({
-      label: address.label,
-      street: address.street,
-      city: address.city,
-      country: address.country,
-      postal_code: address.postal_code || '',
-      is_default: !!address.is_default,
-    });
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-  }
-
-  async function handleSubmit(e) {
+  function handleSubmit(e) {
     e.preventDefault();
-    setMsg(null);
-    setLoading(true);
-    try {
-      if (editingId) {
-        await api.updateAddress(editingId, form);
-        setMsg({ type: 'ok', text: 'Address updated' });
-      } else {
-        await api.createAddress(form);
-        setMsg({ type: 'ok', text: 'Address added' });
-      }
-      setForm(EMPTY_FORM);
-      setEditingId(null);
-      load();
-    } catch (err) {
-      setMsg({ type: 'err', text: err.message });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleDelete(id) {
-    if (!confirm('Delete this address?')) return;
-    try {
-      await api.deleteAddress(id);
-      setMsg({ type: 'ok', text: 'Address deleted' });
-      load();
-    } catch (err) {
-      setMsg({ type: 'err', text: err.message });
-    }
-  }
-
-  async function handleSetDefault(id) {
-    try {
-      await api.setDefaultAddress(id);
-      setMsg({ type: 'ok', text: 'Default address updated' });
-      load();
-    } catch (err) {
-      setMsg({ type: 'err', text: err.message });
-    }
-  }
-
-  if (user?.role !== 'buyer') {
-    return (
-      <div style={s.page}>
-        <div style={s.card}>
-          <div style={s.empty}>Only buyers can manage delivery addresses.</div>
-        </div>
-      </div>
-    );
+    onSave(form);
   }
 
   return (
-    <div style={s.page}>
-      <div style={s.title}>📍 Address Book</div>
-
-      {msg && (
-        <div style={{ ...s.msg, background: msg.type === 'ok' ? '#d8f3dc' : '#fee', color: msg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
-          {msg.text}
-        </div>
-      )}
-
-      {/* Add/Edit Form */}
-      <div style={s.card}>
-        <h3 style={{ marginBottom: 16, color: '#333' }}>{editingId ? 'Edit Address' : 'Add New Address'}</h3>
+    <div role="dialog" aria-modal="true" aria-labelledby="addr-modal-title" style={s.overlay}>
+      <div style={s.modal}>
+        <div id="addr-modal-title" style={s.modalTitle}>{isEdit ? 'Edit Address' : 'Add New Address'}</div>
         <form onSubmit={handleSubmit}>
           <label style={s.label}>Label (e.g., Home, Work)</label>
           <input
@@ -128,6 +50,7 @@ export default function AddressBook() {
             onChange={e => setForm({ ...form, label: e.target.value })}
             required
             maxLength={50}
+            autoFocus
           />
 
           <label style={s.label}>Street Address</label>
@@ -165,7 +88,7 @@ export default function AddressBook() {
             maxLength={20}
           />
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, cursor: 'pointer' }}>
             <input
               type="checkbox"
               checked={form.is_default}
@@ -174,22 +97,153 @@ export default function AddressBook() {
             <span style={{ fontSize: 14, color: '#555' }}>Set as default address</span>
           </label>
 
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button type="button" style={s.btnSecondary} onClick={onCancel}>Cancel</button>
             <button type="submit" style={s.btn} disabled={loading}>
-              {loading ? 'Saving...' : (editingId ? 'Update Address' : 'Add Address')}
+              {loading ? 'Saving...' : (isEdit ? 'Update Address' : 'Add Address')}
             </button>
-            {editingId && (
-              <button type="button" style={s.btnSecondary} onClick={cancelEdit}>Cancel</button>
-            )}
           </div>
         </form>
       </div>
+    </div>
+  );
+}
 
-      {/* Address List */}
+function DeleteConfirmDialog({ onConfirm, onCancel }) {
+  const cancelRef = React.useRef(null);
+
+  React.useEffect(() => {
+    cancelRef.current?.focus();
+    function onKey(e) { if (e.key === 'Escape') onCancel(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="del-dialog-title"
+      style={s.overlay}
+    >
+      <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 380, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+        <div id="del-dialog-title" style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Delete Address</div>
+        <p style={{ fontSize: 14, color: '#555', marginBottom: 20 }}>
+          Are you sure you want to delete this address? This cannot be undone.
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button ref={cancelRef} style={s.btnSecondary} onClick={onCancel}>Cancel</button>
+          <button style={s.btnDanger} onClick={onConfirm}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function AddressBook() {
+  const { user } = useAuth();
+  const [addresses, setAddresses] = useState([]);
+  const [msg, setMsg] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingAddress, setEditingAddress] = useState(null); // null = adding new
+
+  async function load() {
+    try {
+      const res = await api.getAddresses();
+      setAddresses(res.data ?? []);
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  function openAdd() {
+    setEditingAddress(null);
+    setModalOpen(true);
+  }
+
+  function openEdit(address) {
+    setEditingAddress(address);
+    setModalOpen(true);
+  }
+
+  function closeModal() {
+    setModalOpen(false);
+    setEditingAddress(null);
+  }
+
+  async function handleSave(form) {
+    setMsg(null);
+    setLoading(true);
+    try {
+      if (editingAddress) {
+        await api.updateAddress(editingAddress.id, form);
+        setMsg({ type: 'ok', text: 'Address updated' });
+      } else {
+        await api.createAddress(form);
+        setMsg({ type: 'ok', text: 'Address added' });
+      }
+      closeModal();
+      load();
+    } catch (err) {
+      setMsg({ type: 'err', text: err.message });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function confirmDelete() {
+    const id = confirmDeleteId;
+    setConfirmDeleteId(null);
+    try {
+      await api.deleteAddress(id);
+      setMsg({ type: 'ok', text: 'Address deleted' });
+      load();
+    } catch (err) {
+      setMsg({ type: 'err', text: err.message });
+    }
+  }
+
+  async function handleSetDefault(id) {
+    // optimistic update
+    setAddresses(prev => prev.map(a => ({ ...a, is_default: a.id === id ? 1 : 0 })));
+    try {
+      await api.setDefaultAddress(id);
+      setMsg({ type: 'ok', text: 'Default address updated' });
+    } catch (err) {
+      setMsg({ type: 'err', text: err.message });
+      load(); // revert on error
+    }
+  }
+
+  if (user?.role !== 'buyer') {
+    return (
+      <div style={s.page}>
+        <div style={s.card}>
+          <div style={s.empty}>Only buyers can manage delivery addresses.</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={s.page}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div style={s.title}>📍 Address Book</div>
+        <button style={s.btn} onClick={openAdd}>+ Add Address</button>
+      </div>
+
+      {msg && (
+        <div style={{ ...s.msg, background: msg.type === 'ok' ? '#d8f3dc' : '#fee', color: msg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
+          {msg.text}
+        </div>
+      )}
+
       <div style={s.card}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>My Addresses ({addresses.length})</h3>
         {addresses.length === 0 ? (
-          <div style={s.empty}>No addresses yet. Add your first delivery address above.</div>
+          <div style={s.empty}>No addresses yet. Add your first delivery address.</div>
         ) : (
           addresses.map(addr => (
             <div key={addr.id} style={s.addressCard}>
@@ -200,16 +254,39 @@ export default function AddressBook() {
                 {addr.postal_code ? ` ${addr.postal_code}` : ''}
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={s.btnSm} onClick={() => startEdit(addr)}>Edit</button>
+                <button style={s.btnSm} onClick={() => openEdit(addr)}>Edit</button>
                 {!addr.is_default && (
                   <button style={s.btnSecondary} onClick={() => handleSetDefault(addr.id)}>Set Default</button>
                 )}
-                <button style={s.btnDanger} onClick={() => handleDelete(addr.id)}>Delete</button>
+                <button style={s.btnDanger} onClick={() => setConfirmDeleteId(addr.id)}>Delete</button>
               </div>
             </div>
           ))
         )}
       </div>
+
+      {modalOpen && (
+        <AddressFormModal
+          initial={editingAddress ? {
+            label: editingAddress.label,
+            street: editingAddress.street,
+            city: editingAddress.city,
+            country: editingAddress.country,
+            postal_code: editingAddress.postal_code || '',
+            is_default: !!editingAddress.is_default,
+          } : null}
+          onSave={handleSave}
+          onCancel={closeModal}
+          loading={loading}
+        />
+      )}
+
+      {confirmDeleteId && (
+        <DeleteConfirmDialog
+          onConfirm={confirmDelete}
+          onCancel={() => setConfirmDeleteId(null)}
+        />
+      )}
     </div>
   );
 }

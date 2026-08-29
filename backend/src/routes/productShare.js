@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../db/schema');
 const { err } = require('../middleware/error');
+const { rewriteImageUrl } = require('../utils/cdn');
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -33,7 +34,7 @@ router.get('/:id/share', async (req, res) => {
       productId: product.id,
       title,
       description,
-      image: product.image_url || null,
+      image: rewriteImageUrl(product.image_url) || null,
       url,
     },
   });
@@ -46,7 +47,7 @@ router.post('/:id/share', async (req, res) => {
   const platform = String(req.body.platform || '')
     .trim()
     .toLowerCase();
-  const allowed = new Set(['whatsapp', 'twitter', 'facebook', 'copy_link']);
+  const allowed = new Set(['whatsapp', 'twitter', 'facebook', 'copy_link', 'native_share']);
   if (!allowed.has(platform)) {
     return err(res, 400, 'Invalid platform', 'validation_error');
   }

@@ -1,0 +1,1 @@
+ALTER TABLE waitlist_entries ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';

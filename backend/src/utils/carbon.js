@@ -22,6 +22,12 @@ const SUPERMARKET_MULTIPLIER = 2.5;
  * @returns {Object} { carbonKg, supermarketCarbonKg, savingsPercent }
  */
 function estimateCarbonFootprint(product, quantity, distanceKm = 0) {
+  // No quantity means no footprint to estimate — avoids dividing by zero
+  // below (transportCarbon) which previously produced NaN/Infinity.
+  if (!(quantity > 0)) {
+    return { carbonKg: 0, supermarketCarbonKg: 0, savingsPercent: 0 };
+  }
+
   // Use farmer-provided value or category default
   const baseCarbon =
     product.carbon_kg_per_unit || CATEGORY_DEFAULTS[product.category] || CATEGORY_DEFAULTS.other;

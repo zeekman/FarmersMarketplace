@@ -1,441 +1,322 @@
 const router = require('express').Router();
 const db = require('../db/schema');
-const auth = require('../middleware/auth');
 const adminAuth = require('../middleware/adminAuth');
-const { getContractWasmHash } = require('../utils/stellar');
+const auth = require('../middleware/auth');
+const requireAdmin = require('../middleware/requireAdmin');
+const { sendPayment } = require('../utils/stellar');
 
-const STELLAR_NETWORK = (process.env.STELLAR_NETWORK || 'testnet').toLowerCase();
+// GET /api/admin/returns - list all return requests
+router.get('/returns', adminAuth, (req, res) => {
+  const returns = db.prepare(`
+    SELECT r.*, o.total_price, o.shipping_cost, o.stellar_tx_hash AS order_tx_hash,
+           p.name AS product_name,
+           b.name AS buyer_name, b.email AS buyer_email
+    FROM returns r
+    JOIN orders o ON r.order_id = o.id
+    JOIN products p ON o.product_id = p.id
+    JOIN users b ON r.buyer_id = b.id
+    ORDER BY r.created_at DESC
+  `).all();
+  res.json(returns);
+});
 
-function normalizeWasmHash(h) {
-  if (h == null || typeof h !== 'string') return null;
-  const x = h.trim().toLowerCase().replace(/^0x/, '');
-  if (!/^[0-9a-f]{64}$/.test(x)) return null;
-  return x;
-}
+// POST /api/admin/returns/:id/approve
+router.post('/returns/:id/approve', adminAuth, async (req, res) => {
+  const ret = db.prepare(`
+    SELECT r.*,
+           o.total_price, o.shipping_cost,
+           b.stellar_public_key AS buyer_wallet,
+           f.stellar_secret_key AS farmer_secret
+    FROM returns r
+    JOIN orders o ON r.order_id = o.id
+    JOIN users b ON r.buyer_id = b.id
+    JOIN products p ON o.product_id = p.id
+    JOIN users f ON p.farmer_id = f.id
+    WHERE r.id = ?
+  `).get(req.params.id);
 
-router.use(auth, adminAuth);
+  if (!ret) return res.status(404).json({ error: 'Return request not found' });
+  if (ret.status !== 'pending') return res.status(400).json({ error: `Return already ${ret.status}` });
 
-// GET /api/admin/users
-router.get('/users', async (req, res) => {
-  const page = Math.max(1, parseInt(req.query.page || '1'));
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '20')));
+  const refundAmount = ret.total_price + (ret.shipping_cost || 0);
+
+  try {
+    const txHash = await sendPayment({
+      senderSecret: ret.farmer_secret,
+      receiverPublicKey: ret.buyer_wallet,
+      amount: refundAmount,
+      memo: `Refund#${ret.id}`,
+    });
+
+    db.prepare('UPDATE returns SET status = ?, refund_tx_hash = ? WHERE id = ?')
+      .run('approved', txHash, ret.id);
+
+    res.json({ message: 'Return approved and refund issued', refundAmount, txHash });
+  } catch (err) {
+    res.status(500).json({ error: 'Refund transaction failed: ' + err.message });
+  }
+});
+
+// POST /api/admin/returns/:id/reject
+router.post('/returns/:id/reject', adminAuth, (req, res) => {
+  const ret = db.prepare('SELECT * FROM returns WHERE id = ?').get(req.params.id);
+  if (!ret) return res.status(404).json({ error: 'Return request not found' });
+  if (ret.status !== 'pending') return res.status(400).json({ error: `Return already ${ret.status}` });
+
+  db.prepare('UPDATE returns SET status = ? WHERE id = ?').run('rejected', ret.id);
+  res.json({ message: 'Return request rejected' });
+});
+
+// GET /api/admin/users - list users with pagination and filters
+router.get('/users', adminAuth, async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, Math.min(200, parseInt(req.query.limit) || 50));
   const offset = (page - 1) * limit;
 
-  const { rows: countRows } = await db.query('SELECT COUNT(*) as count FROM users');
-  const total = parseInt(countRows[0].count);
+  const conditions = [];
+  const params = [];
 
-  const { rows: users } = await db.query(
-    'SELECT id, name, email, role, stellar_public_key, created_at, active FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2',
-    [limit, offset]
+  if (req.query.active !== undefined) {
+    const activeValue = req.query.active === '1' || req.query.active === 'true';
+    params.push(activeValue);
+    conditions.push(`active = $${params.length}`);
+  }
+  if (req.query.role !== undefined) {
+    params.push(req.query.role);
+    conditions.push(`role = $${params.length}`);
+  }
+  if (req.query.verified !== undefined) {
+    if (req.query.verified === 'true' || req.query.verified === '1') {
+      conditions.push('email_verified_at IS NOT NULL');
+    } else {
+      conditions.push('email_verified_at IS NULL');
+    }
+  }
+  if (req.query.banned !== undefined) {
+    if (req.query.banned === 'true' || req.query.banned === '1') {
+      conditions.push('banned_at IS NOT NULL');
+    } else {
+      conditions.push('banned_at IS NULL');
+    }
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const countResult = await db.query(`SELECT COUNT(*) as count FROM users ${where}`, params);
+  const total = parseInt(countResult.rows[0].count, 10);
+  const pages = Math.ceil(total / limit);
+
+  params.push(limit);
+  params.push(offset);
+  const users = await db.query(
+    `SELECT id, name, email, role, created_at, active, banned_at, email_verified_at
+     FROM users
+     ${where}
+     ORDER BY created_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
   );
+
   res.json({
-    success: true,
-    data: users,
-    pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    data: users.rows,
+    pagination: { page, limit, total, pages },
   });
 });
 
-// DELETE /api/admin/users/:id
-router.delete('/users/:id', async (req, res) => {
-  const { rows } = await db.query('SELECT id, role FROM users WHERE id = $1', [req.params.id]);
-  if (!rows[0]) return res.status(404).json({ success: false, error: 'User not found' });
-  if (rows[0].role === 'admin')
-    return res.status(400).json({ success: false, error: 'Cannot deactivate another admin' });
-  await db.query('UPDATE users SET active = 0 WHERE id = $1', [req.params.id]);
-  res.json({ success: true, message: 'User deactivated' });
+// GET /api/admin/orders - list orders with pagination
+router.get('/orders', adminAuth, (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
+  
+  const offset = (page - 1) * limit;
+  
+  // Get total count
+  const countResult = db.prepare('SELECT COUNT(*) as count FROM orders').get();
+  const total = countResult.count;
+  const pages = Math.ceil(total / limit);
+  
+  // Get paginated data
+  const orders = db.prepare(`
+    SELECT 
+      o.id, 
+      o.buyer_id, 
+      b.name AS buyer_name,
+      o.product_id,
+      p.name AS product_name,
+      o.quantity,
+      o.total_price,
+      o.status,
+      o.created_at
+    FROM orders o
+    JOIN users b ON o.buyer_id = b.id
+    JOIN products p ON o.product_id = p.id
+    ORDER BY o.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(limit, offset);
+  
+  res.json({
+    data: orders,
+    pagination: {
+      page,
+      limit,
+      total,
+      pages
+    }
+  });
 });
 
-// GET /api/admin/stats
-router.get('/stats', async (_req, res) => {
-  const { rows: u } = await db.query('SELECT COUNT(*) as count FROM users');
-  const { rows: p } = await db.query('SELECT COUNT(*) as count FROM products');
-  const { rows: o } = await db.query('SELECT COUNT(*) as count FROM orders');
-  const { rows: r } = await db.query(
-    `SELECT COALESCE(SUM(total_price), 0) as total FROM orders WHERE status = 'paid'`
+// DELETE /api/admin/users/:id - deactivate user
+router.delete('/users/:id', adminAuth, (req, res) => {
+  const userId = req.params.id;
+  
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  
+  db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(userId);
+  
+  res.json({ message: 'User deactivated successfully' });
+});
+
+// GET /api/admin/stats - dashboard statistics
+router.get('/stats', adminAuth, (req, res) => {
+  const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+  const totalProducts = db.prepare('SELECT COUNT(*) as count FROM products').get().count;
+  const totalOrders = db.prepare('SELECT COUNT(*) as count FROM orders').get().count;
+  const totalRevenue = db.prepare('SELECT COALESCE(SUM(total_price), 0) as total FROM orders WHERE status = ?').get('paid').total;
+  
+  res.json({
+    totalUsers,
+    totalProducts,
+    totalOrders,
+    totalRevenue
+  });
+});
+
+// GET /api/admin/analytics/summary - last-30-day platform metrics
+router.get('/analytics/summary', adminAuth, (req, res) => {
+  const gmv = db.prepare(`
+    SELECT
+      ROUND(SUM(total_price), 7)                                             AS total,
+      ROUND(SUM(total_price - COALESCE(shipping_cost, 0)), 7)                AS product,
+      ROUND(SUM(COALESCE(shipping_cost, 0)), 7)                              AS shipping,
+      COUNT(*)                                                                AS paid_orders
+    FROM orders
+    WHERE status = 'paid'
+      AND created_at >= datetime('now', '-30 days')
+  `).get();
+
+  const conversion = db.prepare(`
+    SELECT
+      COUNT(*)                                                                              AS total_orders,
+      SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END)                                    AS paid_orders,
+      ROUND(100.0 * SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) / COUNT(*), 2)       AS rate_pct
+    FROM orders
+    WHERE created_at >= datetime('now', '-30 days')
+  `).get();
+
+  const topProducts = db.prepare(`
+    SELECT p.id, p.name, u.name AS farmer_name,
+           SUM(o.quantity)                                                   AS units_sold,
+           ROUND(SUM(o.total_price - COALESCE(o.shipping_cost, 0)), 7)      AS revenue
+    FROM orders o
+    JOIN products p ON o.product_id = p.id
+    JOIN users u ON p.farmer_id = u.id
+    WHERE o.status = 'paid'
+      AND o.created_at >= datetime('now', '-30 days')
+    GROUP BY p.id
+    ORDER BY revenue DESC
+    LIMIT 5
+  `).all();
+
+  // Daily active users: distinct buyers + farmers touched by orders each day
+  const dailyActiveUsers = db.prepare(`
+    SELECT day, COUNT(DISTINCT user_id) AS active_users
+    FROM (
+      SELECT date(o.created_at) AS day, o.buyer_id AS user_id
+      FROM orders o
+      WHERE o.created_at >= datetime('now', '-30 days')
+      UNION ALL
+      SELECT date(o.created_at) AS day, p.farmer_id AS user_id
+      FROM orders o
+      JOIN products p ON o.product_id = p.id
+      WHERE o.created_at >= datetime('now', '-30 days')
+    )
+    GROUP BY day
+    ORDER BY day ASC
+  `).all();
+
+  const dailyGmv = db.prepare(`
+    SELECT date(created_at) AS day, ROUND(SUM(total_price), 7) AS gmv, COUNT(*) AS orders
+    FROM orders
+    WHERE status = 'paid'
+      AND created_at >= datetime('now', '-30 days')
+    GROUP BY date(created_at)
+    ORDER BY day ASC
+  `).all();
+
+  res.json({
+    period: 'last_30_days',
+    gmv,
+    conversion: conversion.total_orders ? conversion : { total_orders: 0, paid_orders: 0, rate_pct: 0 },
+    top_products: topProducts,
+    daily_active_users: dailyActiveUsers,
+    daily_gmv: dailyGmv,
+  });
+});
+
+// GET /api/admin/failed-emails
+router.get('/failed-emails', adminAuth, (req, res) => {
+  const rows = db.prepare('SELECT * FROM failed_emails ORDER BY created_at DESC').all();
+  res.json({ success: true, data: rows });
+});
+
+// GET /api/admin/analytics/creator-earnings — Issue #998
+// Platform-wide Creator Earnings totals + a daily time-series breakdown,
+// aggregated from the creator_earnings_ledger table populated by
+// jobs/creatorEarningsMonitor.js.
+router.get('/analytics/creator-earnings', auth, requireAdmin, async (req, res) => {
+  const { rows: totalsRows } = await db.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN event_type = 'credit' THEN amount ELSE 0 END), 0) AS total_credited,
+       COALESCE(SUM(CASE WHEN event_type = 'claim'  THEN amount ELSE 0 END), 0) AS total_claimed,
+       COALESCE(SUM(CASE WHEN event_type = 'credit' THEN fee_amount ELSE 0 END), 0) AS total_platform_fee
+     FROM creator_earnings_ledger`
   );
 
-  // Fee bump stats — count orders where fee_bumped flag is set
-  let feeBumpCount = 0;
-  try {
-    const { rows: fb } = await db.query(
-      `SELECT COUNT(*) as count FROM orders WHERE fee_bumped = TRUE`
-    );
-    feeBumpCount = parseInt(fb[0].count) || 0;
-  } catch {
-    /* column may not exist yet */
+  const dayExpr = db.isPostgres ? `TO_CHAR(created_at, 'YYYY-MM-DD')` : `date(created_at)`;
+  const { rows: seriesRows } = await db.query(
+    `SELECT ${dayExpr} AS day,
+            event_type,
+            COALESCE(SUM(amount), 0) AS amount,
+            COALESCE(SUM(fee_amount), 0) AS fee_amount
+     FROM creator_earnings_ledger
+     GROUP BY ${dayExpr}, event_type
+     ORDER BY day ASC`
+  );
+
+  const byDay = new Map();
+  for (const row of seriesRows) {
+    if (!byDay.has(row.day)) {
+      byDay.set(row.day, { day: row.day, credited: 0, claimed: 0, platform_fee: 0 });
+    }
+    const bucket = byDay.get(row.day);
+    if (row.event_type === 'credit') {
+      bucket.credited += Number(row.amount);
+      bucket.platform_fee += Number(row.fee_amount);
+    } else if (row.event_type === 'claim') {
+      bucket.claimed += Number(row.amount);
+    }
   }
 
   res.json({
     success: true,
     data: {
-      users: parseInt(u[0].count),
-      products: parseInt(p[0].count),
-      orders: parseInt(o[0].count),
-      total_revenue_xlm: r[0].total,
-      fee_bump_count: feeBumpCount,
-      fee_bump_enabled: !!process.env.PLATFORM_FEE_ACCOUNT_SECRET,
+      total_credited_xlm: Number(totalsRows[0].total_credited),
+      total_claimed_xlm: Number(totalsRows[0].total_claimed),
+      total_platform_fee_xlm: Number(totalsRows[0].total_platform_fee),
+      time_series: [...byDay.values()],
     },
   });
-});
-
-// ── Contract Registry ──────────────────────────────────────────────────────
-
-// GET /api/admin/contracts
-router.get('/contracts', async (req, res) => {
-  const { network, type } = req.query;
-  const conditions = [];
-  const params = [];
-  if (network) {
-    conditions.push(`network = $${params.length + 1}`);
-    params.push(network);
-  }
-  if (type) {
-    conditions.push(`type = $${params.length + 1}`);
-    params.push(type);
-  }
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const { rows } = await db.query(
-    `SELECT cr.*, u.name as deployed_by_name FROM contracts_registry cr
-     LEFT JOIN users u ON cr.deployed_by = u.id ${where} ORDER BY cr.deployed_at DESC`,
-    params
-  );
-  res.json({ success: true, data: rows });
-});
-
-// POST /api/admin/contracts
-router.post('/contracts', async (req, res) => {
-  const { contract_id, name, type, network } = req.body;
-  if (!contract_id || !name || !type || !network) {
-    return res
-      .status(400)
-      .json({ success: false, error: 'contract_id, name, type, and network are required' });
-  }
-  if (!['escrow', 'token', 'other'].includes(type)) {
-    return res.status(400).json({ success: false, error: 'type must be escrow, token, or other' });
-  }
-  if (!['testnet', 'mainnet'].includes(network)) {
-    return res.status(400).json({ success: false, error: 'network must be testnet or mainnet' });
-  }
-  try {
-    const { rows } = await db.query(
-      `INSERT INTO contracts_registry (contract_id, name, type, network, deployed_by) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [contract_id.trim(), name.trim(), type, network, req.user.id]
-    );
-    res.status(201).json({ success: true, data: rows[0] });
-  } catch (e) {
-    if (e.code === '23505' || (e.message && e.message.includes('UNIQUE'))) {
-      return res
-        .status(409)
-        .json({ success: false, error: 'Contract ID already registered', code: 'duplicate' });
-    }
-    throw e;
-  }
-});
-
-// DELETE /api/admin/contracts/:id
-router.delete('/contracts/:id', async (req, res) => {
-  const { rowCount } = await db.query('DELETE FROM contracts_registry WHERE id = $1', [
-    req.params.id,
-  ]);
-  if (!rowCount) return res.status(404).json({ success: false, error: 'Contract not found' });
-  res.json({ success: true, message: 'Contract deregistered' });
-});
-
-// GET /api/admin/contracts/:id/upgrades — immutable audit trail (newest first)
-router.get('/contracts/:id/upgrades', async (req, res) => {
-  const registryId = parseInt(req.params.id, 10);
-  if (!Number.isFinite(registryId)) {
-    return res.status(400).json({ success: false, error: 'Invalid contract registry id' });
-  }
-  const { rows: reg } = await db.query('SELECT id, contract_id FROM contracts_registry WHERE id = $1', [registryId]);
-  if (!reg[0]) {
-    return res.status(404).json({ success: false, error: 'Contract not found' });
-  }
-  const { rows } = await db.query(
-    `SELECT cu.id, cu.contract_id, cu.old_wasm_hash, cu.new_wasm_hash, cu.upgraded_at,
-            u.name AS upgraded_by_name, cu.upgraded_by
-     FROM contract_upgrades cu
-     LEFT JOIN users u ON cu.upgraded_by = u.id
-     WHERE cu.contract_id = $1
-     ORDER BY cu.upgraded_at DESC, cu.id DESC`,
-    [reg[0].contract_id],
-  );
-  res.json({ success: true, data: rows });
-});
-
-// POST /api/admin/contracts/:id/upgrade — record upgrade (new WASM hash verified on Soroban RPC)
-router.post('/contracts/:id/upgrade', async (req, res) => {
-  const registryId = parseInt(req.params.id, 10);
-  if (!Number.isFinite(registryId)) {
-    return res.status(400).json({ success: false, error: 'Invalid contract registry id' });
-  }
-  const oldH = normalizeWasmHash(req.body?.old_wasm_hash);
-  const newH = normalizeWasmHash(req.body?.new_wasm_hash);
-  if (!oldH || !newH) {
-    return res.status(400).json({
-      success: false,
-      error: 'old_wasm_hash and new_wasm_hash must be 64-character hex strings',
-    });
-  }
-
-  const { rows } = await db.query(
-    'SELECT id, contract_id, network FROM contracts_registry WHERE id = $1',
-    [registryId],
-  );
-  if (!rows[0]) {
-    return res.status(404).json({ success: false, error: 'Contract not found' });
-  }
-  const row = rows[0];
-  if (row.network !== STELLAR_NETWORK) {
-    return res.status(400).json({
-      success: false,
-      error: `Contract network (${row.network}) does not match server STELLAR_NETWORK (${STELLAR_NETWORK})`,
-    });
-  }
-
-  let chainNew;
-  try {
-    chainNew = await getContractWasmHash(row.contract_id);
-  } catch (e) {
-    if (e.code === 404) {
-      return res.status(502).json({
-        success: false,
-        error: 'Could not load contract from Soroban RPC',
-        code: 'rpc_not_found',
-      });
-    }
-    return res.status(502).json({
-      success: false,
-      error: e.message || 'Soroban RPC failed',
-      code: 'rpc_error',
-    });
-  }
-
-  if (chainNew !== newH) {
-    return res.status(400).json({
-      success: false,
-      error: 'new_wasm_hash does not match the WASM hash reported by Soroban RPC for this contract',
-      code: 'wasm_hash_mismatch',
-      expected: chainNew,
-    });
-  }
-
-  try {
-    const ins = await db.query(
-      `INSERT INTO contract_upgrades (contract_id, old_wasm_hash, new_wasm_hash, upgraded_by)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, contract_id, old_wasm_hash, new_wasm_hash, upgraded_by, upgraded_at`,
-      [row.contract_id, oldH, newH, req.user.id],
-    );
-    res.status(201).json({ success: true, data: ins.rows[0] });
-  } catch (e) {
-    if (e.code === '23503' || (e.message && e.message.includes('FOREIGN KEY'))) {
-      return res.status(400).json({ success: false, error: 'Invalid contract or user reference' });
-    }
-    throw e;
-  }
-});
-
-// GET /api/admin/farmers/pending - Get farmers pending verification
-router.get('/farmers/pending', async (req, res) => {
-  const { rows } = await db.query(
-    `SELECT id, name, email, verification_status, verification_docs, created_at
-     FROM users
-     WHERE role = 'farmer' AND verification_status = 'pending'
-     ORDER BY created_at ASC`
-  );
-  res.json({ success: true, data: rows });
-});
-
-// PATCH /api/admin/farmers/:id/verify - Approve or reject verification
-router.patch('/farmers/:id/verify', async (req, res) => {
-  const { status, reason } = req.body;
-
-  if (!['verified', 'rejected'].includes(status)) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        error: 'status must be verified or rejected',
-        code: 'validation_error',
-      });
-  }
-
-  const { rows } = await db.query('SELECT id, name, email, role FROM users WHERE id = $1', [
-    req.params.id,
-  ]);
-  if (!rows[0]) return res.status(404).json({ success: false, error: 'User not found' });
-  if (rows[0].role !== 'farmer')
-    return res.status(400).json({ success: false, error: 'User is not a farmer' });
-
-  await db.query('UPDATE users SET verification_status = $1 WHERE id = $2', [
-    status,
-    req.params.id,
-  ]);
-
-  // Send notification email
-  const mailer = require('../utils/mailer');
-  const farmer = rows[0];
-  const subject =
-    status === 'verified' ? '✅ Farmer Verification Approved' : '❌ Farmer Verification Rejected';
-  const message =
-    status === 'verified'
-      ? `Hello ${farmer.name},\n\nYour farmer verification has been approved! You now have a verified badge on your profile.\n\nThank you for being part of our trusted community.\n\nBest regards,\nFarmers Marketplace`
-      : `Hello ${farmer.name},\n\nYour farmer verification request has been reviewed and could not be approved at this time.\n\n${reason ? `Reason: ${reason}` : ''}\n\nPlease contact support if you have questions.\n\nBest regards,\nFarmers Marketplace`;
-
-  mailer
-    .sendMail({ to: farmer.email, subject, text: message })
-    .catch((e) => console.error('[Admin] Failed to send verification email:', e.message));
-
-  res.json({ success: true, message: `Farmer ${status}` });
-});
-
-// ── Contract ACL ──────────────────────────────────────────────────────────
-
-const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
-
-// GET /api/admin/contracts/:id/acl
-router.get('/contracts/:id/acl', async (req, res) => {
-  const { rows: reg } = await db.query('SELECT id FROM contracts_registry WHERE id = $1', [req.params.id]);
-  if (!reg[0]) return res.status(404).json({ success: false, error: 'Contract not found' });
-  const { rows } = await db.query(
-    `SELECT ca.id, ca.contract_id, ca.address, ca.role, ca.granted_at,
-            u.name AS granted_by_name
-     FROM contract_acl ca
-     LEFT JOIN users u ON ca.granted_by = u.id
-     WHERE ca.contract_id = (SELECT contract_id FROM contracts_registry WHERE id = $1)
-     ORDER BY ca.granted_at DESC`,
-    [req.params.id]
-  );
-  res.json({ success: true, data: rows });
-});
-
-// POST /api/admin/contracts/:id/acl
-router.post('/contracts/:id/acl', async (req, res) => {
-  const { address, role = 'admin' } = req.body;
-  if (!address || !STELLAR_ADDRESS_RE.test(address)) {
-    return res.status(400).json({ success: false, error: 'Invalid Stellar address', code: 'invalid_address' });
-  }
-  const { rows: reg } = await db.query('SELECT contract_id FROM contracts_registry WHERE id = $1', [req.params.id]);
-  if (!reg[0]) return res.status(404).json({ success: false, error: 'Contract not found' });
-  try {
-    const { rows } = await db.query(
-      'INSERT INTO contract_acl (contract_id, address, role, granted_by) VALUES ($1,$2,$3,$4) RETURNING *',
-      [reg[0].contract_id, address, role, req.user.id]
-    );
-    res.status(201).json({ success: true, data: rows[0] });
-  } catch (e) {
-    if (e.code === '23505' || (e.message && e.message.includes('UNIQUE'))) {
-      return res.status(409).json({ success: false, error: 'Address already in ACL', code: 'duplicate' });
-    }
-    throw e;
-  }
-});
-
-// DELETE /api/admin/contracts/:id/acl/:address
-router.delete('/contracts/:id/acl/:address', async (req, res) => {
-  const { rows: reg } = await db.query('SELECT contract_id FROM contracts_registry WHERE id = $1', [req.params.id]);
-  if (!reg[0]) return res.status(404).json({ success: false, error: 'Contract not found' });
-  const { rowCount } = await db.query(
-    'DELETE FROM contract_acl WHERE contract_id = $1 AND address = $2',
-    [reg[0].contract_id, req.params.address]
-  );
-  if (!rowCount) return res.status(404).json({ success: false, error: 'ACL entry not found' });
-  res.json({ success: true, message: 'Access revoked' });
-});
-
-// ── Contract Documentation & Analysis ──────────────────────────────────────
-
-const { getContractABI, analyzeContractFees } = require('../utils/stellar');
-const cache = require('../cache');
-
-// GET /api/admin/contracts/:id/docs - Generate and cache contract ABI documentation
-router.get('/contracts/:id/docs', async (req, res) => {
-  const { rows: reg } = await db.query('SELECT contract_id FROM contracts_registry WHERE id = $1', [req.params.id]);
-  if (!reg[0]) return res.status(404).json({ success: false, error: 'Contract not found' });
-
-  const contractId = reg[0].contract_id;
-  const cacheKey = `contract_abi:${contractId}`;
-
-  // Try cache first
-  let abi = await cache.get(cacheKey);
-  if (abi) {
-    return res.json({ success: true, data: { abi, cached: true } });
-  }
-
-  try {
-    abi = await getContractABI(contractId);
-    
-    // Generate markdown documentation
-    let markdown = `# Contract ABI Documentation\n\n`;
-    markdown += `**Contract ID:** \`${contractId}\`\n\n`;
-    markdown += `## Functions\n\n`;
-
-    if (!abi || abi.length === 0) {
-      markdown += `No functions found in contract specification.\n`;
-    } else {
-      for (const func of abi) {
-        markdown += `### ${func.name}\n\n`;
-        markdown += `**Parameters:**\n`;
-        if (func.params && func.params.length > 0) {
-          for (const param of func.params) {
-            markdown += `- \`${param.name}\` (\`${param.type}\`)\n`;
-          }
-        } else {
-          markdown += `- None\n`;
-        }
-        markdown += `\n**Return Type:** \`${func.returnType}\`\n\n`;
-      }
-    }
-
-    const docs = { abi, markdown, generatedAt: new Date().toISOString() };
-    
-    // Cache for 10 minutes
-    await cache.set(cacheKey, docs, 600);
-
-    res.json({ success: true, data: docs });
-  } catch (error) {
-    if (error.code === 404) {
-      return res.status(404).json({ success: false, error: 'Contract not found on Soroban RPC' });
-    }
-    res.status(502).json({ success: false, error: error.message || 'Failed to fetch contract ABI' });
-  }
-});
-
-// POST /api/admin/contracts/:id/analyze-fees - Analyze contract invocation fees
-router.post('/contracts/:id/analyze-fees', async (req, res) => {
-  const { rows: reg } = await db.query('SELECT contract_id FROM contracts_registry WHERE id = $1', [req.params.id]);
-  if (!reg[0]) return res.status(404).json({ success: false, error: 'Contract not found' });
-
-  const { testCases } = req.body;
-  if (!Array.isArray(testCases) || testCases.length === 0) {
-    return res.status(400).json({ success: false, error: 'testCases must be a non-empty array' });
-  }
-
-  // Validate test cases
-  for (let i = 0; i < testCases.length; i++) {
-    const tc = testCases[i];
-    if (!tc.method || typeof tc.method !== 'string') {
-      return res.status(400).json({ success: false, error: `testCases[${i}].method is required` });
-    }
-    if (!Array.isArray(tc.args)) {
-      return res.status(400).json({ success: false, error: `testCases[${i}].args must be an array` });
-    }
-  }
-
-  try {
-    const analysis = await analyzeContractFees(reg[0].contract_id, testCases);
-    
-    // Highlight expensive operations (> 1M CPU instructions)
-    const results = analysis.map(r => ({
-      ...r,
-      expensive: r.cpu_insns && r.cpu_insns > 1_000_000,
-    }));
-
-    res.json({ success: true, data: results });
-  } catch (error) {
-    res.status(502).json({ success: false, error: error.message || 'Fee analysis failed' });
-  }
 });
 
 module.exports = router;

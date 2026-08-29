@@ -2,6 +2,11 @@
 
 SEP-0041 compliant Soroban fungible token for marketplace rewards.
 
+This crate belongs to the legacy `contract/` layout. The repository also has a
+newer `contracts/` workspace; see
+[`docs/adr/0001-soroban-contract-boundaries.md`](../../docs/adr/0001-soroban-contract-boundaries.md)
+for the maintained boundary and shared convention policy.
+
 ## Build & Deploy
 
 ```bash

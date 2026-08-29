@@ -148,3 +148,94 @@ describe('PATCH /api/farmers/me', () => {
     expect(res.body.data.avatar_url).toBeNull();
   });
 });
+
+const crypto = require('crypto');
+
+describe('POST /api/farmers/webhook-secret/rotate', () => {
+  it('returns a new webhook_secret for a farmer', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 1 }); // UPDATE
+    const res = await request(app)
+      .post('/api/farmers/webhook-secret/rotate')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(typeof res.body.webhook_secret).toBe('string');
+    expect(res.body.webhook_secret).toHaveLength(64); // 32 bytes hex
+  });
+
+  it('returns 403 for a buyer', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+    const res = await request(app)
+      .post('/api/farmers/webhook-secret/rotate')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 401 without auth', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+    const res = await request(app)
+      .post('/api/farmers/webhook-secret/rotate')
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf);
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('POST /api/farmers/:farmerId/webhook — signature verification', () => {
+  const secret = 'testsecret';
+
+  function sign(body) {
+    return 'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
+  }
+
+  it('accepts a request with a valid signature and fresh timestamp', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ webhook_secret: secret }], rowCount: 1 });
+    const body = JSON.stringify({ event: 'test' });
+    const res = await request(app)
+      .post('/api/farmers/1/webhook')
+      .set('Content-Type', 'application/json')
+      .set('X-Webhook-Signature', sign(body))
+      .set('X-Webhook-Timestamp', String(Date.now()))
+      .send(body);
+    expect(res.status).toBe(200);
+    expect(res.body.received).toBe(true);
+  });
+
+  it('returns 401 when signature header is missing', async () => {
+    const res = await request(app)
+      .post('/api/farmers/1/webhook')
+      .send({ event: 'test' });
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe('invalid_signature');
+  });
+
+  it('returns 401 when signature is invalid', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ webhook_secret: secret }], rowCount: 1 });
+    const res = await request(app)
+      .post('/api/farmers/1/webhook')
+      .set('Content-Type', 'application/json')
+      .set('X-Webhook-Signature', 'sha256=badhash')
+      .set('X-Webhook-Timestamp', String(Date.now()))
+      .send(JSON.stringify({ event: 'test' }));
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe('invalid_signature');
+  });
+
+  it('returns 400 when timestamp is older than 5 minutes (replay attack)', async () => {
+    const oldTimestamp = Date.now() - 6 * 60 * 1000; // 6 minutes ago
+    const body = JSON.stringify({ event: 'test' });
+    const res = await request(app)
+      .post('/api/farmers/1/webhook')
+      .set('Content-Type', 'application/json')
+      .set('X-Webhook-Signature', sign(body))
+      .set('X-Webhook-Timestamp', String(oldTimestamp))
+      .send(body);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('replay_detected');
+  });
+});

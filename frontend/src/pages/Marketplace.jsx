@@ -1,18 +1,22 @@
-import React, { useEffect, useState, useCallback, lazy, Suspense } from "react";
+import React, { useEffect, useState, useCallback, useRef, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useFavorites } from "../context/FavoritesContext";
 import { useCompare } from "../context/CompareContext";
 import { useXlmRate } from "../utils/useXlmRate";
 import { useDebounce } from "../utils/useDebounce";
+import { getRecentlyViewed } from "../utils/recentlyViewed";
 import StarRating from "../components/StarRating";
-import Pagination from "../components/Pagination";
+import SkeletonProductCard from "../components/SkeletonProductCard";
 import Spinner from "../components/Spinner";
 import AuctionCard from "../components/AuctionCard";
 import FlashSaleCountdown from "../components/FlashSaleCountdown";
 import RecentlyCompared from "../components/RecentlyCompared";
+import Pagination from "../components/Pagination";
 import { useTranslation } from "react-i18next";
+import { buildSrcSet } from "../utils/imageUtils";
 
 const MapView = lazy(() => import("../components/MapView"));
 
@@ -28,6 +32,13 @@ const CATEGORIES = [
 const PAGE_SIZE = 20;
 const MAX_PRICE = 500;
 const ALL_ALLERGENS = ["gluten", "nuts", "dairy", "eggs", "soy", "shellfish"];
+const GRADES = ["A", "B", "C", "Ungraded"];
+const GRADE_COLORS = {
+  A: { background: "#d8f3dc", color: "#2d6a4f" },
+  B: { background: "#fff3cd", color: "#856404" },
+  C: { background: "#ffe0b2", color: "#a85d00" },
+  Ungraded: { background: "#e0e0e0", color: "#555" },
+};
 
 const s = {
   page: { maxWidth: 1100, margin: "0 auto", padding: 24, paddingBottom: 140 },
@@ -132,6 +143,17 @@ const s = {
     marginBottom: 8,
     fontWeight: 700,
   },
+  gradeBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    fontSize: 11,
+    fontWeight: 700,
+    borderRadius: 999,
+    padding: "2px 8px",
+    boxShadow: "0 1px 4px #0002",
+  },
+  cardImageWrap: { position: "relative" },
   empty: { textAlign: "center", padding: 60, color: "#888" },
   sellerSection: {
     display: "flex",
@@ -248,7 +270,64 @@ const s = {
     fontWeight: 600,
     fontSize: 14,
   },
+  outOfStockBadge: {
+    display: "inline-block",
+    fontSize: 11,
+    background: "#fee2e2",
+    color: "#b42318",
+    borderRadius: 4,
+    padding: "2px 7px",
+    marginBottom: 8,
+    fontWeight: 700,
+  },
+  viewBtn: {
+    marginTop: 10,
+    padding: "9px 18px",
+    borderRadius: 8,
+    border: "1px solid #2d6a4f",
+    background: "#fff",
+    color: "#2d6a4f",
+    fontWeight: 600,
+    fontSize: 14,
+    cursor: "pointer",
+  },
+  viewBtnDisabled: {
+    marginTop: 10,
+    padding: "9px 18px",
+    borderRadius: 8,
+    border: "1px solid #ccc",
+    background: "#f5f5f5",
+    color: "#aaa",
+    fontWeight: 600,
+    fontSize: 14,
+    cursor: "not-allowed",
+  },
+  skipLink: {
+    position: 'absolute',
+    top: -9999,
+    left: -9999,
+    zIndex: 100,
+    background: '#2d6a4f',
+    color: '#fff',
+    padding: '8px 16px',
+    borderRadius: 4,
+    fontWeight: 700,
+    fontSize: 14,
+    textDecoration: 'none',
+  },
+  skipLinkFocused: {
+    position: 'fixed',
+    top: 8,
+    left: 8,
+  },
 };
+
+const SORT_OPTIONS = [
+  { value: "newest", label: "Newest" },
+  { value: "price_asc", label: "Price: Low to High" },
+  { value: "price_desc", label: "Price: High to Low" },
+  { value: "popular", label: "Most Popular" },
+];
 
 const EMPTY_FILTERS = {
   search: "",
@@ -261,79 +340,237 @@ const EMPTY_FILTERS = {
   lng: "",
   radius: "",
   excludeAllergens: [],
+  sort: "newest",
+  grade: "",
 };
 
+function GradeBadge({ grade }) {
+  if (!grade) return null;
+  const colors = GRADE_COLORS[grade] || GRADE_COLORS.Ungraded;
+  return (
+    <div
+      style={{ ...s.gradeBadge, ...colors }}
+      aria-label={`Grade: ${grade}`}
+    >
+      {grade}
+    </div>
+  );
+}
+
+function getFreshnessBadge(bestBefore) {
+  if (!bestBefore) return null;
+  const today = new Date();
+  const expiry = new Date(bestBefore);
+  const diffTime = expiry - today;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return null; // expired, but shouldn't be shown
+  if (diffDays === 0) return { text: 'Expires today', color: '#ff6b6b' };
+  if (diffDays === 1) return { text: 'Expires tomorrow', color: '#ffa726' };
+  if (diffDays <= 3) return { text: `${diffDays} days left`, color: '#ffb74d' };
+  if (diffDays <= 7) return { text: `${diffDays} days left`, color: '#81c784' };
+  return { text: 'Fresh', color: '#4caf50' };
+}
+
+const SCROLL_KEY = 'marketplace_scroll';
+
 export default function Marketplace() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [products, setProducts] = useState([]);
   const [auctions, setAuctions] = useState([]);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
+  const [hasMore, setHasMore] = useState(true);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [bundles, setBundles] = useState([]);
   const [bundleMsg, setBundleMsg] = useState({});
+  const [expandedBundles, setExpandedBundles] = useState({});
+  const [recommendations, setRecommendations] = useState([]);
+  const [recsLoading, setRecsLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid"); // 'grid' | 'map'
   const [geoLoading, setGeoLoading] = useState(false);
+  const [geoError, setGeoError] = useState('');
+  const [recentlyViewed, setRecentlyViewed] = useState([]);
   const navigate = useNavigate();
   const { user } = useAuth();
   const { isFavorited, toggleFavorite } = useFavorites();
-  const { products: compareProducts, toggleProduct, isCompared } = useCompare();
+  const { products: compareProducts, toggleProduct, isCompared, clearProducts } = useCompare();
   const { usd } = useXlmRate();
 
+  const formatPreorderDate = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return dateString;
+    return date.toLocaleDateString(i18n.language, { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  const debouncedSearch = useDebounce(filters.search, 300);
+  const debouncedSeller = useDebounce(filters.seller, 300);
+  const debouncedRadius = useDebounce(filters.radius, 400);
   const debouncedSearch = useDebounce(filters.search, 400);
   const debouncedSeller = useDebounce(filters.seller, 400);
 
-  const load = useCallback(async (f, p = 1) => {
+  const abortRef = useRef(null);
+  const sentinelRef = useRef(null);
+  const observerRef = useRef(null);
+  const pageRef = useRef(1);
+  const hasMoreRef = useRef(true);
+  const filtersRef = useRef(filters);
+
+  // Keep filtersRef in sync
+  useEffect(() => { filtersRef.current = filters; }, [filters]);
+
+  async function fetchPage(f, p) {
+    let data, totalPages = 1, res;
+    if (f.search && f.search.trim()) {
+      res = await api.searchProducts(f.search.trim());
+      data = res.data ?? res;
+      totalPages = 1;
+    } else {
+      const params = { page: p, limit: PAGE_SIZE };
+      if (f.category) params.category = f.category;
+      if (f.minPrice) params.minPrice = f.minPrice;
+      if (f.maxPrice && f.maxPrice < MAX_PRICE) params.maxPrice = f.maxPrice;
+      if (f.seller) params.seller = f.seller;
+      if (f.available) params.available = f.available;
+      if (f.grade) params.grade = f.grade;
+      if (f.sort && f.sort !== "newest") params.sort = f.sort;
+      if (f.lat && f.lng && f.radius) { params.lat = f.lat; params.lng = f.lng; params.radius = f.radius; }
+      const res = await api.getProducts(params);
+      data = res.data ?? [];
+      totalPages = res.totalPages ?? 1;
+    }
+    const totalItems = res?.total ?? data.length;
+    if (f.excludeAllergens && f.excludeAllergens.length > 0) {
+      data = data.filter(p => {
+        let allergens = [];
+        try { allergens = p.allergens ? JSON.parse(p.allergens) : []; } catch {}
+        return !f.excludeAllergens.some(a => allergens.includes(a));
+      });
+    }
+    if (f.grade && f.search && f.search.trim()) {
+      // searchProducts doesn't support a grade param, so filter client-side
+      // when both a search term and a grade filter are active.
+      data = data.filter((p) => (p.grade || "Ungraded") === f.grade);
+    }
+    return { data, totalPages, total: totalItems };
+  }
+
+  // Initial load (resets list), optionally loads a specific page
+  const load = useCallback(async (f, pageNum = 1) => {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
+    setHasMore(true);
+    pageRef.current = pageNum;
+    hasMoreRef.current = true;
     try {
-      let data,
-        total = 0,
-        totalPages = 1;
-      if (f.search && f.search.trim()) {
-        const res = await api.searchProducts(f.search.trim());
-        data = res.data ?? res;
-        total = data.length;
-        totalPages = 1;
-      } else {
-        const params = { page: p, limit: PAGE_SIZE };
-        if (f.category) params.category = f.category;
-        if (f.minPrice) params.minPrice = f.minPrice;
-        if (f.maxPrice && f.maxPrice < MAX_PRICE) params.maxPrice = f.maxPrice;
-        if (f.seller) params.seller = f.seller;
-        if (f.available) params.available = f.available;
-        if (f.lat && f.lng && f.radius) {
-          params.lat = f.lat;
-          params.lng = f.lng;
-          params.radius = f.radius;
-        }
-        const res = await api.getProducts(params);
-        data = res.data ?? [];
-        total = res.total ?? 0;
-        totalPages = res.totalPages ?? 1;
-      }
-      // Client-side allergen exclusion filter
-      if (f.excludeAllergens && f.excludeAllergens.length > 0) {
-        data = data.filter(p => {
-          let allergens = [];
-          try { allergens = p.allergens ? JSON.parse(p.allergens) : []; } catch {}
-          return !f.excludeAllergens.some(a => allergens.includes(a));
-        });
-        total = data.length;
-      }
+      const { data, totalPages, total } = await fetchPage(f, pageNum);
+      if (controller.signal.aborted) return;
       setProducts(data);
-      setPagination({ total, totalPages });
+      setTotalPages(totalPages);
+      setTotalCount(total);
+      pageRef.current = pageNum;
+      const more = totalPages > 1;
+      setHasMore(more);
+      hasMoreRef.current = more;
       const aucs = await api.getAuctions().catch(() => ({ data: [] }));
       setAuctions(aucs.data || []);
-    } catch {
-      setProducts([]);
+      // Save to sessionStorage for back-navigation restore
+      sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ products: data, page: pageNum, hasMore: more, totalPages, total, filters: f }));
+    } catch (err) {
+      if (err?.name !== 'AbortError') setProducts([]);
     }
-    setLoading(false);
+    if (!controller.signal?.aborted) setLoading(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load next page (append)
+  const loadMore = useCallback(async () => {
+    if (!hasMoreRef.current || loadingMore) return;
+    setLoadingMore(true);
+    const nextPage = pageRef.current + 1;
+    try {
+      const { data, totalPages } = await fetchPage(filtersRef.current, nextPage);
+      setProducts(prev => {
+        const merged = [...prev, ...data];
+        sessionStorage.setItem(SCROLL_KEY, JSON.stringify({
+          products: merged, page: nextPage, hasMore: nextPage < totalPages, filters: filtersRef.current,
+        }));
+        return merged;
+      });
+      pageRef.current = nextPage;
+      const more = nextPage < totalPages;
+      setHasMore(more);
+      hasMoreRef.current = more;
+    } catch { /* ignore */ }
+    setLoadingMore(false);
+  }, [loadingMore]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Restore scroll position on back-navigation
+  useEffect(() => {
+    const saved = sessionStorage.getItem(SCROLL_KEY);
+    if (saved) {
+      try {
+        const { products: savedProducts, page: savedPage, hasMore: savedHasMore, filters: savedFilters } = JSON.parse(saved);
+        setProducts(savedProducts);
+        setFilters(savedFilters);
+        pageRef.current = savedPage;
+        hasMoreRef.current = savedHasMore;
+        setHasMore(savedHasMore);
+        setLoading(false);
+        // Restore scroll after render
+        requestAnimationFrame(() => {
+          const scrollY = sessionStorage.getItem(SCROLL_KEY + '_y');
+          if (scrollY) window.scrollTo(0, parseInt(scrollY, 10));
+        });
+        return;
+      } catch { /* fall through to normal load */ }
+    }
+    load(EMPTY_FILTERS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Clamp page when totalPages shrinks (defense in depth)
   useEffect(() => {
-    setPage(1);
-    load({ ...filters, search: debouncedSearch, seller: debouncedSeller }, 1);
+    if (pageRef.current > totalPages) {
+      pageRef.current = totalPages;
+    }
+  }, [totalPages]);
+  // Save scroll position continuously for SPA back-navigation
+  useEffect(() => {
+    const saveScroll = () => sessionStorage.setItem(SCROLL_KEY + '_y', String(window.scrollY));
+    window.addEventListener('scroll', saveScroll, { passive: true });
+    return () => window.removeEventListener('scroll', saveScroll);
+  }, []);
+
+  // IntersectionObserver for infinite scroll
+  useEffect(() => {
+    if (observerRef.current) observerRef.current.disconnect();
+    observerRef.current = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) loadMore(); },
+      { rootMargin: '200px' }
+    );
+    if (sentinelRef.current) observerRef.current.observe(sentinelRef.current);
+    return () => observerRef.current?.disconnect();
+  }, [loadMore]);
+
+  // Re-observe sentinel when hasMore changes
+  useEffect(() => {
+    if (!hasMore && observerRef.current) observerRef.current.disconnect();
+    else if (hasMore && sentinelRef.current && observerRef.current) {
+      observerRef.current.observe(sentinelRef.current);
+    }
+  }, [hasMore]);
+
+  // Filter changes → reset and reload
+  useEffect(() => {
+    sessionStorage.removeItem(SCROLL_KEY);
+    sessionStorage.removeItem(SCROLL_KEY + '_y');
+    const f = { ...filters, search: debouncedSearch, seller: debouncedSeller, radius: debouncedRadius };
+    load(f);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     debouncedSearch,
@@ -343,6 +580,11 @@ export default function Marketplace() {
     filters.maxPrice,
     filters.available,
     filters.excludeAllergens,
+    filters.sort,
+    filters.grade,
+    filters.lat,
+    filters.lng,
+    debouncedRadius,
   ]);
 
   useEffect(() => {
@@ -350,6 +592,24 @@ export default function Marketplace() {
       .getBundles()
       .then((res) => setBundles(res.data ?? []))
       .catch(() => {});
+  }, []);
+
+  // Load recommendations if logged in
+  useEffect(() => {
+    if (user) {
+      setRecsLoading(true);
+      api.getRecommendations()
+        .then(res => setRecommendations(res.data ?? []))
+        .catch(() => {})
+        .finally(() => setRecsLoading(false));
+    } else {
+      setRecommendations([]);
+    }
+  }, [user]);
+
+  // Load recently viewed products
+  useEffect(() => {
+    setRecentlyViewed(getRecentlyViewed());
   }, []);
 
   async function handleBuyBundle(bundleId) {
@@ -385,37 +645,63 @@ export default function Marketplace() {
 
   function reset() {
     setFilters(EMPTY_FILTERS);
-    setPage(1);
+    setGeoError('');
+    sessionStorage.removeItem(SCROLL_KEY);
+    sessionStorage.removeItem(SCROLL_KEY + '_y');
+    load(EMPTY_FILTERS);
   }
 
-  function useNearMe() {
-    if (!navigator.geolocation) return;
+  function toggleNearMe() {
+    // If already active, turn it off
+    if (filters.lat && filters.lng) {
+      setFilters(f => ({ ...f, lat: '', lng: '', radius: '' }));
+      setGeoError('');
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      setGeoError('Geolocation is not supported by your browser.');
+      return;
+    }
+
     setGeoLoading(true);
+    setGeoError('');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const newFilters = {
-          ...filters,
+        setFilters(f => ({
+          ...f,
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
-          radius: filters.radius || 50,
-        };
-        setFilters(newFilters);
-        setPage(1);
-        load(newFilters, 1);
+          radius: f.radius || 50,
+        }));
         setGeoLoading(false);
       },
-      () => setGeoLoading(false),
+      (err) => {
+        const msg = err.code === 1
+          ? 'Location access denied. Please allow location in your browser and try again.'
+          : 'Unable to retrieve your location. Please try again.';
+        setGeoError(msg);
+        setGeoLoading(false);
+      },
+      { timeout: 8000 }
     );
-  }
-
-  function handlePageChange(newPage) {
-    setPage(newPage);
-    load(filters, newPage);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   return (
     <div style={s.page}>
+      {/* Skip-to-content link for keyboard/screen-reader users */}
+      <a
+        href="#product-grid"
+        style={s.skipLink}
+        onFocus={(e) => { e.target.style.position = 'fixed'; e.target.style.top = '8px'; e.target.style.left = '8px'; }}
+        onBlur={(e) => { e.target.style.position = 'absolute'; e.target.style.top = '-9999px'; e.target.style.left = '-9999px'; }}
+      >
+        Skip to products
+      </a>
+      <Helmet>
+        <title>Marketplace – Farmers Marketplace</title>
+        <meta name="description" content="Browse fresh produce from local farmers. Buy vegetables, fruits, grains, dairy and more directly from the source." />
+      </Helmet>
       <div
         style={{
           display: "flex",
@@ -452,7 +738,66 @@ export default function Marketplace() {
           </button>
         </div>
       </div>
-      <div style={s.sub}>{t("marketplace.subtitle")}</div>
+      <div style={s.sub}>
+        {t("marketplace.subtitle")}
+        {/* Screen-reader announcement for page/results changes */}
+        <span
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}
+        >
+          Showing {products.length > 0 ? `1–${products.length}` : 0} of {totalCount} products
+        </span>
+      </div>
+
+      {recommendations.length > 0 && (
+        <div style={{ marginBottom: 36 }}>
+          <div style={{ ...s.title, fontSize: 20, marginBottom: 12 }}>⭐ Recommended For You</div>
+          {recsLoading ? (
+            <div>Loading…</div>
+          ) : (
+            <div style={s.grid}>
+              {recommendations.slice(0, 6).map((p) => (
+                <div key={p.id} style={s.card} onClick={() => navigate(`/product/${p.id}`)}
+                  onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-2px)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.transform = "")}>
+                  <div style={s.cardHeader}>
+                    <div style={{ flex: 1 }}>
+                      {p.image_url ? (
+                        <img
+                          src={p.image_url}
+                          srcSet={buildSrcSet(p.image_url)}
+                          sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw"
+                          alt={p.name}
+                          style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 8, marginBottom: 10 }}
+                        />
+                      ) : (
+                        <div style={{ fontSize: 32, marginBottom: 8 }}>🥬</div>
+                      )}
+                    </div>
+                    {user && user.role === "buyer" && (
+                      <button style={s.favoriteBtn} onClick={(e) => { e.stopPropagation(); toggleFavorite(p.id); }}
+                        title={isFavorited(p.id) ? "Remove from favorites" : "Add to favorites"}>
+                        {isFavorited(p.id) ? "❤️" : "🤍"}
+                      </button>
+                    )}
+                  </div>
+                  {p.category && p.category !== "other" && <div style={s.badge}>{p.category}</div>}
+                  <div style={s.name}>{p.name}</div>
+                  <div style={s.desc}>{p.description || "Fresh from the farm"}</div>
+                  <div style={s.price}>{p.price} XLM <span style={{ fontSize: 13 }}>/{p.unit || "unit"}</span></div>
+                  <div style={s.qty}>{t("marketplace.available", { qty: p.quantity, unit: p.unit })}</div>
+                  <div style={s.sellerSection}>
+                    <div style={s.sellerAvatar}>👨‍🌾</div>
+                    <div style={s.sellerInfo}><div style={s.sellerName}>{p.farmer_name}</div></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {auctions.length > 0 && (
         <div style={{ marginBottom: 36 }}>
@@ -476,10 +821,7 @@ export default function Marketplace() {
             </div>
             <button
               style={{ ...s.resetBtn, fontSize: 12 }}
-              onClick={() => {
-                const { clearProducts } = useCompare();
-                clearProducts();
-              }}
+              onClick={clearProducts}
             >
               Clear
             </button>
@@ -494,6 +836,8 @@ export default function Marketplace() {
                 {p.image_url ? (
                   <img
                     src={p.image_url}
+                    srcSet={buildSrcSet(p.image_url)}
+                    sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw"
                     alt={p.name}
                     style={{
                       width: "100%",
@@ -514,7 +858,7 @@ export default function Marketplace() {
         </div>
       )}
 
-      <RecentlyCompared />
+      <div style={s.filters}>
         <input
           style={s.input}
           placeholder={t("marketplace.searchPlaceholder")}
@@ -535,6 +879,29 @@ export default function Marketplace() {
             <option key={c} value={c === "all" ? "" : c}>
               {c.charAt(0).toUpperCase() + c.slice(1)}
             </option>
+          ))}
+        </select>
+
+        <select
+          style={s.select}
+          value={filters.sort}
+          onChange={(e) => set("sort", e.target.value)}
+          aria-label="Sort products"
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+
+        <select
+          style={s.select}
+          value={filters.grade}
+          onChange={(e) => set("grade", e.target.value)}
+          aria-label="Filter by grade"
+        >
+          <option value="">All Grades</option>
+          {GRADES.map((g) => (
+            <option key={g} value={g}>{g}</option>
           ))}
         </select>
 
@@ -595,36 +962,53 @@ export default function Marketplace() {
           }}
         >
           <button
-            style={{ ...s.resetBtn, background: "#e8f5e9", color: "#2d6a4f" }}
-            onClick={useNearMe}
+            style={{
+              ...s.resetBtn,
+              background: filters.lat && filters.lng ? "#2d6a4f" : "#e8f5e9",
+              color: filters.lat && filters.lng ? "#fff" : "#2d6a4f",
+              fontWeight: 600,
+              border: filters.lat && filters.lng ? "1px solid #2d6a4f" : "1px solid #ddd",
+            }}
+            onClick={toggleNearMe}
             disabled={geoLoading}
+            aria-pressed={!!(filters.lat && filters.lng)}
           >
-            {geoLoading ? "..." : "📍 Near Me"}
+            {geoLoading ? "⌛ Locating…" : filters.lat && filters.lng ? "📍 Near Me ✓" : "📍 Near Me"}
           </button>
           {filters.lat && filters.lng && (
             <>
               <input
-                style={{ ...s.input, width: 80 }}
-                type="number"
-                min="1"
-                max="500"
-                placeholder="km"
-                value={filters.radius}
-                onChange={(e) => set("radius", e.target.value)}
-                aria-label="Radius in km"
+                type="range"
+                min="5"
+                max="200"
+                step="5"
+                value={filters.radius || 50}
+                onChange={(e) => set("radius", Number(e.target.value))}
+                aria-label="Search radius in km"
+                style={{ width: 120, accentColor: "#2d6a4f" }}
               />
-              <span style={{ fontSize: 12, color: "#888" }}>km radius</span>
+              <span style={{ fontSize: 13, color: "#444", minWidth: 60 }}>
+                {filters.radius || 50} km
+              </span>
               <button
                 style={s.resetBtn}
                 onClick={() => {
-                  set("lat", "");
-                  set("lng", "");
-                  set("radius", "");
+                  setFilters(f => ({ ...f, lat: "", lng: "", radius: "" }));
+                  setGeoError("");
                 }}
+                aria-label="Clear location filter"
               >
                 ✕
               </button>
             </>
+          )}
+          {geoError && (
+            <span
+              style={{ fontSize: 12, color: "#c0392b", display: "flex", alignItems: "center", gap: 4 }}
+              role="alert"
+            >
+              ⚠️ {geoError}
+            </span>
           )}
         </div>
 
@@ -668,15 +1052,35 @@ export default function Marketplace() {
       </div>
 
       {loading ? (
-        <Spinner />
+        <div style={s.grid}>
+          {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+            <SkeletonProductCard key={i} />
+          ))}
+        </div>
       ) : viewMode === "map" ? (
         <Suspense fallback={<Spinner />}>
-          <MapView products={products} />
+          <MapView
+            products={products}
+            onFarmerClick={(name) => {
+              if (name) {
+                setFilters(f => ({ ...f, seller: name }));
+              }
+              setViewMode("grid");
+            }}
+            userLat={filters.lat || undefined}
+            userLng={filters.lng || undefined}
+            radius={filters.radius || undefined}
+          />
         </Suspense>
       ) : products.length === 0 ? (
-        <div style={s.empty}>{t("marketplace.noProducts")}</div>
+        <div style={s.empty} role="status">
+          <div>{t("marketplace.noProducts")}</div>
+          <button style={{ ...s.resetBtn, marginTop: 16 }} onClick={reset}>
+            {t("marketplace.clearFilters", "Clear filters")}
+          </button>
+        </div>
       ) : (
-        <div style={s.grid}>
+        <div id="product-grid" style={s.grid}>
           {products.map((p) => (
             <div
               key={p.id}
@@ -693,21 +1097,26 @@ export default function Marketplace() {
             >
               <div style={s.cardHeader}>
                 <div style={{ flex: 1 }}>
-                  {p.image_url ? (
-                    <img
-                      src={p.image_url}
-                      alt={p.name}
-                      style={{
-                        width: "100%",
-                        height: 140,
-                        objectFit: "cover",
-                        borderRadius: 8,
-                        marginBottom: 10,
-                      }}
-                    />
-                  ) : (
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>🥬</div>
-                  )}
+                  <div style={s.cardImageWrap}>
+                    {p.image_url ? (
+                      <img
+                        src={p.image_url}
+                        srcSet={buildSrcSet(p.image_url)}
+                        sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw"
+                        alt={p.name}
+                        style={{
+                          width: "100%",
+                          height: 140,
+                          objectFit: "cover",
+                          borderRadius: 8,
+                          marginBottom: 10,
+                        }}
+                      />
+                    ) : (
+                      <div style={{ fontSize: 32, marginBottom: 8 }}>🥬</div>
+                    )}
+                    <GradeBadge grade={p.grade || "Ungraded"} />
+                  </div>
                 </div>
                 {user && user.role === "buyer" && (
                   <button
@@ -741,13 +1150,23 @@ export default function Marketplace() {
                 </div>
               ) : null}
               {p.is_preorder ? (
-                <div style={s.preorderBadge}>
-                  Pre-Order
+                <div
+                  style={s.preorderBadge}
+                  title="This is a pre-order. Payment is held in escrow until dispatch."
+                  aria-label="Pre-order product"
+                >
+                  Pre-order
                   {p.preorder_delivery_date
-                    ? ` · Delivers ${p.preorder_delivery_date}`
+                    ? ` · Ships by ${formatPreorderDate(p.preorder_delivery_date)}`
                     : ""}
                 </div>
               ) : null}
+              {(p.available_from || p.available_until) && (
+                <div style={{ fontSize: 11, color: '#555', background: '#f0faf4', border: '1px solid #b7e4c7', borderRadius: 4, padding: '2px 7px', marginBottom: 6, display: 'inline-block' }}>
+                  🗓{p.available_from ? ` From ${new Date(p.available_from).toLocaleDateString()}` : ''}
+                  {p.available_until ? ` Until ${new Date(p.available_until).toLocaleDateString()}` : ''}
+                </div>
+              )}
               <div style={s.name}>{p.name}</div>
               <div style={s.desc}>{p.description || "Fresh from the farm"}</div>
               {p.flash_sale_price &&
@@ -822,6 +1241,23 @@ export default function Marketplace() {
                 {isCompared(p.id) ? "Selected for compare" : "Compare"}
               </button>
 
+              {p.quantity === 0 && (
+                <div style={s.outOfStockBadge} aria-label="Out of stock">
+                  Out of Stock
+                </div>
+              )}
+              <button
+                style={p.quantity === 0 ? s.viewBtnDisabled : s.viewBtn}
+                disabled={p.quantity === 0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (p.quantity > 0) navigate(`/product/${p.id}`);
+                }}
+                aria-disabled={p.quantity === 0}
+              >
+                {p.quantity === 0 ? "Out of Stock" : "View"}
+              </button>
+
               {/* Seller Information Section */}
               <div style={s.sellerSection}>
                 {p.farmer_avatar ? (
@@ -853,13 +1289,32 @@ export default function Marketplace() {
         </div>
       )}
 
-      <Pagination
-        page={page}
-        totalPages={pagination.totalPages}
-        total={pagination.total}
-        limit={PAGE_SIZE}
-        onChange={handlePageChange}
-      />
+      {/* Infinite scroll sentinel */}
+      {!loading && (
+        <>
+          <div ref={sentinelRef} style={{ height: 1 }} aria-hidden="true" />
+          {loadingMore && (
+            <div style={{ ...s.grid, marginTop: 16 }}>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonProductCard key={i} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Pagination controls */}
+      {!loading && !loadingMore && totalPages > 1 && (
+        <Pagination
+          page={pageRef.current}
+          totalPages={totalPages}
+          total={totalCount}
+          limit={PAGE_SIZE}
+          onChange={(newPage) => {
+            load({ ...filtersRef.current }, newPage);
+          }}
+        />
+      )}
 
       {compareProducts.length > 0 && (
         <div style={s.compareBar}>
@@ -896,13 +1351,33 @@ export default function Marketplace() {
                   <div style={s.name}>{b.name}</div>
                   <div style={s.farmer}>by {b.farmer_name}</div>
                   {b.description && <div style={s.desc}>{b.description}</div>}
-                  <ul style={s.bundleItems}>
-                    {b.items?.map((i) => (
-                      <li key={i.product_id}>
-                        {i.quantity} × {i.product_name} ({i.unit})
-                      </li>
-                    ))}
-                  </ul>
+                  <button
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#2d6a4f',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      padding: 0,
+                      marginBottom: 8,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                    onClick={() => setExpandedBundles(prev => ({ ...prev, [b.id]: !prev[b.id] }))}
+                  >
+                    {expandedBundles[b.id] ? '▼' : '▶'} Included Items ({b.items?.length || 0})
+                  </button>
+                  {expandedBundles[b.id] && (
+                    <ul style={s.bundleItems}>
+                      {b.items?.map((i) => (
+                        <li key={i.product_id}>
+                          {i.quantity} × {i.product_name} ({i.unit})
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   <div style={s.price}>{b.price} XLM</div>
                   {usd(b.price) && (
                     <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
@@ -954,6 +1429,34 @@ export default function Marketplace() {
           </div>
         </div>
       )}
+
+      {recentlyViewed.length > 0 && (
+        <div>
+          <div style={s.sectionTitle}>Recently Viewed</div>
+          <div style={{ display: 'flex', overflowX: 'auto', gap: 16, paddingBottom: 16 }}>
+            {recentlyViewed.map((p) => (
+              <div
+                key={p.id}
+                onClick={() => navigate(`/product/${p.id}`)}
+                style={{ ...s.card, minWidth: 200, cursor: 'pointer', flexShrink: 0 }}
+              >
+                {p.image_url && (
+                  <img
+                    src={p.image_url}
+                    srcSet={buildSrcSet(p.image_url)}
+                    sizes="(max-width: 600px) 50vw, 200px"
+                    alt={p.name}
+                    style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 8, marginBottom: 12 }}
+                  />
+                )}
+                <div style={s.name}>{p.name}</div>
+                <div style={s.price}>{p.price} XLM</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
+      <RecentlyCompared />
   );
 }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { validateLogin, validateRegister, validatePassword } from '../utils/validation';
@@ -51,10 +52,13 @@ export function LoginPage() {
   const [formError, setFormError] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
+  const passwordRef = React.useRef(null);
 
   function handleChange(field, value) {
-    setForm(f => ({ ...f, [field]: value }));
-    if (errors[field]) setErrors(e => ({ ...e, [field]: '' }));
+    const updatedForm = { ...form, [field]: value };
+    setForm(updatedForm);
+    const fieldErrors = validateLogin(updatedForm);
+    setErrors((prev) => ({ ...prev, [field]: fieldErrors[field] || '' }));
   }
 
   async function handleSubmit(e) {
@@ -68,25 +72,36 @@ export function LoginPage() {
       navigate(user.role === 'farmer' ? '/dashboard' : '/marketplace');
     } catch (err) {
       setFormError(getErrorMessage(err));
+      setForm(f => ({ ...f, password: '' }));
+      passwordRef.current?.focus();
     }
   }
 
   return (
     <div style={s.wrap}>
+      <Helmet>
+        <title>Login – Farmers Marketplace</title>
+        <meta name="description" content="Sign in to your Farmers Marketplace account." />
+      </Helmet>
       <div style={s.card}>
         <div style={s.title}>{t('auth.welcomeBack')}</div>
         <form onSubmit={handleSubmit} noValidate>
           <div style={s.field}>
             <label style={s.label} htmlFor="login-email">{t('auth.email')}</label>
             <input id="login-email" style={errors.email ? s.inputErr : s.input} type="email"
-              value={form.email} onChange={e => handleChange('email', e.target.value)} autoComplete="email" />
-            {errors.email && <div style={s.err} role="alert">{errors.email}</div>}
+              value={form.email} onChange={e => handleChange('email', e.target.value)} autoComplete="email"
+              aria-invalid={!!errors.email}
+              aria-describedby={errors.email ? 'login-email-err' : undefined} />
+            {errors.email && <div id="login-email-err" style={s.err} role="alert">{errors.email}</div>}
           </div>
           <div style={s.field}>
             <label style={s.label} htmlFor="login-password">{t('auth.password')}</label>
-            <input id="login-password" style={errors.password ? s.inputErr : s.input} type="password"
-              value={form.password} onChange={e => handleChange('password', e.target.value)} autoComplete="current-password" />
-            {errors.password && <div style={s.err} role="alert">{errors.password}</div>}
+            <input id="login-password" ref={passwordRef} style={errors.password ? s.inputErr : s.input} type="password"
+              value={form.password} onChange={e => handleChange('password', e.target.value)} autoComplete="current-password"
+              aria-invalid={!!errors.password}
+              aria-describedby={errors.password ? 'login-password-err' : undefined} />
+            <PasswordStrength password={form.password} />
+            {errors.password && <div id="login-password-err" style={s.err} role="alert">{errors.password}</div>}
           </div>
           {formError && <div style={s.formErr} role="alert">{formError}</div>}
           <button style={s.btn} type="submit">{t('auth.loginBtn')}</button>
@@ -109,8 +124,10 @@ export function RegisterPage() {
   const refCode = searchParams.get('ref');
 
   function handleChange(field, value) {
-    setForm(f => ({ ...f, [field]: value }));
-    if (errors[field]) setErrors(e => ({ ...e, [field]: '' }));
+    const updatedForm = { ...form, [field]: value };
+    setForm(updatedForm);
+    const fieldErrors = validateRegister(updatedForm);
+    setErrors((prev) => ({ ...prev, [field]: fieldErrors[field] || '' }));
   }
 
   async function handleSubmit(e) {
@@ -129,27 +146,37 @@ export function RegisterPage() {
 
   return (
     <div style={s.wrap}>
+      <Helmet>
+        <title>Register – Farmers Marketplace</title>
+        <meta name="description" content="Create a free account on Farmers Marketplace to buy fresh produce or sell your farm products." />
+      </Helmet>
       <div style={s.card}>
         <div style={s.title}>{t('auth.createAccount')}</div>
         <form onSubmit={handleSubmit} noValidate>
           <div style={s.field}>
             <label style={s.label} htmlFor="reg-name">{t('auth.name')}</label>
             <input id="reg-name" style={errors.name ? s.inputErr : s.input} type="text"
-              value={form.name} onChange={e => handleChange('name', e.target.value)} autoComplete="name" />
-            {errors.name && <div style={s.err} role="alert">{errors.name}</div>}
+              value={form.name} onChange={e => handleChange('name', e.target.value)} autoComplete="name"
+              aria-invalid={!!errors.name}
+              aria-describedby={errors.name ? 'reg-name-err' : undefined} />
+            {errors.name && <div id="reg-name-err" style={s.err} role="alert">{errors.name}</div>}
           </div>
           <div style={s.field}>
             <label style={s.label} htmlFor="reg-email">{t('auth.email')}</label>
             <input id="reg-email" style={errors.email ? s.inputErr : s.input} type="email"
-              value={form.email} onChange={e => handleChange('email', e.target.value)} autoComplete="email" />
-            {errors.email && <div style={s.err} role="alert">{errors.email}</div>}
+              value={form.email} onChange={e => handleChange('email', e.target.value)} autoComplete="email"
+              aria-invalid={!!errors.email}
+              aria-describedby={errors.email ? 'reg-email-err' : undefined} />
+            {errors.email && <div id="reg-email-err" style={s.err} role="alert">{errors.email}</div>}
           </div>
           <div style={s.field}>
             <label style={s.label} htmlFor="reg-password">{t('auth.password')}</label>
             <input id="reg-password" style={errors.password ? s.inputErr : s.input} type="password"
-              value={form.password} onChange={e => handleChange('password', e.target.value)} autoComplete="new-password" />
+              value={form.password} onChange={e => handleChange('password', e.target.value)} autoComplete="new-password"
+              aria-invalid={!!errors.password}
+              aria-describedby={errors.password ? 'reg-password-err' : undefined} />
             <PasswordStrength password={form.password} />
-            {errors.password && <div style={s.err} role="alert">{errors.password}</div>}
+            {errors.password && <div id="reg-password-err" style={s.err} role="alert">{errors.password}</div>}
           </div>
           <div style={s.field}>
             <label style={s.label} htmlFor="reg-role">{t('auth.iAm')}</label>

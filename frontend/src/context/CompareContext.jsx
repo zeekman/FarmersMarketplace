@@ -1,10 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { MAX_RECENTLY_COMPARED } from '../components/RecentlyCompared';
 
 const CompareContext = createContext(null);
 
 const HISTORY_KEY = 'comparison_history';
-const MAX_HISTORY = 5;
 
 export function CompareProvider({ children }) {
   const [products, setProducts] = useState([]);
@@ -19,6 +19,7 @@ export function CompareProvider({ children }) {
         setHistory(JSON.parse(stored));
       }
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.error('Failed to load comparison history:', e);
     }
   }, []);
@@ -41,13 +42,14 @@ export function CompareProvider({ children }) {
         timestamp: new Date().toISOString(),
       };
 
-      // Keep only last 5 comparisons
-      const updated = [newEntry, ...prev].slice(0, MAX_HISTORY);
+      // Keep only last MAX_RECENTLY_COMPARED comparisons
+      const updated = [newEntry, ...prev].slice(0, MAX_RECENTLY_COMPARED);
       
       // Persist to localStorage
       try {
         localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error('Failed to save comparison history:', e);
       }
 
@@ -59,7 +61,7 @@ export function CompareProvider({ children }) {
     setProducts(prev => {
       if (prev.some(p => p.id === product.id)) return prev;
       const next = [...prev, product];
-      return next.length > 3 ? next.slice(1) : next;
+      return next.length > 4 ? next.slice(1) : next;
     });
   }, []);
 
@@ -72,7 +74,7 @@ export function CompareProvider({ children }) {
       const exists = prev.some(p => p.id === product.id);
       if (exists) return prev.filter(p => p.id !== product.id);
       const next = [...prev, product];
-      return next.length > 3 ? next.slice(1) : next;
+      return next.length > 4 ? next.slice(1) : next;
     });
   }, []);
 
@@ -90,6 +92,7 @@ export function CompareProvider({ children }) {
     try {
       localStorage.removeItem(HISTORY_KEY);
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.error('Failed to clear comparison history:', e);
     }
   }, []);
