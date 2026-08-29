@@ -11,7 +11,8 @@ router.get('/', auth, async (req, res) => {
     'SELECT * FROM addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC',
     [req.user.id]
   );
-  res.json({ success: true, data: rows });
+  const limit = parseInt(process.env.MAX_ADDRESSES_PER_USER, 10) || 10;
+  res.json({ success: true, data: rows, limit });
 });
 
 // POST /api/addresses
