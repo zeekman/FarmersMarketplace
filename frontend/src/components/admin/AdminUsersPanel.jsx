@@ -57,7 +57,8 @@ export default function AdminUsersPanel({
     badge: (role) => ({
       display: 'inline-block', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600,
       background: role === 'admin' ? '#ffeaa7' : role === 'farmer' ? '#d8f3dc' : '#dfe6e9',
-      color: role === 'admin' ? '#b8860b' : role === 'farmer' ? '#2d6a4f' : '#555',
+      // #7a5800 on #ffeaa7 → 5.45:1 (was #b8860b → 2.72:1, failed WCAG AA)
+      color: role === 'admin' ? '#7a5800' : role === 'farmer' ? '#2d6a4f' : '#555',
     }),
   };
 
@@ -79,6 +80,7 @@ export default function AdminUsersPanel({
           value={roleFilter}
           onChange={(e) => onRoleChange?.(e.target.value)}
           style={{ flex: '0 1 120px', ...s.input }}
+          aria-label="Filter by role"
         >
           <option value="">All Roles</option>
           <option value="admin">Admin</option>
@@ -89,6 +91,7 @@ export default function AdminUsersPanel({
           value={verifiedFilter}
           onChange={(e) => onVerifiedChange?.(e.target.value)}
           style={{ flex: '0 1 120px', ...s.input }}
+          aria-label="Filter by verified status"
         >
           <option value="">All Verified</option>
           <option value="true">Yes</option>
@@ -98,6 +101,7 @@ export default function AdminUsersPanel({
           value={bannedFilter}
           onChange={(e) => onBannedChange?.(e.target.value)}
           style={{ flex: '0 1 120px', ...s.input }}
+          aria-label="Filter by banned status"
         >
           <option value="">All Banned</option>
           <option value="true">Yes</option>

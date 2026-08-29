@@ -16,7 +16,8 @@ export default function AdminDisputesPanel({ disputes = [], onResolve }) {
     td: { padding: '10px 12px', borderBottom: '1px solid #f0f0f0' },
     deactivate: { background: '#fee', color: '#c0392b', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 },
     badge: (status) => {
-      const color = status === 'resolved' ? '#2d6a4f' : status === 'under_review' ? '#b8860b' : '#c0392b';
+      // #7a5800 on #ffeaa7 → 5.45:1 (was #b8860b → 2.72:1, failed WCAG AA)
+      const color = status === 'resolved' ? '#2d6a4f' : status === 'under_review' ? '#7a5800' : '#c0392b';
       const bg = status === 'resolved' ? '#d8f3dc' : status === 'under_review' ? '#ffeaa7' : '#fee';
       return { display: 'inline-block', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: bg, color };
     },

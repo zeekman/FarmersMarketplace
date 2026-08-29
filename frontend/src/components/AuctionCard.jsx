@@ -12,12 +12,13 @@ const s = {
   btn: { width: '100%', marginTop: 8, padding: '9px 0', background: '#e07b00', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' },
   btnDisabled: { width: '100%', marginTop: 8, padding: '9px 0', background: '#ccc', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'not-allowed' },
   msg: { fontSize: 12, marginTop: 6, padding: '6px 10px', borderRadius: 6 },
-  liveBadge: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, background: '#fee2e2', color: '#dc2626', borderRadius: 4, padding: '2px 7px', marginBottom: 8, fontWeight: 700 },
+  // #b42318 on #fee2e2 → 5.38:1 PASS (replaces #dc2626 → 3.95:1 FAIL)
+  liveBadge: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, background: '#fee2e2', color: '#b42318', borderRadius: 4, padding: '2px 7px', marginBottom: 8, fontWeight: 700 },
 };
 
 const pulseDot = `
 @keyframes ac-pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
-.ac-dot { width:7px;height:7px;border-radius:50%;background:#dc2626;animation:ac-pulse 1s ease-in-out infinite; }
+.ac-dot { width:7px;height:7px;border-radius:50%;background:#b42318;animation:ac-pulse 1s ease-in-out infinite; }
 `;
 
 function formatTimeLeft(endsAt) {
