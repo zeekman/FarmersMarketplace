@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const db = require("../db/schema");
 const { ipKeyGenerator } = require("express-rate-limit");
 const rateLimit = require("express-rate-limit");
 const { verifyEmail, issueVerificationToken } = require("../services/emailVerificationService");
@@ -23,6 +24,7 @@ router.get("/verify-email", async (req, res) => {
   try {
     const { token } = req.query;
     if (!token) return res.status(400).json({ error: "Token is required." });
+    const result = await verifyEmail(db, token);
     const result = await verifyEmail(token);
     if (!result.ok) return res.status(400).json({ error: result.error });
     res.json({ message: "Email verified successfully. You may now log in." });
@@ -36,6 +38,12 @@ router.post("/resend-verification", resendVerificationLimiter, async (req, res) 
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Email is required." });
+    const { rows } = await db.query("SELECT * FROM users WHERE email = $1 LIMIT 1", [email.toLowerCase()]);
+    const user = rows[0];
+    if (!user || user.email_verified_at) {
+      return res.json({ message: "If eligible, a new verification email has been sent." });
+    }
+    const token = await issueVerificationToken(db, user.id);
 
     const { rows } = await db.query(
       `SELECT id, email, email_verified_at
