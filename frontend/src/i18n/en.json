@@ -155,6 +155,7 @@
     "submitting": "Submitting...",
     "reviewSubmitted": "Review submitted!",
     "noEligibleOrder": "No eligible paid order found for this product",
+    "ordersLoadError": "Couldn't load your orders — please try again",
     "farmersCannotOrder": "Farmers cannot place orders",
     "selectAddress": "Please select a delivery address",
     "freshFromFarm": "Fresh from the farm.",
