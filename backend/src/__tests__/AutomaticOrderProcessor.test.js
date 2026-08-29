@@ -14,13 +14,23 @@ jest.mock('../utils/stellar', () => ({
   getBalance: jest.fn(),
 }));
 
-// Mock the mailer utilities
+// Mock the mailer utilities (full surface so the shared jest.setup.js can stub them)
 jest.mock('../utils/mailer', () => ({
   sendOrderEmails: jest.fn(),
+  sendLowStockAlert: jest.fn(),
+  sendStatusUpdateEmail: jest.fn(),
+  sendBackInStockEmail: jest.fn(),
+  sendReturnEmail: jest.fn(),
+}));
+
+// Mock the Soroban escrow contract utility
+jest.mock('../utils/stellar-contracts', () => ({
+  invokeEscrowContract: jest.fn(),
 }));
 
 const { sendPayment, getBalance } = require('../utils/stellar');
 const { sendOrderEmails } = require('../utils/mailer');
+const { invokeEscrowContract } = require('../utils/stellar-contracts');
 
 describe('AutomaticOrderProcessor', () => {
   let processor;
@@ -195,6 +205,63 @@ describe('AutomaticOrderProcessor', () => {
       const result3 = await processor.createAutomaticOrder(mockWaitlistEntry, mockProduct, null);
       expect(result3.success).toBe(false);
       expect(result3.code).toBe('INVALID_INPUT');
+    });
+
+    test('should deposit into escrow when product uses Soroban escrow', async () => {
+      const escrowProduct = { ...mockProduct, use_soroban_escrow: true };
+      invokeEscrowContract.mockResolvedValue({ txHash: 'escrow_tx_hash', contractId: 'CESCROW' });
+
+      db.query
+        .mockResolvedValueOnce({ rows: [mockFarmer] }) // Get farmer
+        .mockResolvedValueOnce() // BEGIN transaction
+        .mockResolvedValueOnce({ rowCount: 1 }) // Update stock
+        .mockResolvedValueOnce({
+          rows: [{ id: 1001, ...mockWaitlistEntry, total_price: 21.0, status: 'pending' }],
+        }) // Insert order
+        .mockResolvedValueOnce() // Update order with escrow details
+        .mockResolvedValueOnce(); // COMMIT transaction
+
+      const result = await processor.createAutomaticOrder(mockWaitlistEntry, escrowProduct, mockBuyer);
+
+      expect(result.success).toBe(true);
+      expect(result.orderId).toBe(1001);
+      expect(result.txHash).toBe('escrow_tx_hash');
+      expect(result.escrowOrderId).toBe(1001);
+
+      // Direct payment must NOT be used for escrow products
+      expect(sendPayment).not.toHaveBeenCalled();
+      expect(invokeEscrowContract).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'deposit',
+          orderId: 1001,
+          buyerPublicKey: mockBuyer.stellar_public_key,
+          farmerPublicKey: mockFarmer.stellar_public_key,
+          amount: 21.0,
+          timeoutUnix: expect.any(Number),
+        })
+      );
+    });
+
+    test('should mark order escrow_failed when escrow deposit fails', async () => {
+      const escrowProduct = { ...mockProduct, use_soroban_escrow: true };
+      invokeEscrowContract.mockRejectedValue(new Error('contract reverted'));
+
+      db.query
+        .mockResolvedValueOnce({ rows: [mockFarmer] }) // Get farmer
+        .mockResolvedValueOnce() // BEGIN transaction
+        .mockResolvedValueOnce({ rowCount: 1 }) // Update stock
+        .mockResolvedValueOnce({
+          rows: [{ id: 1001, ...mockWaitlistEntry, total_price: 21.0, status: 'pending' }],
+        }) // Insert order
+        .mockResolvedValueOnce() // Mark order escrow_failed
+        .mockResolvedValueOnce() // Restore stock
+        .mockResolvedValueOnce(); // COMMIT transaction
+
+      const result = await processor.createAutomaticOrder(mockWaitlistEntry, escrowProduct, mockBuyer);
+
+      expect(result.success).toBe(false);
+      expect(result.code).toBe('ESCROW_FAILED');
+      expect(sendPayment).not.toHaveBeenCalled();
     });
   });
 

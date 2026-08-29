@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const db = require('../db/schema');
+const { monthBucket, sixMonthsAgo } = require('../db/dialect');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 
@@ -26,15 +27,14 @@ router.get('/farmer', async (req, res) => {
     [farmerId]
   );
 
-  const { rows: monthly } = await db.query(
-    `SELECT TO_CHAR(o.created_at, 'YYYY-MM') as month,
-            COALESCE(SUM(o.total_price), 0) as revenue, COUNT(*) as orders
-     FROM orders o JOIN products p ON o.product_id = p.id
-     WHERE p.farmer_id = $1 AND o.status = 'paid'
-       AND o.created_at >= NOW() - INTERVAL '6 months'
-     GROUP BY month ORDER BY month ASC`,
-    [farmerId]
-  );
+  const monthlyQuery = `SELECT ${monthBucket('o.created_at', db.isPostgres)} as month,
+          COALESCE(SUM(o.total_price), 0) as revenue, COUNT(*) as orders
+   FROM orders o JOIN products p ON o.product_id = p.id
+   WHERE p.farmer_id = $1 AND o.status = 'paid'
+     AND o.created_at >= ${sixMonthsAgo(db.isPostgres)}
+   GROUP BY month ORDER BY month ASC`;
+
+  const { rows: monthly } = await db.query(monthlyQuery, [farmerId]);
 
   res.json({
     success: true,

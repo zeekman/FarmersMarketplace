@@ -27,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Cache node_modules
         uses: actions/cache@v4
@@ -55,7 +55,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Cache node_modules
         uses: actions/cache@v4
@@ -70,6 +70,67 @@ jobs:
 
       - name: Run lint
         run: npm run lint
+
+  frontend-bundle-size:
+    name: Frontend Bundle Size Budget
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-frontend-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-frontend-
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Check bundle size budgets
+        # BUNDLE_INITIAL_BUDGET_KB: max KiB for vendor+index (initial load, uncompressed)
+        # BUNDLE_TOTAL_BUDGET_KB:   max KiB for all JS chunks combined (uncompressed)
+        # Raise these intentionally and document the reason — never bump silently.
+        env:
+          BUNDLE_INITIAL_BUDGET_KB: 500
+          BUNDLE_TOTAL_BUDGET_KB: 5000
+        run: node scripts/check-bundle-size.js
+
+      - name: Upload bundle size report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-bundle-size
+          path: frontend/dist/assets/*.js
+          retention-days: 30
+
+  smoke-test-testnet:
+    name: Escrow Testnet Smoke Test
+    # Only on merges to main — this touches live Stellar Testnet, not on every PR.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts/escrow
+    env:
+      ORDER_ID: ${{ github.run_id }}
+      STELLAR_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
         env:
           ESLINT_USE_FLAT_CONFIG: 'false'
 
@@ -82,8 +143,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust wasm32 target
-        run: rustup target add wasm32-unknown-unknown
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -92,15 +155,25 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-contracts-${{ hashFiles('contracts/Cargo.lock', 'contracts/Cargo.toml', 'contracts/**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-contracts-
+
+      - name: Run escrow tests
+        run: cargo test -p soroban-escrow --lib
 
       - name: Run creator-earnings tests
         run: cargo test -p creator-earnings --features testutils
 
-      - name: Build creator-earnings WASM release
-        run: cargo build -p creator-earnings --target wasm32-unknown-unknown --release
+      - name: Profile contracts WASM binary sizes
+        run: bash wasm-profile.sh | tee contracts-wasm-profile.txt
+
+      - name: Upload contracts size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: contracts-wasm-size-profile
+          path: contracts/contracts-wasm-profile.txt
+          retention-days: 30
 
   contract-tests-nightly:
     name: Contract Tests (nightly, Docker)
@@ -131,7 +204,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
         run: npm install
@@ -141,8 +214,6 @@ jobs:
 
   wasm-size-profile:
     name: WASM Size Profile (nightly)
-  escrow-rust-tests:
-    name: Escrow Contract Rust Tests (nightly)
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule'
     steps:
@@ -153,6 +224,20 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            contracts/escrow/target
+          key: ${{ runner.os }}-escrow-smoke-${{ hashFiles('contracts/escrow/Cargo.lock') }}
+
+      - name: Install Stellar CLI
+        run: command -v stellar >/dev/null || cargo install --locked stellar-cli
+
+      - name: Run smoke test (deposit -> release -> verify Horizon event)
+        run: ./cli.sh smoke-test
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
@@ -160,31 +245,34 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contract/target
-          key: ${{ runner.os }}-cargo-contract-${{ hashFiles('contract/Cargo.toml', 'contract/reward-token/Cargo.toml') }}
+            contracts/target
+          key: ${{ runner.os }}-cargo-wasm-profile-${{ hashFiles('contract/Cargo.toml', 'contract/reward-token/Cargo.toml', 'contracts/Cargo.lock', 'contracts/Cargo.toml', 'contracts/**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-contract-
+            ${{ runner.os }}-cargo-wasm-profile-
 
-      - name: Profile WASM binary sizes
-        run: bash contract/wasm-profile.sh | tee wasm-profile.txt
+      - name: Profile legacy contract WASM binary sizes
+        run: bash contract/wasm-profile.sh | tee legacy-wasm-profile.txt
+
+      - name: Profile workspace contract WASM binary sizes
+        run: bash contracts/wasm-profile.sh | tee contracts-wasm-profile.txt
 
       - name: Write job summary
         run: |
           echo "## WASM Binary Size Profile" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Legacy contract/" >> "$GITHUB_STEP_SUMMARY"
           echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
-          cat wasm-profile.txt >> "$GITHUB_STEP_SUMMARY"
+          cat legacy-wasm-profile.txt >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Workspace contracts/" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          cat contracts-wasm-profile.txt >> "$GITHUB_STEP_SUMMARY"
           echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload size report
         uses: actions/upload-artifact@v4
         with:
           name: wasm-size-profile
-          path: wasm-profile.txt
+          path: |
+            legacy-wasm-profile.txt
+            contracts-wasm-profile.txt
           retention-days: 30
-            contracts/escrow/target
-          key: ${{ runner.os }}-cargo-escrow-${{ hashFiles('contracts/escrow/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-escrow-
-
-      - name: Run escrow contract Rust tests
-        working-directory: contracts/escrow
-        run: cargo test

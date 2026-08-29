@@ -61,10 +61,15 @@ const EnvSchema = z.object({
   SOROBAN_XLM_TOKEN_CONTRACT_ID: z.string().optional(),
   SOROBAN_SIMULATION_SOURCE_PUBLIC_KEY: z.string().optional(),
   SOROBAN_ESCROW_TIMEOUT_DAYS: z.coerce.number().int().positive().default(14),
+  SOROBAN_CREATOR_EARNINGS_CONTRACT_ID: z.string().optional(),
 
   // Reward token contract
   REWARD_TOKEN_CONTRACT_ID: z.string().optional(),
   REWARD_TOKEN_ADMIN_SECRET: z.string().optional(),
+
+  // Reward token classic Stellar asset (for trustline UI)
+  REWARD_TOKEN_CODE: z.string().optional().default('FRT'),
+  REWARD_TOKEN_ISSUER: z.string().optional(),
 
   // DEX / order book
   USDC_ISSUER: z.string().default('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'),
@@ -79,6 +84,9 @@ const EnvSchema = z.object({
 
   // Geo API
   GEO_API_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
+
+  // Freshness alerts
+  FRESHNESS_ALERT_DAYS: z.coerce.number().int().positive().default(3),
 });
 
 let env;
@@ -113,8 +121,11 @@ const config = {
   sorobanXlmTokenContractId: env.SOROBAN_XLM_TOKEN_CONTRACT_ID || null,
   sorobanSimulationSourcePublicKey: env.SOROBAN_SIMULATION_SOURCE_PUBLIC_KEY || null,
   sorobanEscrowTimeoutDays: env.SOROBAN_ESCROW_TIMEOUT_DAYS,
+  sorobanCreatorEarningsContractId: env.SOROBAN_CREATOR_EARNINGS_CONTRACT_ID || null,
   rewardTokenContractId: env.REWARD_TOKEN_CONTRACT_ID || null,
   rewardTokenAdminSecret: env.REWARD_TOKEN_ADMIN_SECRET || null,
+  rewardTokenCode: env.REWARD_TOKEN_CODE || 'FRT',
+  rewardTokenIssuer: env.REWARD_TOKEN_ISSUER || null,
   usdcIssuer: env.USDC_ISSUER,
 
   // Origins / federation
@@ -127,6 +138,7 @@ const config = {
   databaseUrl: env.DATABASE_URL || null,
   redisUrl: env.REDIS_URL || null,
   GEO_API_TIMEOUT_MS: env.GEO_API_TIMEOUT_MS,
+  freshnessAlertDays: env.FRESHNESS_ALERT_DAYS,
 };
 
 module.exports = config;

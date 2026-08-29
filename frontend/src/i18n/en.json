@@ -208,5 +208,9 @@
     "errors": "Errors",
     "row": "Row {{n}}",
     "andMore": "...and {{n}} more errors"
+  },
+  "pagination": {
+    "resultCount_one": "{{count}} result",
+    "resultCount_other": "{{count}} results"
   }
 }

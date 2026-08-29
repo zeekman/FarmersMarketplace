@@ -158,14 +158,63 @@ async function processProduct(product, cutoff) {
   }
 }
 
-function startExpiryJob() {
+function startSchedulingJob() {
   // Run daily at 02:00 UTC
   cron.schedule('0 2 * * *', () => {
-    deactivateExpiredProducts().catch((err) =>
+    runSchedulingJob().catch((err) =>
       logger.error('[expiry-job] Job error', { message: err.message })
     );
   }, { timezone: 'UTC' });
   logger.info('[expiry-job] Cron job scheduled (daily at 02:00 UTC)');
 }
 
-module.exports = { startExpiryJob, deactivateExpiredProducts, todayUTC };
+const startExpiryJob = startSchedulingJob;
+
+/**
+ * Reactivate products where active=false AND available_from <= now AND
+ * (available_until IS NULL OR available_until >= now).
+ *
+ * @param {Date} [date] - Date to use as "now"; defaults to current time.
+ * @returns {Promise<{reactivated: number}>}
+ */
+async function reactivateScheduledProducts(date) {
+  const now = date ? new Date(date).toISOString() : new Date().toISOString();
+
+  let reactivated;
+  if (db.isPostgres) {
+    const { rowCount } = await db.query(
+      `UPDATE products
+       SET active = true
+       WHERE active = false
+         AND available_from <= $1
+         AND (available_until IS NULL OR available_until >= $1)`,
+      [now]
+    );
+    reactivated = rowCount;
+  } else {
+    const { rowCount } = await db.query(
+      `UPDATE products
+       SET active = 1
+       WHERE active = 0
+         AND available_from <= ?
+         AND (available_until IS NULL OR available_until >= ?)`,
+      [now, now]
+    );
+    reactivated = rowCount;
+  }
+
+  logger.info('[scheduling-job] Reactivated scheduled products', { reactivated });
+  return { reactivated };
+}
+
+/**
+ * Run the full scheduling job: deactivate expired products and reactivate
+ * products whose available_from window has started.
+ */
+async function runSchedulingJob(date) {
+  const expiry = await deactivateExpiredProducts(date);
+  const activation = await reactivateScheduledProducts(date ? new Date(date) : undefined);
+  return { ...expiry, reactivated: activation.reactivated };
+}
+
+module.exports = { startSchedulingJob, startExpiryJob, runSchedulingJob, deactivateExpiredProducts, reactivateScheduledProducts, todayUTC };

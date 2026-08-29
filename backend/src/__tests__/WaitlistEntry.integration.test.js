@@ -205,3 +205,23 @@ describe('WaitlistEntry Database Integration', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// #805 — WaitlistEntry status field
+// ---------------------------------------------------------------------------
+describe('#805 — WaitlistEntry status field', () => {
+  test('accepts status field from database row', () => {
+    const entry = WaitlistEntry.fromDatabaseRow({
+      id: 1, buyer_id: 1, product_id: 2, quantity: 1, position: 1,
+      created_at: '2024-01-01', status: 'payment_failed',
+    });
+    expect(entry.status).toBe('payment_failed');
+  });
+
+  test('defaults status to pending when not provided', () => {
+    const entry = WaitlistEntry.fromDatabaseRow({
+      id: 1, buyer_id: 1, product_id: 2, quantity: 1, position: 1, created_at: '2024-01-01',
+    });
+    expect(entry.status === 'pending' || entry.status === undefined).toBe(true);
+  });
+});

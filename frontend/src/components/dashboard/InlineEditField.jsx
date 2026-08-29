@@ -6,7 +6,7 @@ import React, { useState, useRef, useEffect } from 'react';
  * - Escape       → cancel, restore original value
  * - onSave must return a Promise; on rejection it reverts + calls onError(msg)
  */
-export default function InlineEditField({ value, type = 'number', min, step = 'any', format, onSave, onError, style }) {
+export default function InlineEditField({ value, type = 'number', min, max, step = 'any', format, onSave, onError, style }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
@@ -28,7 +28,12 @@ export default function InlineEditField({ value, type = 'number', min, step = 'a
 
   async function commit() {
     const parsed = type === 'number' ? parseFloat(draft) : draft;
-    if (type === 'number' && (isNaN(parsed) || (min !== undefined && parsed < min))) {
+    if (
+      type === 'number' &&
+      (isNaN(parsed) ||
+        (min !== undefined && parsed < min) ||
+        (max !== undefined && parsed > max))
+    ) {
       cancel();
       return;
     }
@@ -44,7 +49,8 @@ export default function InlineEditField({ value, type = 'number', min, step = 'a
   }
 
   function handleKeyDown(e) {
-    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); commit(); }
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Tab') { commit(); }
     if (e.key === 'Escape') cancel();
   }
 
@@ -70,6 +76,7 @@ export default function InlineEditField({ value, type = 'number', min, step = 'a
       ref={inputRef}
       type={type}
       min={min}
+      max={max}
       step={step}
       value={draft}
       disabled={saving}

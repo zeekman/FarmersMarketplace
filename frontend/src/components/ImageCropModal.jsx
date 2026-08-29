@@ -10,15 +10,82 @@ function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
 const HANDLE_ORDER = ['body', 'tl', 'tr', 'bl', 'br'];
 
+const FOCUSABLE_SELECTORS = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
 export default function ImageCropModal({ src, onConfirm, onCancel, isGalleryImage = false }) {
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
+  const dialogRef = useRef(null);
+  // Store the element that opened the modal so we can return focus on close
+  const triggerRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
   const [crop, setCrop] = useState({ x: 0, y: 0, w: 0, h: 0 });
   const [aspectLocked, setAspectLocked] = useState(true);
   const [validationError, setValidationError] = useState(null);
   const [activeHandle, setActiveHandle] = useState('body');
   const drag = useRef(null);
+
+  // Capture the triggering element and move focus into the modal on mount
+  useEffect(() => {
+    triggerRef.current = document.activeElement;
+    // Focus the dialog container so screen readers announce the dialog
+    if (dialogRef.current) {
+      dialogRef.current.focus();
+    }
+    return () => {
+      // Return focus to trigger on unmount
+      if (triggerRef.current && typeof triggerRef.current.focus === 'function') {
+        triggerRef.current.focus();
+      }
+    };
+  }, []);
+
+  // Focus trap: intercept Tab / Shift+Tab at the document level to keep
+  // focus inside the dialog while it is open.
+  useEffect(() => {
+    function trapFocus(e) {
+      if (e.key !== 'Tab') return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+
+      const focusable = Array.from(dialog.querySelectorAll(FOCUSABLE_SELECTORS));
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first || document.activeElement === dialog) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last || document.activeElement === dialog) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    document.addEventListener('keydown', trapFocus);
+    return () => document.removeEventListener('keydown', trapFocus);
+  }, []);
+
+  // Close on Escape
+  useEffect(() => {
+    function onEscape(e) {
+      if (e.key === 'Escape') onCancel();
+    }
+    document.addEventListener('keydown', onEscape);
+    return () => document.removeEventListener('keydown', onEscape);
+  }, [onCancel]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -126,8 +193,10 @@ export default function ImageCropModal({ src, onConfirm, onCancel, isGalleryImag
 
   function onUp() { drag.current = null; }
 
-  function handleKeyDown(e) {
+  function handleCanvasKeyDown(e) {
     if (e.key === 'Tab') {
+      // Tab on the canvas cycles crop handles; the document-level trap
+      // handles Tab on all other focusable elements.
       e.preventDefault();
       setActiveHandle(current => {
         const idx = HANDLE_ORDER.indexOf(current);
@@ -225,8 +294,17 @@ export default function ImageCropModal({ src, onConfirm, onCancel, isGalleryImag
   const handleLabel = { body: 'Move crop', tl: 'Top-left handle', tr: 'Top-right handle', bl: 'Bottom-left handle', br: 'Bottom-right handle' };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
-      <div style={{ background: '#fff', borderRadius: 14, padding: 24, maxWidth: 540, width: '95%', boxShadow: '0 8px 32px #0004' }}>
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Crop Image"
+        tabIndex={-1}
+        style={{ background: '#fff', borderRadius: 14, padding: 24, maxWidth: 540, width: '95%', boxShadow: '0 8px 32px #0004', outline: 'none' }}
+      >
         <div style={{ fontWeight: 700, fontSize: 16, color: '#2d6a4f', marginBottom: 12 }}>Crop Image</div>
         <div style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>
           Drag the box to move · drag a corner to resize · Tab cycles handles · arrow keys nudge
@@ -256,14 +334,14 @@ export default function ImageCropModal({ src, onConfirm, onCancel, isGalleryImag
             style={{ display: 'block', cursor: 'crosshair', touchAction: 'none', maxWidth: '100%', outline: 'none' }}
             onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
             onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}
-            onKeyDown={handleKeyDown}
+            onKeyDown={handleCanvasKeyDown}
           />
         </div>
 
         <img ref={imgRef} src={src} onLoad={onImgLoad} style={{ display: 'none' }} alt="" />
 
         {validationError && (
-          <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 12, padding: '8px 12px', background: '#fef2f2', borderRadius: 6, border: '1px solid #fecaca' }}>
+          <div role="alert" style={{ color: '#dc2626', fontSize: 13, marginBottom: 12, padding: '8px 12px', background: '#fef2f2', borderRadius: 6, border: '1px solid #fecaca' }}>
             {validationError}
           </div>
         )}

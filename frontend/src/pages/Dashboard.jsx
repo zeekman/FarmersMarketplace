@@ -8,9 +8,15 @@ import { getErrorMessage } from '../utils/errorMessages';
 import { showToast } from '../utils/toast';
 import ProductForm from '../components/dashboard/ProductForm';
 import InlineEditField from '../components/dashboard/InlineEditField';
-import { showToast } from '../utils/toast';
 import FlashSaleManager from '../components/dashboard/FlashSaleManager';
 import AuctionManager from '../components/dashboard/AuctionManager';
+import WaitlistAnalyticsPanel from '../components/dashboard/WaitlistAnalyticsPanel';
+import BulkPricePanel from '../components/dashboard/BulkPricePanel';
+import CouponManager from '../components/dashboard/CouponManager';
+import CreatorEarningsPanel from '../components/dashboard/CreatorEarningsPanel';
+import OrderManagementPanel from '../components/dashboard/OrderManagementPanel';
+import BundleDiscountPanel from '../components/dashboard/BundleDiscountPanel';
+import PendingMultisigPanel from '../components/dashboard/PendingMultisigPanel';
 
 const s = {
   page: { maxWidth: 900, margin: '0 auto', padding: 16 },
@@ -77,6 +83,33 @@ const s = {
     fontSize: 12,
   },
   msg: { padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 14 },
+};
+
+const EMPTY_FORM = {
+  name: '',
+  description: '',
+  price: '',
+  quantity: '',
+  unit: 'kg',
+  category: 'other',
+  min_order_quantity: '',
+  batch_id: '',
+  pricing_type: 'unit',
+  min_weight: '',
+  max_weight: '',
+  pricing_model: 'fixed',
+  min_price: '',
+  is_preorder: false,
+  preorder_delivery_date: '',
+  allergens: [],
+  allowed_regions: [],
+  nutrition: {
+    calories: '',
+    protein: '',
+    carbs: '',
+    fat: '',
+    fiber: '',
+    vitamins: {},
   preview: {
     width: '100%',
     maxHeight: 240,
@@ -171,7 +204,6 @@ const s = {
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE_MB = 5;
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
-const MAX_IMAGES = 6;
 
 const STATUS_COLOR = {
   pending: '#e67e22',
@@ -212,10 +244,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // bulk price update state
-  const [bulkPriceSelections, setBulkPriceSelections] = useState({}); // { [productId]: newPrice }
-  const [bulkAdjustPct, setBulkAdjustPct] = useState('');
-  const [bulkPriceMsg, setBulkPriceMsg] = useState(null);
+  // Creator earnings
+  const [earnings, setEarnings] = useState(null);
+  const [claiming, setClaiming] = useState(false);
+  const [claimMsg, setClaimMsg] = useState(null);
 
   // bundle state
   const [bundles, setBundles] = useState([]);
@@ -265,17 +297,6 @@ export default function Dashboard() {
   // QR code modal state
   const [qrProductId, setQrProductId] = useState(null);
   const [qrProductName, setQrProductName] = useState('');
-
-  // Coupon state
-  const [coupons, setCoupons] = useState([]);
-  const [couponForm, setCouponForm] = useState({
-    code: '',
-    discount_type: 'percent',
-    discount_value: '',
-    max_uses: '',
-    expires_at: '',
-  });
-  const [couponMsg, setCouponMsg] = useState(null);
 
   // Price tiers state
   const [tiersProductId, setTiersProductId] = useState(null);
@@ -387,7 +408,6 @@ export default function Dashboard() {
         salesRes,
         profileRes,
         bundlesRes,
-        couponsRes,
         coopsRes,
         batchesRes,
         forecastRes,
@@ -396,7 +416,6 @@ export default function Dashboard() {
         api.getSales().catch(() => ({ data: [] })),
         user?.id ? api.getFarmer(user.id).catch(() => ({})) : Promise.resolve({}),
         api.getBundles().catch(() => ({ data: [] })),
-        api.getMyCoupons().catch(() => ({ data: [] })),
         api.getCooperatives().catch(() => ({ data: [] })),
         api.getHarvestBatches().catch(() => ({ data: [] })),
         api.getForecast().catch(() => ({ data: [] })),
@@ -406,7 +425,6 @@ export default function Dashboard() {
       setSales(salesRes.data ?? salesRes);
       setBundles((bundlesRes.data ?? []).filter((b) => b.farmer_id === user?.id));
       setHarvestBatches(batchesRes?.data ?? []);
-      setCoupons(couponsRes.data ?? []);
       const coops = coopsRes.data ?? [];
       setCooperatives(coopsRes.data ?? []);
 
@@ -460,6 +478,86 @@ export default function Dashboard() {
 
   useEffect(() => {
     load();
+    // Load current profile
+    if (user?.id) {
+      api.getFarmer(user.id)
+        .then(res => {
+          const d = res.data;
+          setProfile({ bio: d.bio || '', location: d.location || '', avatar_url: d.avatar_url || '', federation_name: d.federation_name || '', latitude: d.latitude ?? '', longitude: d.longitude ?? '', farm_address: d.farm_address || '' });
+          if (d.avatar_url) setAvatarPreview(d.avatar_url);
+        })
+        .catch(() => {});
+    }
+    if (typeof api.getCreatorEarnings === 'function') {
+      api.getCreatorEarnings().then(res => setEarnings(res.data ?? res)).catch(() => {});
+    }
+  }, [user?.id]);
+
+  async function handleClaimEarnings() {
+    setClaiming(true);
+    setClaimMsg(null);
+    try {
+      await api.claimCreatorEarnings();
+      setEarnings(prev => (prev ? { ...prev, balance: 0 } : prev));
+      setClaimMsg({ type: 'ok', text: 'Earnings claimed successfully.' });
+    } catch (e) {
+      setClaimMsg({ type: 'err', text: getErrorMessage(e) });
+    } finally {
+      setClaiming(false);
+    }
+  }
+
+  async function handleCreateBatch(e) {
+    e?.preventDefault?.();
+    setBatchMsg(null);
+    const code = batchForm.batch_code.trim();
+    const date = batchForm.harvest_date.trim();
+    if (!code || !date) {
+      setBatchMsg({ type: 'err', text: 'Batch code and harvest date are required.' });
+      return;
+    }
+    try {
+      await api.createHarvestBatch({
+        batch_code: code,
+        harvest_date: date,
+        notes: batchForm.notes.trim() || undefined,
+      });
+      setBatchForm({ batch_code: '', harvest_date: '', notes: '' });
+      setBatchMsg({ type: 'ok', text: 'Harvest batch created.' });
+      await load();
+    } catch (err) {
+      setBatchMsg({ type: 'err', text: getErrorMessage(err) });
+    }
+  }
+
+  function validateAndSetImage(file) {
+    setImageErr('');
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setImageErr('Only JPEG, PNG, or WebP images are allowed.');
+      return false;
+    }
+    if (file.size > MAX_SIZE_BYTES) {
+      setImageErr(`Image must be ${MAX_SIZE_MB} MB or smaller.`);
+      return false;
+    }
+    setImageFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setImageUrl(null); // reset confirmed URL until uploaded
+    return true;
+  }
+
+  function handleFileChange(e) {
+    const file = e.target.files?.[0];
+    if (file) validateAndSetImage(file);
+    e.target.value = ''; // allow re-selecting same file
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) validateAndSetImage(file);
+  }
   }, [user?.id]);
 
   useEffect(() => {
@@ -531,6 +629,74 @@ export default function Dashboard() {
     }
   }
 
+  async function handleAdd(e) {
+    e.preventDefault();
+    setMsg(null);
+    const newErrors = {};
+    if (form.is_preorder) {
+      if (!form.preorder_delivery_date) {
+        newErrors.preorder_delivery_date = 'Date must be in YYYY-MM-DD format';
+      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(form.preorder_delivery_date)) {
+        newErrors.preorder_delivery_date = 'Date must be in YYYY-MM-DD format';
+      }
+    }
+    if (Object.keys(newErrors).length > 0) { setFormErrors(newErrors); return; }
+    setFormErrors({});
+    let finalImageUrl = imageUrl;
+
+    if (imageFile) {
+      setUploading(true);
+      try {
+        const res = await api.uploadImage(imageFile);
+        finalImageUrl = res.imageUrl;
+      } catch (err) {
+        setUploading(false);
+        setMsg({ type: 'err', text: `Image upload failed: ${err.message}` });
+        return;
+      }
+      setUploading(false);
+    }
+
+    try {
+      // Prepare nutrition data
+      const nutritionData = {};
+      if (form.nutrition.calories) nutritionData.calories = parseFloat(form.nutrition.calories);
+      if (form.nutrition.protein) nutritionData.protein = parseFloat(form.nutrition.protein);
+      if (form.nutrition.carbs) nutritionData.carbs = parseFloat(form.nutrition.carbs);
+      if (form.nutrition.fat) nutritionData.fat = parseFloat(form.nutrition.fat);
+      if (form.nutrition.fiber) nutritionData.fiber = parseFloat(form.nutrition.fiber);
+
+      const batchId = form.batch_id ? parseInt(form.batch_id, 10) : undefined;
+
+      await api.createProduct({
+        ...form,
+        price: parseFloat(form.price),
+        quantity: parseInt(form.quantity),
+        pricing_model: form.pricing_model,
+        min_price: form.pricing_model === 'pwyw' ? parseFloat(form.min_price) : undefined,
+        is_preorder: form.is_preorder ? 1 : 0,
+        preorder_delivery_date: form.is_preorder ? form.preorder_delivery_date : null,
+        image_url: finalImageUrl || undefined,
+        nutrition: Object.keys(nutritionData).length > 0 ? nutritionData : undefined,
+        pricing_type: form.pricing_type || 'unit',
+        min_weight: form.pricing_type === 'weight' ? parseFloat(form.min_weight) : undefined,
+        max_weight: form.pricing_type === 'weight' ? parseFloat(form.max_weight) : undefined,
+        min_order_quantity: form.min_order_quantity ? parseInt(form.min_order_quantity) : undefined,
+        allergens: form.allergens && form.allergens.length > 0 ? form.allergens : undefined,
+        allowed_regions: form.allowed_regions && form.allowed_regions.length > 0 ? form.allowed_regions : undefined,
+        available_from: form.available_from || undefined,
+        available_until: form.available_until || undefined,
+        batch_id: Number.isFinite(batchId) ? batchId : undefined,
+      });
+      setMsg({ type: 'ok', text: t('dashboard.productListedOk') });
+      setForm({ ...EMPTY_FORM });
+      removeImage();
+      load();
+    } catch (err) {
+      setMsg({ type: 'err', text: err.message });
+    }
+  }
+
   async function handleDelete(id) {
     const product = products.find((p) => p.id === id);
     if (!product) return;
@@ -553,11 +719,6 @@ export default function Dashboard() {
 
   const [salesExportFrom, setSalesExportFrom] = React.useState('');
   const [salesExportTo, setSalesExportTo] = React.useState('');
-
-  function triggerExport(path) {
-    const token = localStorage.getItem('token');
-    window.location.href = `/api${path}&_token=${encodeURIComponent(token || '')}`;
-  }
 
   function exportProducts(format) {
     const token = localStorage.getItem('token');
@@ -593,41 +754,6 @@ export default function Dashboard() {
         }).click();
         URL.revokeObjectURL(url);
       });
-  }
-
-  async function handleBulkPriceUpdate() {
-    setBulkPriceMsg(null);
-    const updates = Object.entries(bulkPriceSelections)
-      .filter(([, price]) => price !== '')
-      .map(([id, price]) => ({ id: Number(id), price: parseFloat(price) }));
-
-    if (updates.length === 0 && bulkAdjustPct === '') {
-      setBulkPriceMsg({
-        type: 'err',
-        text: 'Select products and enter prices, or enter a % adjustment.',
-      });
-      return;
-    }
-
-    const adjustmentPercent = bulkAdjustPct !== '' ? parseFloat(bulkAdjustPct) : undefined;
-    const payload =
-      adjustmentPercent != null
-        ? { updates: products.map((p) => ({ id: p.id })), adjustment_percent: adjustmentPercent }
-        : { updates };
-
-    try {
-      const res = await api.bulkUpdatePrices(payload.updates, payload.adjustment_percent);
-      const { updated, failed } = res.data;
-      setBulkPriceMsg({
-        type: 'ok',
-        text: `Updated ${updated.length} product(s).${failed.length ? ` ${failed.length} failed.` : ''}`,
-      });
-      setBulkPriceSelections({});
-      setBulkAdjustPct('');
-      load();
-    } catch (e) {
-      setBulkPriceMsg({ type: 'err', text: e.message || 'Bulk update failed' });
-    }
   }
 
   async function handleInlineSave(productId, field, newValue) {
@@ -666,6 +792,74 @@ export default function Dashboard() {
       load();
     } catch (e) {
       setSalesMsg((prev) => ({ ...prev, [orderId]: { type: 'err', text: e.message } }));
+    }
+  }
+
+  async function handleApproveReturn(orderId) {
+    try {
+      await api.approveReturn(orderId);
+      setSalesMsg((prev) => ({ ...prev, [orderId]: { type: 'ok', text: 'Return approved — refund sent' } }));
+      load();
+    } catch (e) {
+      setSalesMsg((prev) => ({ ...prev, [orderId]: { type: 'err', text: e.message } }));
+    }
+  }
+
+  async function handleRejectReturn(orderId) {
+    const reason = window.prompt('Reason for rejection (optional):');
+    if (reason === null) return;
+    try {
+      await api.rejectReturn(orderId, reason);
+      setSalesMsg((prev) => ({ ...prev, [orderId]: { type: 'ok', text: 'Return rejected' } }));
+      load();
+    } catch (e) {
+      setSalesMsg((prev) => ({ ...prev, [orderId]: { type: 'err', text: e.message } }));
+    }
+  }
+
+  function handleBundleDiscountFormChange(field, value) {
+    setBdForm((f) => ({ ...f, [field]: value }));
+  }
+
+  async function handleBundleDiscountSubmit(e) {
+    e.preventDefault();
+    setBdMsg(null);
+    try {
+      await api.createBundleDiscount({
+        min_products: parseInt(bdForm.min_products, 10),
+        discount_percent: parseFloat(bdForm.discount_percent),
+      });
+      setBdForm({ min_products: '', discount_percent: '' });
+      const res = await api.getBundleDiscounts();
+      setBundleDiscounts(res.data ?? []);
+      setBdMsg({ type: 'ok', text: 'Discount tier added.' });
+    } catch (err) {
+      setBdMsg({ type: 'error', text: err.message });
+    }
+  }
+
+  async function handleBundleDiscountDelete(id) {
+    if (!confirm('Delete this discount tier?')) return;
+    try {
+      await api.deleteBundleDiscount(id);
+      const res = await api.getBundleDiscounts();
+      setBundleDiscounts(res.data ?? []);
+    } catch (err) {
+      setBdMsg({ type: 'error', text: err.message });
+    }
+  }
+
+  async function handleSignPendingTx(txId) {
+    setSigningTxId(txId);
+    try {
+      const res = await api.signPendingTx(txId);
+      if (res.submitted) alert(`✅ Transaction submitted! TX: ${res.txHash}`);
+      else alert(`Signature added (${res.signaturesCollected}/${res.required} required)`);
+      load();
+    } catch (e) {
+      alert(`Error: ${e.message}`);
+    } finally {
+      setSigningTxId(null);
     }
   }
 
@@ -923,144 +1117,52 @@ export default function Dashboard() {
       </div>
 
       {/* Waitlist Analytics */}
-      {waitlistAnalytics.length > 0 && (
-        <div style={{ ...s.card, marginBottom: 24 }}>
-          <h3 style={{ marginBottom: 12, color: '#333' }}>📋 Waitlist Analytics</h3>
-          {waitlistAnalytics.some((r) => r.alert) && (
-            <div
-              style={{
-                background: '#fff3cd',
-                color: '#856404',
-                borderRadius: 8,
-                padding: '10px 14px',
-                marginBottom: 12,
-                fontSize: 14,
-                fontWeight: 600,
-              }}
-            >
-              ⚠️ Some products have more than 10 buyers waiting — consider restocking!
-            </div>
-          )}
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #eee' }}>
-                <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>Product</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>Queue</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>
-                  Avg Wait (hrs)
-                </th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>Conversion</th>
-              </tr>
-            </thead>
-            <tbody>
-              {waitlistAnalytics.map((r) => (
-                <tr
-                  key={r.product_id}
-                  style={{
-                    borderBottom: '1px solid #f0f0f0',
-                    background: r.alert ? '#fff8e1' : 'transparent',
-                  }}
-                >
-                  <td style={{ padding: '6px 8px', fontWeight: 600 }}>
-                    {r.product_name}
-                    {r.alert && (
-                      <span
-                        style={{
-                          marginLeft: 6,
-                          fontSize: 11,
-                          background: '#f9a825',
-                          color: '#fff',
-                          borderRadius: 4,
-                          padding: '1px 6px',
-                        }}
-                      >
-                        High demand
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ padding: '6px 8px' }}>{r.queue_length}</td>
-                  <td style={{ padding: '6px 8px' }}>
-                    {r.avg_wait_hours != null ? r.avg_wait_hours : '—'}
-                  </td>
-                  <td style={{ padding: '6px 8px' }}>
-                    {r.conversion_rate != null ? `${r.conversion_rate}%` : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <WaitlistAnalyticsPanel rows={waitlistAnalytics} />
 
+      <CreatorEarningsPanel
+        earnings={earnings}
+        claiming={claiming}
+        claimMsg={claimMsg}
+        onClaim={handleClaimEarnings}
+      />
+
+      <div style={{ ...s.card, marginBottom: 24 }}>
+        <h3 style={{ marginBottom: 12, color: '#333' }}>Flash Sales</h3>
+        {flashSaleMsg && <div role={flashSaleMsg.type === 'ok' ? 'status' : 'alert'} style={{ ...s.msg, background: flashSaleMsg.type === 'ok' ? '#d8f3dc' : '#fee', color: flashSaleMsg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>{flashSaleMsg.text}</div>}
+        <form onSubmit={handleSetFlashSale} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 10, alignItems: 'end' }}>
+          <div>
+            <label style={s.label}>Product</label>
+            <select style={s.input} value={flashSaleForm.product_id} onChange={(e) => setFlashSaleForm((f) => ({ ...f, product_id: e.target.value }))} required>
+              <option value="">Select product</option>
+              {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={s.label}>Flash Price (XLM)</label>
+            <input style={s.input} type="number" min="0" step="any" required value={flashSaleForm.flash_sale_price} onChange={(e) => setFlashSaleForm((f) => ({ ...f, flash_sale_price: e.target.value }))} />
+          </div>
+          <div>
+            <label style={s.label}>Ends At</label>
+            <input style={s.input} type="datetime-local" required value={flashSaleForm.flash_sale_ends_at} onChange={(e) => setFlashSaleForm((f) => ({ ...f, flash_sale_ends_at: e.target.value }))} />
+          </div>
+          <button type="submit" style={s.btn}>Set Flash Sale</button>
+        </form>
+
+        <div style={{ marginTop: 14 }}>
+          {products.filter((p) => p.flash_sale_price && p.flash_sale_ends_at).map((p) => (
+            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #eee', paddingTop: 10, marginTop: 10 }}>
+              <div style={{ fontSize: 14 }}>
+                <strong>{p.name}</strong> - {p.flash_sale_price} XLM until {new Date(p.flash_sale_ends_at).toLocaleString()}
+              </div>
+              <button type="button" style={{ ...s.btn, background: '#c0392b' }} onClick={() => handleCancelFlashSale(p.id)}>Cancel</button>
+            </div>
+          ))}
+        </div>
+      </div>
       <FlashSaleManager products={products} onChanged={load} />
 
       {/* Bulk Price Update */}
-      <div style={{ ...s.card, marginBottom: 24 }}>
-        <h3 style={{ marginBottom: 12, color: '#333' }}>💰 Bulk Price Update</h3>
-        {bulkPriceMsg && (
-          <div
-            style={{
-              ...s.msg,
-              background: bulkPriceMsg.type === 'ok' ? '#d8f3dc' : '#fee',
-              color: bulkPriceMsg.type === 'ok' ? '#2d6a4f' : '#c0392b',
-            }}
-          >
-            {bulkPriceMsg.text}
-          </div>
-        )}
-        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <label style={{ ...s.label, marginBottom: 0 }}>% Adjustment (all products):</label>
-          <input
-            style={{ ...s.input, width: 100, marginBottom: 0 }}
-            type="number"
-            step="any"
-            placeholder="e.g. +10"
-            value={bulkAdjustPct}
-            onChange={(e) => setBulkAdjustPct(e.target.value)}
-          />
-          <span style={{ fontSize: 13, color: '#888' }}>or set individual prices below</span>
-        </div>
-        <table
-          style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, marginBottom: 12 }}
-        >
-          <thead>
-            <tr style={{ borderBottom: '2px solid #eee' }}>
-              <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>Product</th>
-              <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>
-                Current Price (XLM)
-              </th>
-              <th style={{ textAlign: 'left', padding: '6px 8px', color: '#555' }}>
-                New Price (XLM)
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map((p) => (
-              <tr key={p.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                <td style={{ padding: '6px 8px' }}>{p.name}</td>
-                <td style={{ padding: '6px 8px', color: '#666' }}>{p.price}</td>
-                <td style={{ padding: '6px 8px' }}>
-                  <input
-                    style={{ ...s.input, width: 100, marginBottom: 0, padding: '5px 8px' }}
-                    type="number"
-                    min="0.0000001"
-                    step="any"
-                    placeholder="—"
-                    value={bulkPriceSelections[p.id] || ''}
-                    onChange={(e) =>
-                      setBulkPriceSelections((prev) => ({ ...prev, [p.id]: e.target.value }))
-                    }
-                    disabled={bulkAdjustPct !== ''}
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <button style={s.btn} onClick={handleBulkPriceUpdate}>
-          Apply Price Update
-        </button>
-      </div>
+      <BulkPricePanel products={products} onUpdated={load} />
 
       <div style={s.grid}>
         <ProductForm harvestBatches={harvestBatches} onProductAdded={load} />
@@ -1081,6 +1183,10 @@ export default function Dashboard() {
               ⬇ PDF
             </button>
           </div>
+          {products.length === 0 && <p style={{ color: '#888', fontSize: 14 }}>No products yet. Add your first listing.</p>}
+          {products.map(p => (
+            <div key={p.id} style={{ ...s.product, flexDirection: 'column', alignItems: 'stretch' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           {products.length === 0 && (
             <p style={{ color: '#888', fontSize: 14 }}>No products yet. Add your first listing.</p>
           )}
@@ -1131,6 +1237,7 @@ export default function Dashboard() {
                             value={p.price}
                             type="number"
                             min={0.0000001}
+                            max={999999}
                             step="any"
                             format={(v) => `${v} XLM`}
                             onSave={(v) => handleInlineSave(p.id, 'price', v)}
@@ -1143,6 +1250,7 @@ export default function Dashboard() {
                         value={p.quantity}
                         type="number"
                         min={0}
+                        max={99999}
                         step={1}
                         format={(v) => `${v} ${p.unit}`}
                         onSave={(v) => handleInlineSave(p.id, 'quantity', Math.floor(v))}
@@ -1559,6 +1667,7 @@ export default function Dashboard() {
         <h3 style={{ marginBottom: 16, color: '#333' }}>{t('dashboard.myProfile')}</h3>
         {profileMsg && (
           <div
+            role={profileMsg.type === 'ok' ? 'status' : 'alert'}
             style={{
               ...s.msg,
               background: profileMsg.type === 'ok' ? '#d8f3dc' : '#fee',
@@ -1718,463 +1827,40 @@ export default function Dashboard() {
       </div>
 
       {/* Order management panel */}
-      <div style={{ ...s.card, marginTop: 24 }}>
-        <h3
-          style={{ padding: '16px 20px', borderBottom: '1px solid #eee', margin: 0, color: '#333' }}
-        >
-          📋 {t('dashboard.incomingOrders', { count: sales.length })}
-        </h3>
-        <div
-          style={{
-            padding: '12px 20px',
-            borderBottom: '1px solid #eee',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 8,
-            alignItems: 'center',
-          }}
-        >
-          <input
-            type="date"
-            value={salesExportFrom}
-            onChange={(e) => setSalesExportFrom(e.target.value)}
-            style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }}
-            placeholder="From"
-          />
-          <input
-            type="date"
-            value={salesExportTo}
-            onChange={(e) => setSalesExportTo(e.target.value)}
-            style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }}
-            placeholder="To"
-          />
-          <button
-            style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }}
-            onClick={() => exportSales('csv')}
-          >
-            ⬇ CSV
-          </button>
-          <button
-            style={{ ...s.btn, fontSize: 12, padding: '6px 12px', background: '#52b788' }}
-            onClick={() => exportSales('pdf')}
-          >
-            ⬇ PDF
-          </button>
-        </div>
-        {sales.length === 0 ? (
-          <p style={{ padding: '20px', color: '#888', fontSize: 14 }}>{t('dashboard.noOrders')}</p>
-        ) : (
-          sales.map((o) => {
-            const m = salesMsg[o.id];
-            return (
-              <div key={o.id} style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f0' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    flexWrap: 'wrap',
-                    gap: 8,
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{o.product_name}</div>
-                    <div style={{ fontSize: 13, color: '#666' }}>
-                      {o.quantity} units · {parseFloat(o.total_price).toFixed(2)} XLM · by{' '}
-                      {o.buyer_name}
-                    </div>
-                    {o.address_label && (
-                      <div style={s.address}>
-                        📍 {o.address_label}: {o.address_street}, {o.address_city},{' '}
-                        {o.address_country}
-                        {o.address_postal_code ? ` ${o.address_postal_code}` : ''}
-                      </div>
-                    )}
-                    <div style={{ fontSize: 12, color: '#aaa' }}>
-                      {new Date(o.created_at).toLocaleDateString()}
-                    </div>
-                    {o.harvest_batch_code && (
-                      <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
-                        Harvest batch: {o.harvest_batch_code}
-                        {o.harvest_batch_date ? ` · ${o.harvest_batch_date}` : ''}
-                      </div>
-                    )}
-                    {o.stellar_memo && (
-                      <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
-                        📝 Memo: <span style={{ fontFamily: 'monospace' }}>{o.stellar_memo}</span>
-                      </div>
-                    )}
-                    {m && (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: m.type === 'ok' ? '#2d6a4f' : '#c0392b',
-                          marginTop: 4,
-                        }}
-                      >
-                        {m.text}
-                      </div>
-                    )}
-                    {/* Return request section */}
-                    {o.return_status === 'pending' && (
-                      <div
-                        style={{
-                          marginTop: 8,
-                          padding: '8px 12px',
-                          background: '#fff3cd',
-                          borderRadius: 8,
-                          fontSize: 13,
-                        }}
-                      >
-                        <div style={{ fontWeight: 600, color: '#856404', marginBottom: 4 }}>
-                          ↩️ Return requested
-                        </div>
-                        <div style={{ color: '#555', marginBottom: 8 }}>{o.return_reason}</div>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <button
-                            style={{
-                              padding: '5px 14px',
-                              borderRadius: 6,
-                              border: 'none',
-                              cursor: 'pointer',
-                              background: '#2d6a4f',
-                              color: '#fff',
-                              fontWeight: 600,
-                              fontSize: 12,
-                            }}
-                            onClick={async () => {
-                              try {
-                                await api.approveReturn(o.id);
-                                setSalesMsg((prev) => ({
-                                  ...prev,
-                                  [o.id]: { type: 'ok', text: 'Return approved — refund sent' },
-                                }));
-                                load();
-                              } catch (e) {
-                                setSalesMsg((prev) => ({
-                                  ...prev,
-                                  [o.id]: { type: 'err', text: e.message },
-                                }));
-                              }
-                            }}
-                          >
-                            ✅ Approve & Refund
-                          </button>
-                          <button
-                            style={{
-                              padding: '5px 14px',
-                              borderRadius: 6,
-                              border: '1px solid #c0392b',
-                              cursor: 'pointer',
-                              background: '#fff',
-                              color: '#c0392b',
-                              fontWeight: 600,
-                              fontSize: 12,
-                            }}
-                            onClick={async () => {
-                              const reason = window.prompt('Reason for rejection (optional):');
-                              if (reason === null) return; // cancelled
-                              try {
-                                await api.rejectReturn(o.id, reason);
-                                setSalesMsg((prev) => ({
-                                  ...prev,
-                                  [o.id]: { type: 'ok', text: 'Return rejected' },
-                                }));
-                                load();
-                              } catch (e) {
-                                setSalesMsg((prev) => ({
-                                  ...prev,
-                                  [o.id]: { type: 'err', text: e.message },
-                                }));
-                              }
-                            }}
-                          >
-                            ❌ Reject
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {o.return_status && o.return_status !== 'pending' && (
-                      <div style={{ marginTop: 6, fontSize: 12 }}>
-                        <span
-                          style={{
-                            padding: '3px 10px',
-                            borderRadius: 20,
-                            fontWeight: 600,
-                            background: o.return_status === 'approved' ? '#d8f3dc' : '#fee',
-                            color: o.return_status === 'approved' ? '#2d6a4f' : '#c0392b',
-                          }}
-                        >
-                          ↩️ Return {o.return_status}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: STATUS_COLOR[o.status] || '#333',
-                      }}
-                    >
-                      {STATUS_ICON[o.status]} {o.status}
-                    </span>
-                    {['paid', 'processing', 'shipped'].includes(o.status) && (
-                      <select
-                        style={{
-                          padding: '5px 10px',
-                          borderRadius: 6,
-                          border: '1px solid #ddd',
-                          fontSize: 13,
-                          cursor: 'pointer',
-                        }}
-                        defaultValue=""
-                        onChange={(e) => {
-                          if (e.target.value) handleStatusUpdate(o.id, e.target.value);
-                          e.target.value = '';
-                        }}
-                      >
-                        <option value="" disabled>
-                          {t('dashboard.updateStatus')}
-                        </option>
-                        {FARMER_STATUSES.filter((s) => s !== o.status).map((s) => (
-                          <option key={s} value={s}>
-                            {STATUS_ICON[s]} {s}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+      <OrderManagementPanel
+        sales={sales}
+        salesMsg={salesMsg}
+        salesExportFrom={salesExportFrom}
+        salesExportTo={salesExportTo}
+        onExportFromChange={setSalesExportFrom}
+        onExportToChange={setSalesExportTo}
+        onExportSales={exportSales}
+        onStatusUpdate={handleStatusUpdate}
+        onApproveReturn={handleApproveReturn}
+        onRejectReturn={handleRejectReturn}
+      />
 
-      {/* Bundle Discount Tiers */}
-      <div style={{ ...s.card, marginTop: 24 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: '#2d6a4f', marginBottom: 12 }}>
-          🏷️ Bundle Discounts
-        </div>
-        <p style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>
-          Buyers who order multiple different products from you get an automatic discount. Add tiers
-          below (e.g. 3+ products = 10% off).
-        </p>
-        {bdMsg && (
-          <div
-            style={{
-              ...s.msg,
-              background: bdMsg.type === 'ok' ? '#d8f3dc' : '#fee',
-              color: bdMsg.type === 'ok' ? '#2d6a4f' : '#c0392b',
-            }}
-          >
-            {bdMsg.text}
-          </div>
-        )}
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBdMsg(null);
-            try {
-              await api.createBundleDiscount({
-                min_products: parseInt(bdForm.min_products, 10),
-                discount_percent: parseFloat(bdForm.discount_percent),
-              });
-              setBdForm({ min_products: '', discount_percent: '' });
-              const res = await api.getBundleDiscounts();
-              setBundleDiscounts(res.data ?? []);
-              setBdMsg({ type: 'ok', text: 'Discount tier added.' });
-            } catch (err) {
-              setBdMsg({ type: 'error', text: err.message });
-            }
-          }}
-          style={{
-            display: 'flex',
-            gap: 10,
-            flexWrap: 'wrap',
-            marginBottom: 16,
-            alignItems: 'flex-end',
-          }}
-        >
-          <div>
-            <label style={s.label}>Min. distinct products</label>
-            <input
-              style={{ ...s.input, width: 120 }}
-              type="number"
-              min="2"
-              placeholder="e.g. 3"
-              value={bdForm.min_products}
-              onChange={(e) => setBdForm((f) => ({ ...f, min_products: e.target.value }))}
-              required
-            />
-          </div>
-          <div>
-            <label style={s.label}>Discount %</label>
-            <input
-              style={{ ...s.input, width: 120 }}
-              type="number"
-              min="0.01"
-              max="100"
-              step="0.01"
-              placeholder="e.g. 10"
-              value={bdForm.discount_percent}
-              onChange={(e) => setBdForm((f) => ({ ...f, discount_percent: e.target.value }))}
-              required
-            />
-          </div>
-          <button type="submit" style={s.btn}>
-            Add Tier
-          </button>
-        </form>
-        {bundleDiscounts.length === 0 ? (
-          <div style={{ color: '#888', fontSize: 13 }}>No discount tiers configured.</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-            <thead>
-              <tr>
-                <th
-                  style={{
-                    textAlign: 'left',
-                    padding: '8px 10px',
-                    borderBottom: '2px solid #eee',
-                    color: '#555',
-                  }}
-                >
-                  Min. products
-                </th>
-                <th
-                  style={{
-                    textAlign: 'left',
-                    padding: '8px 10px',
-                    borderBottom: '2px solid #eee',
-                    color: '#555',
-                  }}
-                >
-                  Discount
-                </th>
-                <th style={{ padding: '8px 10px', borderBottom: '2px solid #eee' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {bundleDiscounts.map((bd) => (
-                <tr key={bd.id}>
-                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #f0f0f0' }}>
-                    {bd.min_products}+ products
-                  </td>
-                  <td
-                    style={{
-                      padding: '8px 10px',
-                      borderBottom: '1px solid #f0f0f0',
-                      color: '#2d6a4f',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {bd.discount_percent}% off
-                  </td>
-                  <td
-                    style={{
-                      padding: '8px 10px',
-                      borderBottom: '1px solid #f0f0f0',
-                      textAlign: 'right',
-                    }}
-                  >
-                    <button
-                      style={{
-                        background: '#fee',
-                        color: '#c0392b',
-                        border: 'none',
-                        borderRadius: 6,
-                        padding: '4px 10px',
-                        cursor: 'pointer',
-                        fontSize: 12,
-                      }}
-                      onClick={async () => {
-                        if (!confirm('Delete this discount tier?')) return;
-                        try {
-                          await api.deleteBundleDiscount(bd.id);
-                          const res = await api.getBundleDiscounts();
-                          setBundleDiscounts(res.data ?? []);
-                        } catch (err) {
-                          setBdMsg({ type: 'error', text: err.message });
-                        }
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+            {/* Bundle Discount Tiers */}
+      <BundleDiscountPanel
+        bundleDiscounts={bundleDiscounts}
+        bdForm={bdForm}
+        bdMsg={bdMsg}
+        onFormChange={handleBundleDiscountFormChange}
+        onSubmit={handleBundleDiscountSubmit}
+        onDelete={handleBundleDiscountDelete}
+      />
+
+            {/* Coupon Codes */}
+      <CouponManager />
 
       {/* Pending Multi-sig Signature Requests */}
-      {pendingTxs.length > 0 && (
-        <div style={{ ...s.card, border: '1px solid #f9a825', background: '#fffde7' }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#e65100', marginBottom: 12 }}>
-            🔏 Pending Signature Requests ({pendingTxs.length})
-          </div>
-          {pendingTxs.map((tx) => (
-            <div
-              key={tx.id}
-              style={{
-                borderBottom: '1px solid #ffe082',
-                padding: '10px 0',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: 8,
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>
-                  {tx.coopName} — {tx.amount} XLM
-                </div>
-                <div style={{ fontSize: 12, color: '#888' }}>
-                  To: {tx.destination?.slice(0, 12)}… · {tx.signatures.length} signature(s)
-                  collected
-                </div>
-                <div style={{ fontSize: 11, color: '#aaa' }}>
-                  Expires: {new Date(tx.expires_at).toLocaleString()}
-                </div>
-              </div>
-              <button
-                style={{
-                  ...s.btn,
-                  fontSize: 13,
-                  padding: '6px 14px',
-                  background: signingTxId === tx.id ? '#888' : '#2d6a4f',
-                }}
-                disabled={signingTxId === tx.id}
-                onClick={async () => {
-                  setSigningTxId(tx.id);
-                  try {
-                    const res = await api.signPendingTx(tx.id);
-                    if (res.submitted) alert(`✅ Transaction submitted! TX: ${res.txHash}`);
-                    else
-                      alert(
-                        `Signature added (${res.signaturesCollected}/${res.required} required)`
-                      );
-                    load();
-                  } catch (e) {
-                    alert(`Error: ${e.message}`);
-                  } finally {
-                    setSigningTxId(null);
-                  }
-                }}
-              >
-                {signingTxId === tx.id ? 'Signing…' : '✍️ Sign'}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      <PendingMultisigPanel
+        pendingTxs={pendingTxs}
+        signingTxId={signingTxId}
+        onSign={handleSignPendingTx}
+      />
 
-      {/* QR Code Modal */}
+            {/* QR Code Modal */}
       {qrProductId && (
         <div
           style={{

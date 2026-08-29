@@ -14,7 +14,9 @@ import Spinner from "../components/Spinner";
 import AuctionCard from "../components/AuctionCard";
 import FlashSaleCountdown from "../components/FlashSaleCountdown";
 import RecentlyCompared from "../components/RecentlyCompared";
+import Pagination from "../components/Pagination";
 import { useTranslation } from "react-i18next";
+import { buildSrcSet } from "../utils/imageUtils";
 
 const MapView = lazy(() => import("../components/MapView"));
 
@@ -300,6 +302,24 @@ const s = {
     fontSize: 14,
     cursor: "not-allowed",
   },
+  skipLink: {
+    position: 'absolute',
+    top: -9999,
+    left: -9999,
+    zIndex: 100,
+    background: '#2d6a4f',
+    color: '#fff',
+    padding: '8px 16px',
+    borderRadius: 4,
+    fontWeight: 700,
+    fontSize: 14,
+    textDecoration: 'none',
+  },
+  skipLinkFocused: {
+    position: 'fixed',
+    top: 8,
+    left: 8,
+  },
 };
 
 const SORT_OPTIONS = [
@@ -362,6 +382,8 @@ export default function Marketplace() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [bundles, setBundles] = useState([]);
   const [bundleMsg, setBundleMsg] = useState({});
   const [expandedBundles, setExpandedBundles] = useState({});
@@ -401,9 +423,9 @@ export default function Marketplace() {
   useEffect(() => { filtersRef.current = filters; }, [filters]);
 
   async function fetchPage(f, p) {
-    let data, totalPages = 1;
+    let data, totalPages = 1, res;
     if (f.search && f.search.trim()) {
-      const res = await api.searchProducts(f.search.trim());
+      res = await api.searchProducts(f.search.trim());
       data = res.data ?? res;
       totalPages = 1;
     } else {
@@ -420,6 +442,7 @@ export default function Marketplace() {
       data = res.data ?? [];
       totalPages = res.totalPages ?? 1;
     }
+    const totalItems = res?.total ?? data.length;
     if (f.excludeAllergens && f.excludeAllergens.length > 0) {
       data = data.filter(p => {
         let allergens = [];
@@ -432,30 +455,32 @@ export default function Marketplace() {
       // when both a search term and a grade filter are active.
       data = data.filter((p) => (p.grade || "Ungraded") === f.grade);
     }
-    return { data, totalPages };
+    return { data, totalPages, total: totalItems };
   }
 
-  // Initial load (resets list)
-  const load = useCallback(async (f) => {
+  // Initial load (resets list), optionally loads a specific page
+  const load = useCallback(async (f, pageNum = 1) => {
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
     setHasMore(true);
-    pageRef.current = 1;
+    pageRef.current = pageNum;
     hasMoreRef.current = true;
     try {
-      const { data, totalPages } = await fetchPage(f, 1);
+      const { data, totalPages, total } = await fetchPage(f, pageNum);
       if (controller.signal.aborted) return;
       setProducts(data);
-      pageRef.current = 1;
+      setTotalPages(totalPages);
+      setTotalCount(total);
+      pageRef.current = pageNum;
       const more = totalPages > 1;
       setHasMore(more);
       hasMoreRef.current = more;
       const aucs = await api.getAuctions().catch(() => ({ data: [] }));
       setAuctions(aucs.data || []);
       // Save to sessionStorage for back-navigation restore
-      sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ products: data, page: 1, hasMore: more, filters: f }));
+      sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ products: data, page: pageNum, hasMore: more, totalPages, total, filters: f }));
     } catch (err) {
       if (err?.name !== 'AbortError') setProducts([]);
     }
@@ -508,6 +533,12 @@ export default function Marketplace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Clamp page when totalPages shrinks (defense in depth)
+  useEffect(() => {
+    if (pageRef.current > totalPages) {
+      pageRef.current = totalPages;
+    }
+  }, [totalPages]);
   // Save scroll position continuously for SPA back-navigation
   useEffect(() => {
     const saveScroll = () => sessionStorage.setItem(SCROLL_KEY + '_y', String(window.scrollY));
@@ -658,6 +689,15 @@ export default function Marketplace() {
 
   return (
     <div style={s.page}>
+      {/* Skip-to-content link for keyboard/screen-reader users */}
+      <a
+        href="#product-grid"
+        style={s.skipLink}
+        onFocus={(e) => { e.target.style.position = 'fixed'; e.target.style.top = '8px'; e.target.style.left = '8px'; }}
+        onBlur={(e) => { e.target.style.position = 'absolute'; e.target.style.top = '-9999px'; e.target.style.left = '-9999px'; }}
+      >
+        Skip to products
+      </a>
       <Helmet>
         <title>Marketplace – Farmers Marketplace</title>
         <meta name="description" content="Browse fresh produce from local farmers. Buy vegetables, fruits, grains, dairy and more directly from the source." />
@@ -698,7 +738,18 @@ export default function Marketplace() {
           </button>
         </div>
       </div>
-      <div style={s.sub}>{t("marketplace.subtitle")}</div>
+      <div style={s.sub}>
+        {t("marketplace.subtitle")}
+        {/* Screen-reader announcement for page/results changes */}
+        <span
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}
+        >
+          Showing {products.length > 0 ? `1–${products.length}` : 0} of {totalCount} products
+        </span>
+      </div>
 
       {recommendations.length > 0 && (
         <div style={{ marginBottom: 36 }}>
@@ -714,7 +765,13 @@ export default function Marketplace() {
                   <div style={s.cardHeader}>
                     <div style={{ flex: 1 }}>
                       {p.image_url ? (
-                        <img src={p.image_url} alt={p.name} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 8, marginBottom: 10 }} />
+                        <img
+                          src={p.image_url}
+                          srcSet={buildSrcSet(p.image_url)}
+                          sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw"
+                          alt={p.name}
+                          style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 8, marginBottom: 10 }}
+                        />
                       ) : (
                         <div style={{ fontSize: 32, marginBottom: 8 }}>🥬</div>
                       )}
@@ -779,6 +836,8 @@ export default function Marketplace() {
                 {p.image_url ? (
                   <img
                     src={p.image_url}
+                    srcSet={buildSrcSet(p.image_url)}
+                    sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw"
                     alt={p.name}
                     style={{
                       width: "100%",
@@ -1021,7 +1080,7 @@ export default function Marketplace() {
           </button>
         </div>
       ) : (
-        <div style={s.grid}>
+        <div id="product-grid" style={s.grid}>
           {products.map((p) => (
             <div
               key={p.id}
@@ -1042,6 +1101,8 @@ export default function Marketplace() {
                     {p.image_url ? (
                       <img
                         src={p.image_url}
+                        srcSet={buildSrcSet(p.image_url)}
+                        sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw"
                         alt={p.name}
                         style={{
                           width: "100%",
@@ -1242,6 +1303,19 @@ export default function Marketplace() {
         </>
       )}
 
+      {/* Pagination controls */}
+      {!loading && !loadingMore && totalPages > 1 && (
+        <Pagination
+          page={pageRef.current}
+          totalPages={totalPages}
+          total={totalCount}
+          limit={PAGE_SIZE}
+          onChange={(newPage) => {
+            load({ ...filtersRef.current }, newPage);
+          }}
+        />
+      )}
+
       {compareProducts.length > 0 && (
         <div style={s.compareBar}>
           <div style={s.compareBarItems}>
@@ -1369,6 +1443,8 @@ export default function Marketplace() {
                 {p.image_url && (
                   <img
                     src={p.image_url}
+                    srcSet={buildSrcSet(p.image_url)}
+                    sizes="(max-width: 600px) 50vw, 200px"
                     alt={p.name}
                     style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 8, marginBottom: 12 }}
                   />

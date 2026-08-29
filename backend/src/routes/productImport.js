@@ -1,235 +1,161 @@
+/**
+ * POST /api/products/import
+ *
+ * Accepts:
+ *   - Content-Type: application/json  → body is an array of product objects
+ *   - Content-Type: multipart/form-data with a `file` CSV field
+ *
+ * Validates each row with the same rules as POST /api/products.
+ * Detects duplicates by (name, farmer_id) — skips with a warning.
+ * Max 500 rows; returns { imported, skipped, errors }.
+ */
+
 const router = require('express').Router();
+const multer = require('multer');
+const { parse } = require('csv-parse');
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 const { sanitizeText } = require('../utils/sanitize');
 
-const MAX_IMPORT = 100;
-const CACHE_TTL = 5 * 60 * 1000; // 5 min — same as rates.js
-let rateCache = { rate: null, fetchedAt: 0 };
+const MAX_IMPORT = 500;
+const VALID_ALLERGENS = ['gluten', 'nuts', 'dairy', 'eggs', 'soy', 'shellfish'];
 
-/**
- * Fetch XLM/USD rate with a 5-minute in-memory cache.
- * Falls back to stale cache rather than failing the import.
- */
-async function getXlmRate() {
-  const now = Date.now();
-  if (rateCache.rate && now - rateCache.fetchedAt < CACHE_TTL) return rateCache.rate;
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) cb(null, true);
+    else cb(new Error('Only CSV files are allowed'), false);
+  },
+});
 
-  try {
-    const res = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd',
-      { headers: { Accept: 'application/json' } }
-    );
-    if (!res.ok) throw new Error('CoinGecko request failed');
-    const data = await res.json();
-    const rate = data?.stellar?.usd;
-    if (!rate) throw new Error('Rate not found in response');
-    rateCache = { rate, fetchedAt: now };
-    return rate;
-  } catch {
-    if (rateCache.rate) return rateCache.rate; // stale is fine for preview
-    throw new Error('Unable to fetch XLM/USD exchange rate');
-  }
-}
-
-/**
- * Validate and map one AgroAPI row to our internal product shape.
- * Returns { product } on success or { error } on failure.
- */
-function mapRow(row, xlmRate) {
+// Validate a single product row; returns { product } or { error }
+function validateRow(row) {
   const name = (row.name || '').trim();
   if (!name) return { error: 'name is required' };
 
-  const priceUsd = parseFloat(row.price_usd);
-  if (isNaN(priceUsd) || priceUsd <= 0) return { error: 'price_usd must be a positive number' };
+  const price = parseFloat(row.price);
+  if (isNaN(price) || price <= 0) return { error: 'price must be a positive number' };
 
   const quantity = parseInt(row.quantity, 10);
   if (isNaN(quantity) || quantity <= 0) return { error: 'quantity must be a positive integer' };
 
-  const unit = (row.unit || 'unit').trim();
-  const category = (row.category || 'other').trim();
-  const description = (row.description || '').trim();
-
-  // Convert USD → XLM (rate is USD per 1 XLM, so XLM = USD / rate)
-  const priceXlm = parseFloat((priceUsd / xlmRate).toFixed(7));
+  // allergens
+  const allergenInput = row.allergens;
+  let allergens = null;
+  if (allergenInput !== undefined && allergenInput !== null && allergenInput !== '') {
+    const arr = Array.isArray(allergenInput)
+      ? allergenInput
+      : String(allergenInput).split(',').map((a) => a.trim()).filter(Boolean);
+    const invalid = arr.find((a) => !VALID_ALLERGENS.includes(a));
+    if (invalid) return { error: `Invalid allergen: "${invalid}". Must be one of: ${VALID_ALLERGENS.join(', ')}` };
+    allergens = arr.length > 0 ? JSON.stringify(arr) : null;
+  }
 
   return {
     product: {
       name: sanitizeText(name),
-      description: sanitizeText(description),
-      price: priceXlm,
-      price_usd: priceUsd,
+      description: sanitizeText((row.description || '').trim()),
+      price,
       quantity,
-      unit: sanitizeText(unit),
-      category: sanitizeText(category),
+      unit: sanitizeText((row.unit || 'unit').trim()),
+      category: sanitizeText((row.category || 'other').trim()),
+      allergens,
     },
   };
 }
 
-/**
- * @swagger
- * /api/products/import:
- *   post:
- *     summary: Preview product import from JSON payload (farmer only)
- *     tags: [Products]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [products]
- *             properties:
- *               products:
- *                 type: array
- *                 maxItems: 100
- *                 items:
- *                   type: object
- *                   required: [name, price_usd, quantity]
- *                   properties:
- *                     name:        { type: string }
- *                     description: { type: string }
- *                     price_usd:   { type: number }
- *                     quantity:    { type: integer }
- *                     unit:        { type: string }
- *                     category:    { type: string }
- *     responses:
- *       200:
- *         description: Import preview — no data written yet
- */
-// POST /api/products/import — returns a preview, nothing is saved
-router.post('/', auth, async (req, res) => {
+// Parse CSV buffer → array of plain objects
+function parseCsv(buffer) {
+  return new Promise((resolve, reject) => {
+    const rows = [];
+    const parser = parse(buffer, { columns: true, skip_empty_lines: true, trim: true });
+    parser.on('data', (r) => rows.push(r));
+    parser.on('end', () => resolve(rows));
+    parser.on('error', reject);
+  });
+}
+
+// Shared import logic
+async function runImport(rows, farmerId, res) {
+  if (rows.length > MAX_IMPORT) {
+    return res.status(413).json({
+      success: false,
+      error: 'too_large',
+      message: `Maximum ${MAX_IMPORT} rows per import`,
+      code: 'too_large',
+    });
+  }
+
+  // Load existing (name, farmer_id) pairs once for duplicate detection
+  const { rows: existing } = await db.query(
+    'SELECT LOWER(name) AS lname FROM products WHERE farmer_id = $1',
+    [farmerId]
+  );
+  const existingNames = new Set(existing.map((r) => r.lname));
+
+  const results = { imported: 0, skipped: 0, errors: [] };
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNum = i + 1;
+    const row = rows[i];
+
+    const { product, error } = validateRow(row);
+    if (error) {
+      results.skipped++;
+      results.errors.push({ row: rowNum, error });
+      continue;
+    }
+
+    // Duplicate detection: (name, farmer_id)
+    if (existingNames.has(product.name.toLowerCase())) {
+      results.skipped++;
+      results.errors.push({ row: rowNum, error: `Duplicate: product "${product.name}" already exists`, skipped: true });
+      continue;
+    }
+
+    try {
+      await db.query(
+        `INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, allergens)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [farmerId, product.name, product.description, product.category, product.price, product.quantity, product.unit, product.allergens]
+      );
+      existingNames.add(product.name.toLowerCase()); // prevent intra-batch dupes
+      results.imported++;
+    } catch (e) {
+      results.skipped++;
+      results.errors.push({ row: rowNum, error: e.message });
+    }
+  }
+
+  res.json({ success: true, ...results });
+}
+
+// POST /api/products/import
+router.post('/', auth, upload.single('file'), async (req, res) => {
   if (req.user.role !== 'farmer')
     return err(res, 403, 'Only farmers can import products', 'forbidden');
 
-  const { products } = req.body;
-  if (!Array.isArray(products) || products.length === 0) {
-    return err(res, 400, 'products must be a non-empty array', 'validation_error');
-  }
-  if (products.length > MAX_IMPORT) {
-    return err(res, 400, `Maximum ${MAX_IMPORT} products per import`, 'validation_error');
-  }
+  const ct = req.headers['content-type'] || '';
 
-  let xlmRate;
   try {
-    xlmRate = await getXlmRate();
-  } catch (e) {
-    return err(res, 502, e.message, 'rate_fetch_error');
-  }
-
-  const valid = [];
-  const errors = [];
-
-  products.forEach((row, i) => {
-    const result = mapRow(row, xlmRate);
-    if (result.error) {
-      errors.push({ row: i + 1, error: result.error });
-    } else {
-      valid.push(result.product);
+    // JSON array body
+    if (ct.includes('application/json')) {
+      const rows = Array.isArray(req.body) ? req.body : req.body?.products;
+      if (!Array.isArray(rows) || rows.length === 0)
+        return err(res, 400, 'Request body must be a non-empty array of products', 'validation_error');
+      return await runImport(rows, req.user.id, res);
     }
-  });
 
-  res.json({
-    success: true,
-    preview: valid,
-    errors,
-    xlmRate,
-    total: products.length,
-    valid: valid.length,
-    skipped: errors.length,
-  });
-});
-
-/**
- * @swagger
- * /api/products/import/confirm:
- *   post:
- *     summary: Confirm and persist a previously previewed import (farmer only)
- *     tags: [Products]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [products]
- *             properties:
- *               products:
- *                 type: array
- *                 maxItems: 100
- *                 items:
- *                   type: object
- *                   required: [name, price_usd, quantity]
- *                   properties:
- *                     name:        { type: string }
- *                     description: { type: string }
- *                     price_usd:   { type: number }
- *                     quantity:    { type: integer }
- *                     unit:        { type: string }
- *                     category:    { type: string }
- *     responses:
- *       200:
- *         description: Products created
- */
-// POST /api/products/import/confirm — validates again and inserts
-router.post('/confirm', auth, async (req, res) => {
-  if (req.user.role !== 'farmer')
-    return err(res, 403, 'Only farmers can import products', 'forbidden');
-
-  const { products } = req.body;
-  if (!Array.isArray(products) || products.length === 0) {
-    return err(res, 400, 'products must be a non-empty array', 'validation_error');
-  }
-  if (products.length > MAX_IMPORT) {
-    return err(res, 400, `Maximum ${MAX_IMPORT} products per import`, 'validation_error');
-  }
-
-  let xlmRate;
-  try {
-    xlmRate = await getXlmRate();
+    // CSV file upload (multipart/form-data)
+    if (!req.file) return err(res, 400, 'Provide a CSV file (field: file) or JSON body', 'validation_error');
+    const rows = await parseCsv(req.file.buffer);
+    if (rows.length === 0) return err(res, 400, 'CSV file is empty', 'validation_error');
+    return await runImport(rows, req.user.id, res);
   } catch (e) {
-    return err(res, 502, e.message, 'rate_fetch_error');
+    err(res, 400, 'Failed to parse input: ' + e.message, 'parse_error');
   }
-
-  const toInsert = [];
-  const errors = [];
-
-  products.forEach((row, i) => {
-    const result = mapRow(row, xlmRate);
-    if (result.error) {
-      errors.push({ row: i + 1, error: result.error });
-    } else {
-      toInsert.push(result.product);
-    }
-  });
-
-  if (toInsert.length === 0) {
-    return err(res, 400, 'No valid products to import', 'validation_error');
-  }
-
-  // Insert all valid rows
-  let created = 0;
-  for (const p of toInsert) {
-    await db.query(
-      `INSERT INTO products (farmer_id, name, description, category, price, quantity, unit)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [req.user.id, p.name, p.description, p.category, p.price, p.quantity, p.unit]
-    );
-    created++;
-  }
-
-  res.json({
-    success: true,
-    created,
-    skipped: errors.length,
-    errors,
-    xlmRate,
-  });
 });
 
 module.exports = router;

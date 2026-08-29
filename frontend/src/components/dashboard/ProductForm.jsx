@@ -381,12 +381,15 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
           <>
             <label style={s.label}>Expected Delivery Date</label>
             <input
+              id="prod-preorder-date"
               style={formErrors.preorder_delivery_date ? s.inputErr : s.input}
               type="date"
               value={form.preorder_delivery_date}
               onChange={e => { setForm({ ...form, preorder_delivery_date: e.target.value }); if (formErrors.preorder_delivery_date) setFormErrors(fe => ({ ...fe, preorder_delivery_date: '' })); }}
+              aria-invalid={!!formErrors.preorder_delivery_date}
+              aria-describedby={formErrors.preorder_delivery_date ? 'prod-preorder-date-err' : undefined}
             />
-            {formErrors.preorder_delivery_date && <div style={s.fieldErr} role="alert">{formErrors.preorder_delivery_date}</div>}
+            {formErrors.preorder_delivery_date && <div id="prod-preorder-date-err" style={s.fieldErr} role="alert">{formErrors.preorder_delivery_date}</div>}
           </>
         )}
 

@@ -208,5 +208,9 @@
     "errors": "Makosa",
     "row": "Safu {{n}}",
     "andMore": "...na makosa {{n}} zaidi"
+  },
+  "pagination": {
+    "resultCount_one": "tokeo {{count}}",
+    "resultCount_other": "matokeo {{count}}"
   }
 }

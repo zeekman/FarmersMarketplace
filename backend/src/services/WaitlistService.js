@@ -9,6 +9,7 @@
 
 const db = require('../db/schema');
 const WaitlistEntry = require('../models/WaitlistEntry');
+const logger = require('../logger');
 
 class WaitlistService {
   /**
@@ -92,7 +93,7 @@ class WaitlistService {
         entry,
       };
     } catch (error) {
-      console.error('[WaitlistService] Error joining waitlist:', error);
+      logger.error('[WaitlistService] Error joining waitlist', { error: error.message, stack: error.stack });
       return { success: false, error: 'Failed to join waitlist', code: 'INTERNAL_ERROR' };
     }
   }
@@ -163,7 +164,7 @@ class WaitlistService {
 
       return { isValid: true, user };
     } catch (error) {
-      console.error('[WaitlistService] Error validating buyer:', error);
+      logger.error('[WaitlistService] Error validating buyer', { error: error.message, stack: error.stack });
       return { isValid: false, error: 'Failed to validate buyer', code: 'VALIDATION_ERROR' };
     }
   }
@@ -195,7 +196,7 @@ class WaitlistService {
 
       return { isValid: true, product };
     } catch (error) {
-      console.error('[WaitlistService] Error validating product:', error);
+      logger.error('[WaitlistService] Error validating product', { error: error.message, stack: error.stack });
       return { isValid: false, error: 'Failed to validate product', code: 'VALIDATION_ERROR' };
     }
   }
@@ -222,7 +223,7 @@ class WaitlistService {
 
       return { isValid: true };
     } catch (error) {
-      console.error('[WaitlistService] Error checking duplicate entry:', error);
+      logger.error('[WaitlistService] Error checking duplicate entry', { error: error.message, stack: error.stack });
       return {
         isValid: false,
         error: 'Failed to check existing waitlist entries',
@@ -269,7 +270,7 @@ class WaitlistService {
 
       return { isValid: true };
     } catch (error) {
-      console.error('[WaitlistService] Error validating quantity limits:', error);
+      logger.error('[WaitlistService] Error validating quantity limits', { error: error.message, stack: error.stack });
       return { isValid: false, error: 'Failed to validate quantity limits' };
     }
   }
@@ -337,7 +338,7 @@ class WaitlistService {
         throw error;
       }
     } catch (error) {
-      console.error('[WaitlistService] Error leaving waitlist:', error);
+      logger.error('[WaitlistService] Error leaving waitlist', { error: error.message, stack: error.stack });
       return { success: false, error: 'Failed to leave waitlist', code: 'INTERNAL_ERROR' };
     }
   }
@@ -419,7 +420,7 @@ class WaitlistService {
         };
       }
     } catch (error) {
-      console.error('[WaitlistService] Error getting waitlist status:', error);
+      logger.error('[WaitlistService] Error getting waitlist status', { error: error.message, stack: error.stack });
       return { success: false, error: 'Failed to get waitlist status', code: 'INTERNAL_ERROR' };
     }
   }
@@ -491,7 +492,7 @@ class WaitlistService {
         code: 'SUCCESS',
       };
     } catch (error) {
-      console.error('[WaitlistService] Error getting buyer waitlist entries:', error);
+      logger.error('[WaitlistService] Error getting buyer waitlist entries', { error: error.message, stack: error.stack });
       return { success: false, error: 'Failed to get waitlist entries', code: 'INTERNAL_ERROR' };
     }
   }
@@ -551,7 +552,7 @@ class WaitlistService {
         code: 'SUCCESS',
       };
     } catch (error) {
-      console.error('[WaitlistService] Error getting product waitlist entries:', error);
+      logger.error('[WaitlistService] Error getting product waitlist entries', { error: error.message, stack: error.stack });
       return { success: false, error: 'Failed to get waitlist entries', code: 'INTERNAL_ERROR' };
     }
   }
@@ -592,7 +593,7 @@ class WaitlistService {
         code: 'SUCCESS',
       };
     } catch (error) {
-      console.error('[WaitlistService] Error getting waitlist count:', error);
+      logger.error('[WaitlistService] Error getting waitlist count', { error: error.message, stack: error.stack });
       return { success: false, error: 'Failed to get waitlist count', code: 'INTERNAL_ERROR' };
     }
   }
@@ -656,7 +657,7 @@ class WaitlistService {
         throw error;
       }
     } catch (error) {
-      console.error('[WaitlistService] Error recalculating positions:', error);
+      logger.error('[WaitlistService] Error recalculating positions', { error: error.message, stack: error.stack });
       return { success: false, error: 'Failed to recalculate positions', code: 'INTERNAL_ERROR' };
     }
   }

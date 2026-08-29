@@ -24,7 +24,40 @@ const transporter = SMTP_CONFIGURED
     })
   : null;
 
-async function sendOrderEmails({ order, product, buyer, farmer }) {
+const CRITICAL_TYPES = new Set(['order_confirmation', 'password_reset']);
+const RETRY_DELAYS = [1000, 2000, 4000];
+
+async function sendWithRetry(mailOptions, type, db) {
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await transporter.sendMail(mailOptions);
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));
+      }
+    }
+  }
+  logger.error('[mailer] sendWithRetry failed', {
+    recipient: mailOptions.to,
+    subject: mailOptions.subject,
+    error: lastErr.message,
+  });
+  if (CRITICAL_TYPES.has(type)) {
+    const resolvedDb = db || require('../db/schema');
+    try {
+      resolvedDb.prepare(
+        'INSERT INTO failed_emails (recipient, subject, error, type) VALUES (?, ?, ?, ?)'
+      ).run(mailOptions.to, mailOptions.subject, lastErr.message, type);
+    } catch (dbErr) {
+      logger.error('[mailer] failed to store failed_email record', { error: dbErr.message });
+    }
+  }
+}
+
+async function sendOrderEmails({ order, product, buyer, farmer }, db) {
   if (!SMTP_CONFIGURED) return; // skip if not configured
 
   const subject = `Order #${order.id} Confirmed – ${product.name}`;
@@ -37,18 +70,18 @@ Date:     ${new Date().toUTCString()}
 `.trim();
 
   await Promise.all([
-    transporter.sendMail({
+    sendWithRetry({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: buyer.email,
       subject,
       text: `Hi ${buyer.name},\n\nYour order has been confirmed!\n\n${summary}\n\nDelivery instructions: Contact the farmer (${farmer.name}) to arrange delivery.\n\nThank you for shopping at Farmers Marketplace!`,
-    }),
-    transporter.sendMail({
+    }, 'order_confirmation', db),
+    sendWithRetry({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: farmer.email,
       subject: `New Sale #${order.id} – ${product.name}`,
       text: `Hi ${farmer.name},\n\nYou have a new sale!\n\nBuyer: ${buyer.name} (${buyer.email})\n\n${summary}\n\nPlease arrange delivery with the buyer at your earliest convenience.\n\nFarmers Marketplace`,
-    }),
+    }, 'order_confirmation', db),
   ]);
 }
 
@@ -169,8 +202,51 @@ async function sendAuctionNoSaleEmail({ bidder, auction }) {
   });
 }
 
+async function sendDisputeOpenedEmail({ buyer, order, farmerName, farmerEmail }) {
+  if (!SMTP_CONFIGURED) return;
+  await Promise.all([
+    transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: buyer.email,
+      subject: `Dispute Filed – Order #${order.id || order.order_id}`,
+      text: `Hi ${buyer.name},\n\nYour dispute for Order #${order.id || order.order_id} has been filed and is under review.\n\nFarmers Marketplace`,
+    }),
+    transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: farmerEmail,
+      subject: `Dispute Opened – Order #${order.id || order.order_id}`,
+      text: `Hi ${farmerName},\n\nA dispute has been filed against Order #${order.id || order.order_id} by the buyer.\n\nPlease log in to review.\n\nFarmers Marketplace`,
+    }),
+  ]);
+}
+
+async function sendDisputeResolvedEmail({ dispute, order, product, buyer, farmerEmail, farmerName }) {
+  if (!SMTP_CONFIGURED) return;
+  const subject = `Dispute Resolved – Order #${order.id}`;
+  const body = `Dispute for Order #${order.id} (${product?.name || ''}) has been resolved.\n\nResolution: ${dispute.resolution}\n\nFarmers Marketplace`;
+  const emails = [
+    transporter.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: buyer.email, subject, text: `Hi ${buyer.name},\n\n${body}` }),
+  ];
+  if (farmerEmail) {
+    emails.push(transporter.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: farmerEmail, subject, text: `Hi ${farmerName || 'Farmer'},\n\n${body}` }));
+  }
+  await Promise.all(emails);
+}
+
+async function sendBundleReceiptEmail({ buyer, bundle, items, totalPrice, discount, txHash }) {
+  if (!SMTP_CONFIGURED) return;
+  const itemLines = items.map((i) => `  - ${i.product_name} x${i.quantity}`).join('\n');
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: buyer.email,
+    subject: `Bundle Receipt – ${bundle.name}`,
+    text: `Hi ${buyer.name},\n\nThank you for your bundle purchase!\n\nBundle: ${bundle.name}\nItems:\n${itemLines}\n\nDiscount: ${discount} XLM\nTotal Paid: ${totalPrice} XLM\nTX Hash: ${txHash}\n\nFarmers Marketplace`,
+  });
+}
+
 module.exports = {
   transporter,
+  sendWithRetry,
   sendOrderEmails,
   sendLowStockAlert,
   sendStatusUpdateEmail,
@@ -186,4 +262,7 @@ module.exports = {
   sendAuctionSaleEmail,
   sendAuctionNoSaleEmail,
   sendSubscriptionPaymentFailedEmail,
+  sendDisputeOpenedEmail,
+  sendDisputeResolvedEmail,
+  sendBundleReceiptEmail,
 };

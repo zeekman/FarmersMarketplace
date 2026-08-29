@@ -230,9 +230,12 @@ export const api = {
   removeTrustline: (body) => request('/wallet/trustline', { method: 'DELETE', body }),
   getWalletAssets: () => request('/wallet/assets'),
   getPathEstimate: (params) => request(`/wallet/path-estimate${toQs(params)}`),
+  mergeWallet: (body) => request('/wallet/merge', { method: 'POST', body }),
   deleteAccount: (force) => request(`/auth/account${force ? '?force=true' : ''}`, { method: 'DELETE' }),
   getWalletStreamUrl: () => `/api/wallet/stream?token=${encodeURIComponent(accessToken || '')}`,
   getOrdersStreamUrl: () => `/api/orders/stream?token=${encodeURIComponent(accessToken || '')}`,
+  getMessagesStreamUrl: () => `/api/messages/events?token=${encodeURIComponent(accessToken || '')}`,
+  getUnreadMessageCount: () => request('/messages/unread-count'),
 
   getFarmer: (id) => request(`/farmers/${id}`),
   updateFarmerProfile: (body) => request('/farmers/me', { method: 'PATCH', body }),
@@ -279,7 +282,7 @@ export const api = {
   adminUnbanUser: (id) => request(`/admin/users/${id}/ban`, { method: 'DELETE' }),
   adminGetStats: () => request('/admin/stats'),
   adminGetDisputes: () => request('/disputes'),
-  adminResolveDispute: (id, body) => request(`/disputes/${id}`, { method: 'PATCH', body }),
+  adminResolveDispute: (id, body) => request(`/disputes/${id}/resolve`, { method: 'PATCH', body }),
   adminGetContracts: (qs = '') => request(`/admin/contracts${qs}`),
   adminRegisterContract: (body) => request('/admin/contracts', { method: 'POST', body }),
   adminDeployContract: (formData) => request('/admin/contracts/deploy', { method: 'POST', body: formData }),
@@ -321,34 +324,8 @@ export const api = {
   getAddresses: () => request('/addresses'),
 
   placeOrderWithBudgetOverride: (body) => request('/orders', { method: 'POST', body: { ...body, budget_override_confirmed: true } }),
-  // params may include: status, page, limit
-  getOrderPaymentLink: (id) => request(`/orders/${id}/payment-link`),
-  getOrders:    (params = {})  => request(`/orders${toQs(params)}`),
-  getSales:     (params = {})  => request(`/orders/sales${toQs(params)}`),
-
-  submitReview: (body)         => request('/reviews', { method: 'POST', body }),
-
-  getWallet:      ()           => request('/wallet'),
-  getTransactions: ()          => request('/wallet/transactions'),
-  fundWallet:     ()           => request('/wallet/fund', { method: 'POST' }),
-  sendXLM:        (body)       => request('/wallet/send', { method: 'POST', body }),
-  addTrustline:   (body)       => request('/wallet/trustline', { method: 'POST', body }),
-  removeTrustline:(body)       => request('/wallet/trustline', { method: 'DELETE', body }),
-  getWalletAssets: ()          => request('/wallet/assets'),
-  getPathEstimate: (params)    => request(`/wallet/path-estimate${toQs(params)}`),
-  mergeWallet:    (body)       => request('/wallet/merge', { method: 'POST', body }),
-  deleteAccount:   (force)     => request(`/auth/account${force ? '?force=true' : ''}`, { method: 'DELETE' }),
-  // Returns the SSE URL with the token embedded (EventSource can't set headers)
-  getWalletStreamUrl: ()       => `/api/wallet/stream?token=${encodeURIComponent(accessToken || '')}`,
-  searchProducts: (q) => request(`/products/search?q=${encodeURIComponent(q)}`),
-
-  placeOrder: (body) => request('/orders', { method: 'POST', body }),
   getOrderStatus: (id) => request(`/orders/${id}/status`),
-  getOrderPaymentLink: (orderId) => request(`/orders/${orderId}/payment-link`),
   getOrderPaymentLinkQr: (orderId) => `/api/orders/${orderId}/payment-link/qr`,
-  getOrders: (params = {}) => request(`/orders${toQs(params)}`),
-  getSales: (params = {}) => request(`/orders/sales${toQs(params)}`),
-  updateOrderStatus: (id, status) => request(`/orders/${id}/status`, { method: 'PATCH', body: { status } }),
 
   getAuctions: () => request('/auctions'),
   getAuction: (id) => request(`/auctions/${id}`),
@@ -369,22 +346,6 @@ export const api = {
   setBudget: (monthly_budget) => request('/wallet/budget', { method: 'PATCH', body: { monthly_budget } }),
   withdrawFunds: (destination, amount) => request('/wallet/withdraw', { method: 'POST', body: { destination, amount } }),
   getContractEvents: (contractId, params = {}) => request(`/contracts/${contractId}/events${toQs(params)}`),
-  getWallet: function() { return request('/wallet'); },
-  getTransactions: function() { return request('/wallet/transactions'); },
-  fundWallet: function() { return request('/wallet/fund', { method: 'POST' }); },
-  getBudget: function() { return request('/wallet/budget'); },
-  setBudget: function(monthly_budget) { return request('/wallet/budget', { method: 'PATCH', body: { monthly_budget } }); },
-  withdrawFunds: function(destination, amount) { return request('/wallet/withdraw', { method: 'POST', body: { destination, amount } }); },
-  getBudget: function() { return request('/wallet/budget'); },
-  setBudget: function(monthly_budget) { return request('/wallet/budget', { method: 'PATCH', body: { monthly_budget } }); },
-  getProductShareMeta: function(id) { return request(`/products/${id}/share`); },
-  deleteProductImage: (productId, imageId) =>
-    request(`/products/${productId}/images/${imageId}`, { method: "DELETE" }),
-  reorderProductImages: (productId, order) =>
-    request(`/products/${productId}/images/reorder`, {
-      method: "PATCH",
-      body: { order },
-    }),
 
   // Subscriptions
   getSubscriptions: () => request('/subscriptions'),
@@ -414,6 +375,9 @@ export const api = {
   signPendingTx: (txId) => request(`/cooperatives/transactions/${txId}/sign`, { method: 'POST' }),
   getPendingTxs: (coopId) => request(`/cooperatives/${coopId}/pending`),
   // Coupons
+  getMyCoupons: () => request('/coupons'),
+  createCoupon: (body) => request('/coupons', { method: 'POST', body }),
+  deleteCoupon: (id) => request(`/coupons/${id}`, { method: 'DELETE' }),
   validateCoupon: (body) => request('/coupons/validate', { method: 'POST', body }),
 
   // Platform fee
@@ -429,6 +393,16 @@ export const api = {
   adminUpdateAnnouncement: (id, body) => request(`/announcements/admin/${id}`, { method: 'PATCH', body }),
   adminDeleteAnnouncement: (id) => request(`/announcements/admin/${id}`, { method: 'DELETE' }),
 
+  // Creator earnings (Stellar claim)
+  getCreatorEarnings: () => request('/wallet/earnings'),
+  claimCreatorEarnings: () => request('/wallet/earnings/claim', { method: 'POST' }),
+
+  // Payment streams
+  getPaymentStreams: () => request('/streams'),
+  createPaymentStream: (body) => request('/streams', { method: 'POST', body }),
+  cancelPaymentStream: (id) => request(`/streams/${id}/cancel`, { method: 'POST' }),
+  decreasePaymentStreamRate: (id, rate) => request(`/streams/${id}/decrease-rate`, { method: 'PATCH', body: { rate } }),
+  withdrawPaymentStream: (id) => request(`/streams/${id}/withdraw`, { method: 'POST' }),
   // Claimable balances
   getClaimableBalances: () => request('/wallet/claimable-balances'),
   claimBalance: (balance_id) => request('/wallet/claim', { method: 'POST', body: { balance_id } }),

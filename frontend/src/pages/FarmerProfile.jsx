@@ -40,6 +40,13 @@ const s = {
   certBadge:  { display: 'inline-block', fontSize: 11, background: '#d8f3dc', color: '#2d6a4f', borderRadius: 4, padding: '1px 6px', marginLeft: 6 },
   empty:      { color: '#aaa', fontSize: 14, padding: '32px 0', textAlign: 'center' },
   back:       { fontSize: 13, color: '#2d6a4f', cursor: 'pointer', marginBottom: 16, display: 'inline-block' },
+  streamBtn:  { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, minHeight: 44 },
+  label:      { display: 'block', fontSize: 13, color: '#555', marginBottom: 4, marginTop: 12 },
+  input:      { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
+  fieldErr:   { color: '#c0392b', fontSize: 12, marginTop: 4 },
+  msg:        { padding: '10px 14px', borderRadius: 8, marginTop: 12, fontSize: 14 },
+  modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+  modal:      { background: '#fff', borderRadius: 12, padding: 28, maxWidth: 420, width: '90%', boxShadow: '0 4px 24px #0003' },
   pagination: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24 },
   pageBtn:    { padding: '7px 14px', borderRadius: 8, border: '1px solid #ddd', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: '#fff', color: '#2d6a4f' },
   pageBtnActive: { background: '#2d6a4f', color: '#fff', border: '1px solid #2d6a4f' },
@@ -94,6 +101,111 @@ function ProfileSkeleton() {
   );
 }
 
+function StreamModal({ farmerId, onClose }) {
+  const [form, setForm] = useState({ rate: '', deposit: '', endsAt: '' });
+  const [errors, setErrors] = useState({});
+  const [step, setStep] = useState('form'); // 'form' | 'confirm'
+  const [submitting, setSubmitting] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  function validate() {
+    const errs = {};
+    const rate = parseFloat(form.rate);
+    const deposit = parseFloat(form.deposit);
+    if (!rate || rate <= 0) errs.rate = 'Rate must be a positive number.';
+    if (!deposit || deposit <= 0) errs.deposit = 'Deposit must be a positive number.';
+    if (!form.endsAt) errs.endsAt = 'End date is required.';
+    else if (new Date(form.endsAt).getTime() <= Date.now()) errs.endsAt = 'End time must be in the future.';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
+
+  function handleContinue(e) {
+    e.preventDefault();
+    if (!validate()) return;
+    setStep('confirm');
+  }
+
+  async function handleConfirm() {
+    setSubmitting(true);
+    setMsg(null);
+    try {
+      await api.createPaymentStream({
+        recipient_id: farmerId,
+        rate: parseFloat(form.rate),
+        deposit: parseFloat(form.deposit),
+        ends_at: new Date(form.endsAt).toISOString(),
+      });
+      setMsg({ type: 'ok', text: 'Payment stream started.' });
+    } catch (e) {
+      setMsg({ type: 'err', text: e.message || 'Failed to start payment stream.' });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const durationSeconds = form.endsAt ? Math.max(0, (new Date(form.endsAt).getTime() - Date.now()) / 1000) : 0;
+  const durationLabel = durationSeconds > 0
+    ? `${Math.floor(durationSeconds / 86400)}d ${Math.floor((durationSeconds % 86400) / 3600)}h`
+    : '-';
+
+  return (
+    <div style={s.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="stream-modal-title">
+      <div style={s.modal}>
+        <div id="stream-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 14, color: '#333' }}>
+          Start a Payment Stream
+        </div>
+
+        {msg ? (
+          <>
+            <div style={{ ...s.msg, background: msg.type === 'ok' ? '#d8f3dc' : '#fee', color: msg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
+              {msg.text}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
+              <button style={s.streamBtn} onClick={onClose}>Close</button>
+            </div>
+          </>
+        ) : step === 'form' ? (
+          <form onSubmit={handleContinue}>
+            <label style={s.label}>Rate (XLM per second)</label>
+            <input style={s.input} type="number" min="0" step="any" value={form.rate}
+              onChange={e => setForm(f => ({ ...f, rate: e.target.value }))} />
+            {errors.rate && <div style={s.fieldErr}>{errors.rate}</div>}
+
+            <label style={s.label}>Total Deposit (XLM)</label>
+            <input style={s.input} type="number" min="0" step="any" value={form.deposit}
+              onChange={e => setForm(f => ({ ...f, deposit: e.target.value }))} />
+            {errors.deposit && <div style={s.fieldErr}>{errors.deposit}</div>}
+
+            <label style={s.label}>End Date</label>
+            <input style={s.input} type="datetime-local" value={form.endsAt}
+              onChange={e => setForm(f => ({ ...f, endsAt: e.target.value }))} />
+            {errors.endsAt && <div style={s.fieldErr}>{errors.endsAt}</div>}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button type="button" onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                Cancel
+              </button>
+              <button type="submit" style={s.streamBtn}>Continue</button>
+            </div>
+          </form>
+        ) : (
+          <>
+            <p style={{ fontSize: 14, color: '#555', marginBottom: 10 }}>
+              You are about to commit a total deposit of <strong>{parseFloat(form.deposit).toFixed(2)} XLM</strong> at{' '}
+              <strong>{parseFloat(form.rate).toFixed(4)} XLM/sec</strong>, running for approximately{' '}
+              <strong>{durationLabel}</strong> until {new Date(form.endsAt).toLocaleString()}.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button type="button" onClick={() => setStep('form')} disabled={submitting} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                Back
+              </button>
+              <button onClick={handleConfirm} disabled={submitting} style={s.streamBtn}>
+                {submitting ? 'Starting...' : 'Confirm & Start Stream'}
+              </button>
+            </div>
+          </>
+        )}
 /** Modal that shows cooperative detail (name, description, member count) */
 function CoopDetailModal({ coop, onClose }) {
   // Close on backdrop click
@@ -151,6 +263,7 @@ export default function FarmerProfile() {
   const [farmer, setFarmer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [showStreamModal, setShowStreamModal] = useState(false);
   const [page, setPage] = useState(1);
   const [cooperatives, setCooperatives] = useState([]);
   const [selectedCoop, setSelectedCoop] = useState(null);
@@ -221,6 +334,14 @@ export default function FarmerProfile() {
           <div style={s.since}>
             Member since {new Date(farmer.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
           </div>
+          <button style={{ ...s.streamBtn, marginTop: 14 }} onClick={() => setShowStreamModal(true)}>
+            Start a Payment Stream
+          </button>
+        </div>
+      </div>
+
+      {showStreamModal && (
+        <StreamModal farmerId={farmer.id} onClose={() => setShowStreamModal(false)} />
           {farmer.verified && (
             <div style={s.verifiedBadge}>✔ Verified Farmer</div>
           )}

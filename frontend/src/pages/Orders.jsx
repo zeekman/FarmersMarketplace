@@ -216,6 +216,7 @@ export default function Orders() {
   const retriedRef = useRef(false);
   const [exporting, setExporting] = useState(null);
   const [exportError, setExportError] = useState(null);
+  const [receiptError, setReceiptError] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -846,9 +847,11 @@ export default function Orders() {
                           disabled={downloadingReceipt === o.id}
                           onClick={async () => {
                             setDownloadingReceipt(o.id);
+                            setReceiptError((prev) => ({ ...prev, [o.id]: '' }));
                             try {
                               await api.downloadReceipt(o.id);
-                            } catch {
+                            } catch (e) {
+                              setReceiptError((prev) => ({ ...prev, [o.id]: e.message || 'Download failed' }));
                             } finally {
                               setDownloadingReceipt(null);
                             }
@@ -856,6 +859,11 @@ export default function Orders() {
                         >
                           {downloadingReceipt === o.id ? '⏳' : '🧾'} Download Receipt
                         </button>
+                      )}
+                      {receiptError[o.id] && (
+                        <div role="alert" style={{ color: '#c0392b', fontSize: 12, marginTop: 4 }}>
+                          {receiptError[o.id]}
+                        </div>
                       )}
                     </div>
                   </div>

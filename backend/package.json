@@ -77,6 +77,7 @@
     "pdfkit": "^0.18.0",
     "pg": "^8.20.0",
     "qrcode": "^1.5.4",
+    "redis": "^4.7.0",
     "sanitize-html": "^2.17.2",
     "speakeasy": "^2.0.0",
     "stellar-hd-wallet": "^0.0.8",

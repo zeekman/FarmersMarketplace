@@ -1,0 +1,135 @@
+name: Contract Testnet Deploy + Smoke Test
+
+# #859 — Build the escrow contract Wasm, deploy it to Stellar Testnet, run an
+# end-to-end smoke test (deposit -> release) and verify the result on Horizon.
+#
+# Runs on manual dispatch and on pushes to main that touch the escrow contract.
+# It is intentionally NOT triggered by pull_request: deploying requires the
+# STELLAR_CI_SECRET_KEY secret, which is not exposed to fork PRs.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/escrow/**'
+      - 'contract/cli.sh'
+      - '.github/workflows/contract-deploy.yml'
+
+env:
+  STELLAR_NETWORK: testnet
+  HORIZON_URL: https://horizon-testnet.stellar.org
+  RPC_URL: https://soroban-testnet.stellar.org
+
+jobs:
+  deploy-and-smoke-test:
+    name: Deploy to Testnet & Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/target
+          key: ${{ runner.os }}-cargo-escrow-${{ hashFiles('contracts/**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-escrow-
+
+      # Acceptance: CI builds the contract Wasm.
+      - name: Build escrow contract Wasm
+        working-directory: contracts
+        run: cargo build -p soroban-escrow --target wasm32-unknown-unknown --release
+
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli@22.0.0
+
+      # Acceptance: a CI testnet key is stored as a secret and used to deploy.
+      - name: Guard — require deploy secret
+        env:
+          STELLAR_CI_SECRET_KEY: ${{ secrets.STELLAR_CI_SECRET_KEY }}
+        run: |
+          if [ -z "${STELLAR_CI_SECRET_KEY}" ]; then
+            echo "::error::STELLAR_CI_SECRET_KEY secret is not set; cannot deploy to testnet."
+            exit 1
+          fi
+
+      # Acceptance: deploy, smoke test (deposit 1 XLM -> release), and verify on
+      # Horizon. The job (and therefore the CI run) fails if any step fails.
+      - name: Deploy + smoke test (deposit -> release)
+        env:
+          STELLAR_SECRET_KEY: ${{ secrets.STELLAR_CI_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+
+          WASM=contracts/target/wasm32-unknown-unknown/release/soroban_escrow.wasm
+          ACCOUNT_PK="$(stellar keys public-key --secret-key "$STELLAR_SECRET_KEY")"
+          echo "CI account: $ACCOUNT_PK"
+
+          # Fund the CI account on testnet (idempotent; ignore 'already funded').
+          curl -sf "https://friendbot.stellar.org/?addr=${ACCOUNT_PK}" >/dev/null || true
+
+          # Native XLM Stellar Asset Contract address (the escrow token).
+          XLM_SAC="$(stellar contract id asset --asset native --network "$STELLAR_NETWORK")"
+          echo "Native SAC: $XLM_SAC"
+
+          # Deploy the freshly built Wasm.
+          CONTRACT_ID="$(stellar contract deploy \
+            --wasm "$WASM" \
+            --network "$STELLAR_NETWORK" \
+            --source-account "$STELLAR_SECRET_KEY")"
+          echo "Deployed contract: $CONTRACT_ID"
+
+          invoke() {
+            stellar contract invoke \
+              --id "$CONTRACT_ID" \
+              --network "$STELLAR_NETWORK" \
+              --source-account "$STELLAR_SECRET_KEY" \
+              -- "$@"
+          }
+
+          # Initialize: admin = CI account, 0% fee, fee dest = CI account.
+          invoke initialize \
+            --admin "$ACCOUNT_PK" \
+            --fee_bps 0 \
+            --fee_destination "$ACCOUNT_PK"
+
+          ORDER_ID=$(( RANDOM + 1 ))
+          NOW="$(date +%s)"
+          TIMEOUT=$(( NOW + 7200 ))           # 2h ahead (> MIN_TIMEOUT_SECS)
+
+          # Deposit 1 XLM (10_000_000 stroops) into escrow.
+          invoke deposit \
+            --token "$XLM_SAC" \
+            --order_id "$ORDER_ID" \
+            --buyer "$ACCOUNT_PK" \
+            --farmer "$ACCOUNT_PK" \
+            --amount 10000000 \
+            --timeout_unix "$TIMEOUT"
+
+          # Release the escrow to the farmer.
+          invoke release --order_id "$ORDER_ID" --platform_fee_bps 0
+
+          # On-chain assertion: escrow is now settled.
+          SETTLED="$(invoke is_settled --order_id "$ORDER_ID")"
+          echo "is_settled => $SETTLED"
+          if [ "$SETTLED" != "true" ]; then
+            echo "::error::Escrow $ORDER_ID was not settled after release."
+            exit 1
+          fi
+
+          # Acceptance: verify the transaction on Stellar Testnet via Horizon.
+          LATEST="$(curl -sf "${HORIZON_URL}/accounts/${ACCOUNT_PK}/transactions?order=desc&limit=1")"
+          SUCCESS="$(echo "$LATEST" | python3 -c 'import json,sys; print(json.load(sys.stdin)["_embedded"]["records"][0]["successful"])')"
+          echo "Latest Horizon tx successful => $SUCCESS"
+          if [ "$SUCCESS" != "True" ]; then
+            echo "::error::Most recent Horizon transaction was not successful."
+            exit 1
+          fi
+
+          echo "Smoke test passed: deploy -> deposit -> release -> Horizon verification ✓"

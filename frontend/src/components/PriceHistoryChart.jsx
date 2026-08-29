@@ -29,8 +29,21 @@ export default function PriceHistoryChart({ productId, data: initialData, locale
   if (!data || data.length < 2) {
     return (
       <div style={{ marginBottom: 24 }}>
-        <RangeToggle range={range} onRange={setRange} />
-        <div style={{ fontSize: 14, color: '#888' }}>No price history available.</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#2d6a4f' }}>📈 Price History</div>
+          <RangeToggle range={range} onRange={setRange} />
+        </div>
+        <div
+          data-testid="price-history-empty"
+          style={{
+            height: 160, display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', gap: 4, background: '#fafafa', borderRadius: 8,
+            color: '#aaa', fontSize: 13,
+          }}
+        >
+          <div style={{ fontSize: 22 }}>📉</div>
+          <div>Not enough price history yet.</div>
+        </div>
       </div>
     );
   }

@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const logger = require("../logger");
 
 const SUPPORTED_EVENTS = ["order.paid", "order.shipped", "order.delivered"];
 const TIMEOUT_MS = 5000;
@@ -71,7 +72,7 @@ async function fireOrderWebhook(db, event, order) {
       await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
     }
   }
-  console.error(`[webhook] All ${MAX_RETRIES} attempts failed for order ${order.id} event ${event}`);
+  logger.error(`[webhook] All ${MAX_RETRIES} attempts failed for order ${order.id} event ${event}`);
 }
 
 module.exports = { fireOrderWebhook, signPayload, SUPPORTED_EVENTS };

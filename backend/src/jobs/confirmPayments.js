@@ -1,5 +1,6 @@
 const db = require('../db/schema');
 const { getTransactions } = require('../utils/stellar');
+const logger = require('../logger');
 
 const POLL_INTERVAL_MS = 5000;
 const TIMEOUT_MS = 60000;
@@ -20,6 +21,8 @@ async function confirmPendingOrders() {
         order.product_id
       ]);
       console.log(`[confirm] Order ${order.id} timed out`);
+      );
+      logger.info(`[confirm] Order ${order.id} timed out`);
       continue;
     }
 
@@ -29,9 +32,11 @@ async function confirmPendingOrders() {
       if (confirmed) {
         await db.query(`UPDATE orders SET status = 'paid' WHERE id = $1`, [order.id]);
         console.log(`[confirm] Order ${order.id} confirmed — TX ${order.stellar_tx_hash}`);
+        db.prepare(`UPDATE orders SET status = 'paid' WHERE id = ?`).run(order.id);
+        logger.info(`[confirm] Order ${order.id} confirmed — TX ${order.stellar_tx_hash}`);
       }
     } catch (e) {
-      console.error(`[confirm] Error checking order ${order.id}:`, e.message);
+      logger.error(`[confirm] Error checking order ${order.id}`, { error: e.message });
     }
   }
 }
@@ -43,6 +48,8 @@ function start() {
     });
   }, POLL_INTERVAL_MS);
   console.log('[confirm] Payment confirmation job started');
+  setInterval(confirmPendingOrders, POLL_INTERVAL_MS);
+  logger.info('[confirm] Payment confirmation job started');
 }
 
 module.exports = { start, confirmPendingOrders };

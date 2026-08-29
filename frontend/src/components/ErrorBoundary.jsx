@@ -1,6 +1,12 @@
 import React from 'react';
 import { captureException } from '../utils/sentry';
 
+const CHUNK_LOAD_ERROR_PATTERN = /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Loading chunk .* failed|ChunkLoadError/i;
+
+function isChunkLoadError(message) {
+  return CHUNK_LOAD_ERROR_PATTERN.test(message || '');
+}
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -19,6 +25,11 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
+    // Log error details to console
+    // eslint-disable-next-line no-console
+    console.error('Error caught by ErrorBoundary:', error);
+    // eslint-disable-next-line no-console
+    console.error('Error Info:', errorInfo);
     const componentStack = errorInfo?.componentStack;
 
     this.setState({
@@ -49,8 +60,12 @@ class ErrorBoundary extends React.Component {
           userAgent: navigator.userAgent,
           timestamp: new Date().toISOString(),
         }),
-      }).catch(e => console.error('Failed to log error to backend:', e));
+      }).catch(e => {
+        // eslint-disable-next-line no-console
+        console.error('Failed to log error to backend:', e);
+      });
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('Error logging to backend:', err);
     }
   };
@@ -65,6 +80,23 @@ class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
+      if (isChunkLoadError(this.state.errorMessage)) {
+        return (
+          <div style={styles.container}>
+            <div style={styles.errorBox}>
+              <div style={styles.icon}>🔄</div>
+              <h1 style={styles.title}>A New Version Is Available</h1>
+              <p style={styles.message}>
+                This page has been updated since you loaded it. Please refresh to get the latest version.
+              </p>
+              <button style={styles.button} onClick={this.handleReload} aria-label="Refresh to apply the update">
+                Refresh
+              </button>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div style={styles.container}>
           <div style={styles.errorBox}>

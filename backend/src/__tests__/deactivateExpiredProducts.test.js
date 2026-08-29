@@ -30,7 +30,7 @@ jest.mock('../../src/logger', () => ({
 
 const db = require('../../src/db/schema');
 const mailerMock = require('../../src/utils/mailer');
-const { deactivateExpiredProducts, todayUTC } = require('../../src/jobs/deactivateExpiredProducts');
+const { deactivateExpiredProducts, reactivateScheduledProducts, runSchedulingJob, startSchedulingJob, todayUTC } = require('../../src/jobs/deactivateExpiredProducts');
 
 // sendProductExpiredEmail is re-assigned in beforeEach because jest.setup.js
 // calls jest.resetAllMocks() which clears all mock implementations.
@@ -311,5 +311,67 @@ describe('deactivateExpiredProducts', () => {
       expect(selectCall).toBeDefined();
       expect(selectCall[0]).toContain('$1');
     });
+  });
+});
+
+describe('reactivateScheduledProducts', () => {
+  beforeEach(() => {
+    db.isPostgres = false;
+  });
+
+  it('re-activates product whose available_from has arrived and available_until is in the future', async () => {
+    db.query.mockResolvedValue({ rows: [], rowCount: 1 });
+    const now = new Date('2026-06-24T12:00:00Z');
+
+    const result = await reactivateScheduledProducts(now);
+
+    expect(result.reactivated).toBe(1);
+    const updateCall = db.query.mock.calls.find(([sql]) => sql.includes('SET active'));
+    expect(updateCall).toBeDefined();
+    expect(updateCall[0]).toContain('active = 0');
+    expect(updateCall[0]).toContain('available_from <=');
+  });
+
+  it('does not re-activate product whose available_until has passed', async () => {
+    // When available_until < now, the WHERE clause excludes the row → rowCount 0
+    db.query.mockResolvedValue({ rows: [], rowCount: 0 });
+    const now = new Date('2026-06-24T12:00:00Z');
+
+    const result = await reactivateScheduledProducts(now);
+
+    expect(result.reactivated).toBe(0);
+  });
+
+  it('returns count of reactivated products', async () => {
+    db.query.mockResolvedValue({ rows: [], rowCount: 3 });
+
+    const result = await reactivateScheduledProducts(new Date('2026-06-24T12:00:00Z'));
+
+    expect(result).toEqual({ reactivated: 3 });
+  });
+});
+
+describe('runSchedulingJob', () => {
+  it('returns combined deactivated and reactivated counts', async () => {
+    // First call: fetchExpiredBatch returns empty → deactivate done
+    // Second call: UPDATE for reactivate
+    let callCount = 0;
+    db.prepare.mockImplementation(() => ({ all: jest.fn().mockReturnValue([]) }));
+    db.query.mockImplementation(async () => {
+      callCount++;
+      return { rows: [], rowCount: callCount === 1 ? 2 : 0 };
+    });
+
+    const result = await runSchedulingJob('2026-06-24');
+
+    expect(result).toHaveProperty('deactivated');
+    expect(result).toHaveProperty('reactivated');
+  });
+});
+
+describe('exports', () => {
+  it('exports startSchedulingJob and startExpiryJob as aliases', () => {
+    expect(typeof startSchedulingJob).toBe('function');
+    expect(startSchedulingJob).toBe(require('../../src/jobs/deactivateExpiredProducts').startExpiryJob);
   });
 });

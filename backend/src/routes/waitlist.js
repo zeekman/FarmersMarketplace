@@ -2,6 +2,7 @@ const router = require('express').Router();
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 const WaitlistService = require('../services/WaitlistService');
+const logger = require('../logger');
 
 /**
  * @swagger
@@ -95,7 +96,7 @@ router.get('/mine', auth, async (req, res) => {
       count: result.count,
     });
   } catch (error) {
-    console.error('[Waitlist] Error getting buyer waitlist entries:', error);
+    logger.error('[Waitlist] Error getting buyer waitlist entries', { error: error.message, stack: error.stack });
     return err(res, 500, 'Internal server error', 'internal_error');
   }
 });

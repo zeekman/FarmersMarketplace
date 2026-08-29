@@ -7,6 +7,14 @@ const css = `
 }
 .fsc-pulse { animation: fsc-pulse 1s ease-in-out infinite; }
 .fsc-pulse-fast { animation: fsc-pulse 0.5s ease-in-out infinite; }
+
+/* Respect prefers-reduced-motion — disable urgency animation */
+@media (prefers-reduced-motion: reduce) {
+  .fsc-pulse,
+  .fsc-pulse-fast {
+    animation: none;
+  }
+}
 `;
 
 function getRemaining(endAt) {

@@ -48,6 +48,25 @@ describe('AuctionCard countdown timer (#440)', () => {
     act(() => { vi.advanceTimersByTime(3000); });
     expect(screen.getByText('Auction ended')).toBeInTheDocument();
   });
+
+  it('disables the bid form live once ends_at passes while the page stays open, without a remount (#1201)', () => {
+    const future = new Date(Date.now() + 3000).toISOString();
+    const { container } = render(
+      <AuctionCard auction={{ ...baseAuction, ends_at: future }} onBid={vi.fn()} />
+    );
+    const cardNode = container.firstChild;
+
+    // Still active: bid input present, button enabled
+    expect(container.querySelector('input[type="number"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /place bid/i })).not.toBeDisabled();
+
+    act(() => { vi.advanceTimersByTime(4000); });
+
+    // Same DOM subtree (no remount) that has now transitioned live
+    expect(container.firstChild).toBe(cardNode);
+    expect(container.querySelector('input[type="number"]')).toBeNull();
+    expect(screen.getByRole('button', { name: /auction ended/i })).toBeDisabled();
+  });
 });
 
 describe('AuctionCard polling (#766)', () => {

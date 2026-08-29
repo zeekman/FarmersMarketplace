@@ -6,12 +6,19 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map">{children}</div>,
   TileLayer: () => null,
+  Marker: ({ children, icon, eventHandlers, position }) => (
+    <div
+      data-testid={icon ? 'cluster-marker' : 'farm-marker'}
+      data-position={JSON.stringify(position)}
+      onClick={eventHandlers?.click}
+    >
   Marker: ({ children, position }) => (
     <div data-testid="marker" data-lat={position?.[0]} data-lng={position?.[1]}>
       {children}
     </div>
   ),
   Popup: ({ children }) => <div>{children}</div>,
+  Circle: () => null,
   Circle: ({ center, radius, pathOptions }) => (
     <div
       data-testid="radius-circle"
@@ -22,10 +29,15 @@ vi.mock('react-leaflet', () => ({
     />
   ),
   useMap: () => ({ setView: vi.fn(), getZoom: () => 7 }),
+  useMapEvents: (handlers) => { void handlers; return null; },
 }));
 vi.mock('leaflet', () => ({
   default: {
     Icon: { Default: { prototype: {}, mergeOptions: vi.fn() } },
+    divIcon: vi.fn(() => ({ mockIcon: true })),
+  },
+  Icon: { Default: { prototype: {}, mergeOptions: vi.fn() } },
+  divIcon: vi.fn(() => ({ mockIcon: true })),
     divIcon: vi.fn(() => ({})),
   },
   Icon: { Default: { prototype: {}, mergeOptions: vi.fn() } },
@@ -48,6 +60,20 @@ const products = [
   },
 ];
 
+// Products spread far apart — should NOT cluster at zoom 7
+const spreadProducts = [
+  { id: 1, name: 'Apples', price: '2', unit: 'kg', farmer_name: 'Bob', farmer_lat: 1.0, farmer_lng: 1.0 },
+  { id: 2, name: 'Corn', price: '3', unit: 'kg', farmer_name: 'Alice', farmer_lat: 20.0, farmer_lng: 20.0 },
+];
+
+// Products close together — should cluster at zoom 7
+const denseProducts = [
+  { id: 1, name: 'Apples', price: '2', unit: 'kg', farmer_name: 'Bob', farmer_lat: 1.0, farmer_lng: 1.0 },
+  { id: 2, name: 'Corn', price: '3', unit: 'kg', farmer_name: 'Alice', farmer_lat: 1.01, farmer_lng: 1.01 },
+  { id: 3, name: 'Beans', price: '1', unit: 'kg', farmer_name: 'Carol', farmer_lat: 1.02, farmer_lng: 1.02 },
+];
+
+describe('MapView geolocation error handling (#439)', () => {
 describe('MapView geolocation error handling', () => {
   let originalGeo;
 
@@ -80,6 +106,34 @@ describe('MapView geolocation error handling', () => {
   });
 });
 
+describe('MapView cluster rendering (#797)', () => {
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'geolocation', {
+      value: { getCurrentPosition: (_s, error) => error({ code: 2 }) },
+      configurable: true,
+    });
+  });
+
+  it('renders individual farm markers when pins are spread far apart', () => {
+    render(<MapView products={spreadProducts} />);
+    // Two distinct locations far apart — two separate farm markers, no cluster
+    const farmMarkers = screen.getAllByTestId('farm-marker');
+    expect(farmMarkers.length).toBe(2);
+    expect(screen.queryByTestId('cluster-marker')).toBeNull();
+  });
+
+  it('renders a single cluster marker when multiple farms are nearby', () => {
+    render(<MapView products={denseProducts} />);
+    // All three farms are within cluster radius — should appear as one cluster
+    const clusterMarkers = screen.getAllByTestId('cluster-marker');
+    expect(clusterMarkers.length).toBe(1);
+    expect(screen.queryByTestId('farm-marker')).toBeNull();
+  });
+
+  it('cluster popup shows count and zoom button', () => {
+    render(<MapView products={denseProducts} />);
+    expect(screen.getByText('3 farms in this area')).toBeInTheDocument();
+    expect(screen.getByText('Zoom in to see farms')).toBeInTheDocument();
 describe('MapView radius circle (geo-filter)', () => {
   it('renders a Circle when userLat, userLng, and radius are provided', () => {
     render(

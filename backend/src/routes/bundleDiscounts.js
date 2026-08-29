@@ -20,8 +20,8 @@ router.post('/me/bundle-discounts', auth, async (req, res) => {
   if (!Number.isInteger(min_products) || min_products < 2) {
     return err(res, 400, 'min_products must be an integer >= 2', 'validation_error');
   }
-  if (typeof discount_percent !== 'number' || discount_percent <= 0 || discount_percent > 100) {
-    return err(res, 400, 'discount_percent must be between 0 and 100', 'validation_error');
+  if (typeof discount_percent !== 'number' || discount_percent < 1 || discount_percent > 50) {
+    return err(res, 400, 'discount_percent must be between 1 and 50', 'validation_error');
   }
   try {
     const { rows } = await db.query(
@@ -45,8 +45,8 @@ router.put('/me/bundle-discounts/:id', auth, async (req, res) => {
   if (!Number.isInteger(min_products) || min_products < 2) {
     return err(res, 400, 'min_products must be an integer >= 2', 'validation_error');
   }
-  if (typeof discount_percent !== 'number' || discount_percent <= 0 || discount_percent > 100) {
-    return err(res, 400, 'discount_percent must be between 0 and 100', 'validation_error');
+  if (typeof discount_percent !== 'number' || discount_percent < 1 || discount_percent > 50) {
+    return err(res, 400, 'discount_percent must be between 1 and 50', 'validation_error');
   }
   const { rowCount, rows } = await db.query(
     `UPDATE bundle_discounts SET min_products = $1, discount_percent = $2

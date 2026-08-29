@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
+const requireEmailVerified = require('../middleware/requireEmailVerified');
 const cache = require('../cache');
 const validate = require('../middleware/validate');
 const upload = require('../middleware/upload');
@@ -40,7 +41,6 @@ function normalizePreorderInput(body) {
 }
 
 /**
-/**
  * @swagger
  * /api/products:
  *   get:
@@ -57,7 +57,7 @@ router.get('/', async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
   const offset = (page - 1) * limit;
-  const { category, minPrice, maxPrice, seller, available = 'true', lat, lng, radius, grade } = req.query;
+  const { category, minPrice, maxPrice, seller, available = 'true', lat, lng, radius, grade, q } = req.query;
 
   const conditions = [];
   const params = [];
@@ -78,6 +78,22 @@ router.get('/', async (req, res) => {
   if (grade) {
     const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];
     if (VALID_GRADES.includes(grade)) { conditions.push(`p.grade = $${params.length + 1}`); params.push(grade); }
+  }
+
+  // Full-text search: PostgreSQL uses tsvector/GIN; SQLite falls back to LIKE
+  let tsRankSelect = '';
+  let tsOrderBy = null;
+  if (q && q.trim()) {
+    if (db.isPostgres) {
+      conditions.push(`p.search_vector @@ plainto_tsquery('english', $${params.length + 1})`);
+      params.push(q.trim());
+      tsRankSelect = `, ts_rank(p.search_vector, plainto_tsquery('english', $${params.length})) as _ts_rank`;
+      tsOrderBy = '_ts_rank DESC';
+    } else {
+      const likeQ = `%${q.trim()}%`;
+      conditions.push(`(p.name LIKE $${params.length + 1} OR p.description LIKE $${params.length + 2})`);
+      params.push(likeQ, likeQ);
+    }
   }
 
   const filterLat = parseFloat(lat);
@@ -101,16 +117,17 @@ router.get('/', async (req, res) => {
 
   const VALID_SORTS = { price_asc: 'p.price ASC', price_desc: 'p.price DESC', newest: 'p.created_at DESC', popular: 'order_count DESC' };
   const sortKey = VALID_SORTS[req.query.sort] ? req.query.sort : 'newest';
-  const orderBy = VALID_SORTS[sortKey];
-  const popularJoin = sortKey === 'popular'
+  // Text search results ordered by relevance rank; other sorts apply normally
+  const orderBy = tsOrderBy || VALID_SORTS[sortKey];
+  const popularJoin = sortKey === 'popular' && !tsOrderBy
     ? `LEFT JOIN (SELECT product_id, COUNT(*) as order_count FROM orders WHERE status='paid' GROUP BY product_id) oc ON oc.product_id = p.id`
     : '';
-  const popularSelect = sortKey === 'popular' ? ', COALESCE(oc.order_count, 0) as order_count' : '';
+  const popularSelect = sortKey === 'popular' && !tsOrderBy ? ', COALESCE(oc.order_count, 0) as order_count' : '';
 
   const { rows: products } = await db.query(
     `SELECT p.*, u.name as farmer_name, u.latitude as farmer_lat, u.longitude as farmer_lng, u.farm_address as farmer_farm_address,
             ROUND(AVG(r.rating)${db.isPostgres ? '::numeric' : ''}, 1) as avg_rating,
-            COUNT(r.id) as review_count${popularSelect}
+            COUNT(r.id) as review_count${popularSelect}${tsRankSelect}
      FROM products p
      JOIN users u ON p.farmer_id = u.id
      LEFT JOIN reviews r ON r.product_id = p.id
@@ -135,6 +152,11 @@ router.get('/', async (req, res) => {
   }
   await cache.set(cacheKey, payload, 60);
   res.json(payload);
+});
+
+// GET /api/products/allergens — returns the canonical allergen whitelist
+router.get('/allergens', (req, res) => {
+  res.json({ success: true, allergens: VALID_ALLERGENS });
 });
 
 // GET /api/products/:id
@@ -195,7 +217,7 @@ router.get('/:id', (req, res) => {
  *     tags: [Products]
  */
 // POST /api/products
-router.post('/', auth, validate.product, async (req, res) => {
+router.post('/', auth, requireEmailVerified, validate.product, async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can list products', 'forbidden');
 
   const { name, description, unit, category, image_url, nutrition } = req.body;
@@ -209,7 +231,14 @@ router.post('/', auth, validate.product, async (req, res) => {
   const preorder = normalizePreorderInput(req.body);
   if (preorder.error) return err(res, 400, preorder.error, 'validation_error');
 
-  const { weight_kg, available_from } = req.body;
+  const { weight_kg, available_from, available_until } = req.body;
+
+  if (available_until != null) {
+    if (new Date(available_until) <= new Date()) return err(res, 400, 'available_until must be in the future', 'validation_error');
+  }
+  if (available_from != null && available_until != null) {
+    if (new Date(available_from) >= new Date(available_until)) return err(res, 400, 'available_from must be before available_until', 'validation_error');
+  }
 
   const result = db.prepare(
     'INSERT INTO products (farmer_id, name, description, price, quantity, unit, weight_kg) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -345,7 +374,7 @@ router.patch('/:id', auth, async (req, res) => {
     'name', 'description', 'price', 'quantity', 'unit', 'category',
     'low_stock_threshold', 'nutrition', 'pricing_type', 'min_weight', 'max_weight',
     'batch_id', 'is_preorder', 'preorder_delivery_date', 'allergens', 'allowed_regions',
-    'grade', 'carbon_kg_per_unit', 'available_from', 'available_until',
+    'grade', 'carbon_kg_per_unit', 'available_from', 'available_until', 'best_before',
   ];
   const updates = {};
   for (const key of allowed) {
@@ -376,7 +405,7 @@ router.patch('/:id', auth, async (req, res) => {
   }
   if (updates.allergens !== undefined) {
     const allergenResult = parseAndValidateAllergens(updates.allergens);
-    if (allergenResult.error) return err(res, 400, allergenResult.error, 'validation_error');
+    if (allergenResult.error) return err(res, 400, allergenResult.error, 'invalid_allergen');
     updates.allergens = allergenResult.allergens;
   }
   if (updates.allowed_regions !== undefined) {
@@ -385,6 +414,16 @@ router.patch('/:id', auth, async (req, res) => {
   if (updates.grade !== undefined) {
     const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];
     if (!VALID_GRADES.includes(updates.grade)) return err(res, 400, 'grade must be A, B, C, or Ungraded', 'validation_error');
+  }
+  if (updates.best_before !== undefined) {
+    if (updates.best_before !== null && !/^\d{4}-\d{2}-\d{2}$/.test(updates.best_before)) {
+      return err(res, 400, 'best_before must be YYYY-MM-DD or null', 'validation_error');
+    }
+    const currentBestBefore = product.best_before ? String(product.best_before).split('T')[0] : null;
+    const today = new Date().toISOString().split('T')[0];
+    if (updates.best_before !== currentBestBefore && updates.best_before && updates.best_before > today) {
+      updates.expiry_notified_at = null;
+    }
   }
   if (updates.batch_id !== undefined) {
     if (updates.batch_id === null || updates.batch_id === '') {
@@ -396,6 +435,15 @@ router.patch('/:id', auth, async (req, res) => {
       if (!bRows[0]) return err(res, 400, 'Invalid batch_id or not your batch', 'invalid_batch');
       updates.batch_id = bid;
     }
+  }
+
+  if (updates.available_until != null) {
+    if (new Date(updates.available_until) <= new Date()) return err(res, 400, 'available_until must be in the future', 'validation_error');
+  }
+  const patchFrom = updates.available_from != null ? updates.available_from : product.available_from;
+  const patchUntil = updates.available_until !== undefined ? updates.available_until : product.available_until;
+  if (patchFrom != null && patchUntil != null) {
+    if (new Date(patchFrom) >= new Date(patchUntil)) return err(res, 400, 'available_from must be before available_until', 'validation_error');
   }
 
   const nextIsPreorder = updates.is_preorder !== undefined
@@ -503,7 +551,7 @@ router.patch('/:id/restock', auth, async (req, res) => {
     if (wasOutOfStock) {
       const processor = new AutomaticOrderProcessor();
       waitlistResults = await processor.processWaitlistOnRestock(parseInt(req.params.id), quantity);
-      if (!waitlistResults.success) console.error('[Restock] Waitlist processing failed:', waitlistResults.error);
+      if (!waitlistResults.success) logger.error('[Restock] Waitlist processing failed', { error: waitlistResults.error });
 
       const { rows: subscribers } = await db.query(
         `SELECT u.email, u.name FROM stock_alerts sa JOIN users u ON sa.user_id = u.id WHERE sa.product_id = $1`,
@@ -512,7 +560,7 @@ router.patch('/:id/restock', auth, async (req, res) => {
       if (subscribers.length > 0) {
         await db.query('DELETE FROM stock_alerts WHERE product_id = $1', [req.params.id]);
         Promise.all(subscribers.map((s) => sendBackInStockEmail({ email: s.email, name: s.name, productName: product.name })))
-          .catch((e) => console.error('[stock-alert] Email send failed:', e.message));
+          .catch((e) => logger.error('[stock-alert] Email send failed', { error: e.message }));
       }
     }
 
@@ -528,7 +576,7 @@ router.patch('/:id/restock', auth, async (req, res) => {
     }
     res.json(response);
   } catch (error) {
-    console.error('[Restock] Error processing restock:', error);
+    logger.error('[Restock] Error processing restock', { error: error.message, stack: error.stack });
     return err(res, 500, 'Internal server error during restock', 'internal_error');
   }
 });
@@ -605,6 +653,18 @@ router.post('/:id/images', auth, async (req, res) => {
     if (images.length > 0) await db.query('UPDATE products SET image_url = $1 WHERE id = $2', [images[0].url, req.params.id]);
     res.json({ success: true, data: images });
   });
+});
+
+// GET /api/products/:id
+router.get('/:id', (req, res) => {
+  const product = db.prepare(`
+    SELECT p.*, u.name as farmer_name, u.stellar_public_key as farmer_wallet,
+           COALESCE(p.avg_rating, 0) as avg_rating,
+           COALESCE(p.review_count, 0) as review_count
+    FROM products p JOIN users u ON p.farmer_id = u.id WHERE p.id = ?
+  `).get(req.params.id);
+  if (!product) return err(res, 404, 'Product not found', 'not_found');
+  res.json({ success: true, data: product });
 });
 
 // DELETE /api/products/:id/images/:imgId
@@ -870,6 +930,64 @@ router.get('/:id/batches', async (req, res) => {
     [prodRows[0].batch_id],
   );
   res.json({ success: true, data: rows });
+});
+
+// POST /api/products/:id/restock — farmer adds stock; triggers back-in-stock notifications (once per restock)
+router.post('/:id/restock', auth, (req, res) => {
+  if (req.user.role !== 'farmer') return res.status(403).json({ error: 'Farmers only' });
+
+  const quantity = parseInt(req.body.quantity, 10);
+  if (isNaN(quantity) || quantity < 1) return res.status(400).json({ error: 'quantity must be a positive integer' });
+
+  const product = db.prepare('SELECT * FROM products WHERE id = ? AND farmer_id = ?').get(req.params.id, req.user.id);
+  if (!product) return res.status(404).json({ error: 'Not found or not yours' });
+
+  const wasOutOfStock = product.quantity === 0;
+  db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?').run(quantity, product.id);
+
+  // Only notify if the product was out of stock and hasn't fired a notification for this restock yet.
+  if (!wasOutOfStock || product.restock_notified_at) {
+    return res.json({ message: 'Restocked', quantity: product.quantity + quantity });
+  }
+
+  // Stamp immediately to prevent duplicate sends on concurrent requests.
+  db.prepare('UPDATE products SET restock_notified_at = CURRENT_TIMESTAMP WHERE id = ?').run(product.id);
+
+  // Gather unique buyer IDs from both favourites and waitlists.
+  const buyerIds = [
+    ...db.prepare('SELECT user_id FROM favourites WHERE product_id = ?').all(product.id),
+    ...db.prepare('SELECT user_id FROM waitlists WHERE product_id = ?').all(product.id),
+  ]
+    .map(r => r.user_id)
+    .filter((v, i, a) => a.indexOf(v) === i);
+
+  if (buyerIds.length === 0) return res.json({ message: 'Restocked', notified: 0 });
+
+  const updatedProduct = { ...product, quantity: product.quantity + quantity };
+
+  // Fire-and-forget — don't block the HTTP response.
+  Promise.allSettled(
+    buyerIds.map(async (userId) => {
+      const user = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(userId);
+      if (!user) return;
+
+      const sub = db.prepare('SELECT subscription_json FROM push_subscriptions WHERE user_id = ?').get(userId);
+
+      await Promise.allSettled([
+        sendBackInStockEmail({ user, product: updatedProduct }),
+        sendPushToUser({
+          subscription: sub ? JSON.parse(sub.subscription_json) : null,
+          payload: {
+            title: 'Back in stock',
+            body: `${updatedProduct.name} is available again!`,
+            url: `/products/${updatedProduct.id}`,
+          },
+        }),
+      ]);
+    })
+  ).catch(err => logger.error('Restock notification error', { error: err.message }));
+
+  res.json({ message: 'Restocked', notified: buyerIds.length });
 });
 
 module.exports = router;

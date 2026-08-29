@@ -107,7 +107,7 @@ console.log('');
 
 console.log('📁 Files Created:');
 console.log('- backend/src/routes/products_restock_only.js (Working implementation)');
-console.log('- backend/TASK_8.1_RESTOCK_ENDPOINT_IMPLEMENTATION.md (Documentation)');
+console.log('- docs/implementation-notes/TASK_8.1_RESTOCK_ENDPOINT_IMPLEMENTATION.md (Documentation)');
 console.log('- backend/test-restock-endpoint.js (Test suite)');
 console.log('- backend/demo-restock-integration.js (Full demo)');
 console.log('');
