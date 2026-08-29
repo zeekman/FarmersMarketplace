@@ -124,6 +124,79 @@ describe('BundleDiscountPanel — form interaction', () => {
   });
 });
 
+// ── Editing an existing tier ────────────────────────────────────────────────────
+
+describe('BundleDiscountPanel — editing a tier', () => {
+  it('populates the form and switches the button to "Update Tier" when Edit is clicked', () => {
+    const onFormChange = vi.fn();
+    render(
+      <BundleDiscountPanel
+        bundleDiscounts={TIERS}
+        bdForm={{ min_products: '', discount_percent: '' }}
+        onFormChange={onFormChange}
+        onSubmit={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getAllByRole('button', { name: /^edit$/i })[0]);
+    expect(onFormChange).toHaveBeenCalledWith('min_products', '3');
+    expect(onFormChange).toHaveBeenCalledWith('discount_percent', '10');
+    expect(screen.getByRole('button', { name: /update tier/i })).toBeInTheDocument();
+  });
+
+  it('calls onSubmit with the editing tier id when the updated form is submitted', () => {
+    const onSubmit = vi.fn((e) => e.preventDefault());
+    render(
+      <BundleDiscountPanel
+        bundleDiscounts={TIERS}
+        bdForm={{ min_products: '3', discount_percent: '15' }}
+        onFormChange={vi.fn()}
+        onSubmit={onSubmit}
+        onDelete={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getAllByRole('button', { name: /^edit$/i })[0]);
+    fireEvent.submit(screen.getByRole('button', { name: /update tier/i }).closest('form'));
+    expect(onSubmit).toHaveBeenCalledWith(expect.anything(), 1);
+  });
+});
+
+// ── Client-side conflict rejection ──────────────────────────────────────────────
+
+describe('BundleDiscountPanel — client-side conflict rejection', () => {
+  it('rejects a new tier whose min_products matches an existing tier, without calling onSubmit', () => {
+    const onSubmit = vi.fn();
+    render(
+      <BundleDiscountPanel
+        bundleDiscounts={TIERS}
+        bdForm={{ min_products: '5', discount_percent: '25' }}
+        onFormChange={vi.fn()}
+        onSubmit={onSubmit}
+        onDelete={vi.fn()}
+      />
+    );
+    fireEvent.submit(screen.getByRole('button', { name: /add tier/i }).closest('form'));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText(/a tier for 5\+ products already exists/i)).toBeInTheDocument();
+  });
+
+  it('allows submitting a tier being edited back with its own unchanged min_products', () => {
+    const onSubmit = vi.fn((e) => e.preventDefault());
+    render(
+      <BundleDiscountPanel
+        bundleDiscounts={TIERS}
+        bdForm={{ min_products: '3', discount_percent: '10' }}
+        onFormChange={vi.fn()}
+        onSubmit={onSubmit}
+        onDelete={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getAllByRole('button', { name: /^edit$/i })[0]);
+    fireEvent.submit(screen.getByRole('button', { name: /update tier/i }).closest('form'));
+    expect(onSubmit).toHaveBeenCalledWith(expect.anything(), 1);
+  });
+});
+
 // ── Feedback message ──────────────────────────────────────────────────────────
 
 describe('BundleDiscountPanel — feedback message', () => {

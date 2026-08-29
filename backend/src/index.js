@@ -14,6 +14,7 @@ const { startCreatorEarningsMonitor } = require('./jobs/creatorEarningsMonitor')
 const { startPushSubscriptionCleanup } = require('./jobs/cleanupPushSubscriptions');
 const { startExpiryJob } = require('./jobs/deactivateExpiredProducts');
 const { startAnonymizeJob } = require('./jobs/anonymizeDeactivatedUsers');
+const { startAuctionJob } = require('./jobs/auctionCron');
 const { createBackup } = require('./scripts/backup');
 const PORT = process.env.PORT || 4000;
 
@@ -29,6 +30,7 @@ app.listen(PORT, () => {
   startPushSubscriptionCleanup();
   startAnonymizeJob();
   startExpiryJob();
+  startAuctionJob();
 
   cron.schedule('0 0 * * *', async () => {
     logger.info('Starting scheduled daily backup');
