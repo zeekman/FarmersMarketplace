@@ -9,6 +9,7 @@ const s = {
   avatar:     { width: 96, height: 96, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, background: '#d8f3dc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40 },
   name:       { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 4 },
   location:   { fontSize: 14, color: '#888', marginBottom: 8 },
+  verifiedBadge: { fontSize: 12, fontWeight: 600, color: '#2d6a4f', marginBottom: 4 },
   bio:        { fontSize: 14, color: '#555', lineHeight: 1.6, maxWidth: 560 },
   since:      { fontSize: 12, color: '#aaa', marginTop: 8 },
   sectionTitle: { fontSize: 18, fontWeight: 700, color: '#2d6a4f', marginBottom: 16 },
@@ -61,6 +62,16 @@ export default function FarmerProfile() {
         }
         <div style={{ flex: 1 }}>
           <div style={s.name}>{farmer.name}</div>
+          {farmer.verified && (
+            <div style={s.verifiedBadge}>✔ Verified Farmer</div>
+          )}
+          {farmer.cooperatives?.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {farmer.cooperatives.map(coop => (
+                <span key={coop.id} style={s.badge}>{coop.name}</span>
+              ))}
+            </div>
+          )}
           {farmer.location && <div style={s.location}>📍 {farmer.location}</div>}
           {farmer.bio
             ? <div style={s.bio}>{farmer.bio}</div>

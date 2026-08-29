@@ -2,6 +2,22 @@
 
 export const PASSWORD_MIN_LENGTH = 8;
 
+// Kept in sync with backend/src/middleware/validate.js's WEAK_PASSWORDS set.
+const WEAK_PASSWORDS = new Set([
+  'password',
+  'password1',
+  'Password1',
+  'Password1!',
+  '12345678',
+  '123456789',
+  'qwerty123',
+  'iloveyou',
+  'admin123',
+  'letmein1',
+  'welcome1',
+  'monkey123',
+]);
+
 /**
  * Returns an array of password strength issues (empty = strong enough).
  */
@@ -12,6 +28,7 @@ export function validatePassword(password) {
   if (!/[A-Z]/.test(password)) issues.push('One uppercase letter');
   if (!/[a-z]/.test(password)) issues.push('One lowercase letter');
   if (!/\d/.test(password)) issues.push('One number');
+  if (WEAK_PASSWORDS.has(password)) issues.push('Not a commonly used password');
   return issues;
 }
 
