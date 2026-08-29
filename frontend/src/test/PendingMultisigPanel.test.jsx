@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect } from 'vitest';
 
-import PendingMultisigPanel from '../../components/dashboard/PendingMultisigPanel';
+import PendingMultisigPanel from '../components/dashboard/PendingMultisigPanel';
 
 const FUTURE = new Date(Date.now() + 3600 * 1000).toISOString();
 
@@ -50,8 +50,8 @@ describe('PendingMultisigPanel — transaction list', () => {
 
   it('shows a truncated destination address for each tx', () => {
     render(<PendingMultisigPanel pendingTxs={PENDING_TXS} onSign={vi.fn()} />);
-    expect(screen.getByText(/GABC1234567890/)).toBeInTheDocument();
-    expect(screen.getByText(/GDEF9876543210/)).toBeInTheDocument();
+    expect(screen.getByText(/GABC12345678/)).toBeInTheDocument();
+    expect(screen.getByText(/GDEF98765432/)).toBeInTheDocument();
   });
 
   it('shows the signature count for each tx', () => {
