@@ -247,8 +247,10 @@ export default function Orders() {
 
   // SSE: real-time order status updates
   useEffect(() => {
-    function connect() {
-      const url = api.getOrdersStreamUrl();
+    let cancelled = false;
+    async function connect() {
+      const url = await api.getOrdersStreamUrl();
+      if (cancelled) return;
       const es = new EventSource(url);
       esRef.current = es;
       es.onmessage = (e) => {
@@ -272,6 +274,7 @@ export default function Orders() {
     }
     connect();
     return () => {
+      cancelled = true;
       if (esRef.current) {
         esRef.current.close();
         esRef.current = null;
