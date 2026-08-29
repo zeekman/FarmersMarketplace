@@ -212,6 +212,31 @@
   "pagination": {
     "resultCount_one": "tokeo {{count}}",
     "resultCount_other": "matokeo {{count}}"
+  },
+  "compare": {
+    "title": "Linganisha Bidhaa",
+    "description": "Linganisha bidhaa za soko zilizochagwa upande kwa upande. Chagua bidhaa hadi nne kwenye soko kuona hapa.",
+    "exportCsv": "Pakia CSV",
+    "printPdf": "Chapisha / Hifadhi kama PDF",
+    "noProducts": "Hakuna bidhaa zilizochagwa kwa linganisho bado.",
+    "selectTwo": "Chagua bidhaa angalau mbili kuilinganisha upande kwa upande.",
+    "backToMarketplace": "Rudi Sokoni",
+    "attribute": "Sifa",
+    "farmer": "Mkulima",
+    "price": "Bei",
+    "quantity": "Kiasi",
+    "unit": "Kipimo",
+    "rating": "Ukadiriaji",
+    "category": "Kategoria",
+    "grade": "Daraja",
+    "weight": "Uzito",
+    "allergens": "Alerjeni",
+    "freshness": "Uzima",
+    "none": "Hakuna",
+    "noReviews": "Hakuna maoni",
+    "expired": "Imekwisha muda",
+    "expiresToday": "Inaisha leo",
+    "daysLeft": "siku {{days}} zimesalia"
   }
 }
 

@@ -213,5 +213,30 @@
   "pagination": {
     "resultCount_one": "{{count}} result",
     "resultCount_other": "{{count}} results"
+  },
+  "compare": {
+    "title": "Compare Products",
+    "description": "Compare selected marketplace products side by side. Select up to four products on the marketplace to view them here.",
+    "exportCsv": "Export CSV",
+    "printPdf": "Print / Save as PDF",
+    "noProducts": "No products selected for comparison yet.",
+    "selectTwo": "Select at least two products to compare them side by side.",
+    "backToMarketplace": "Back to Marketplace",
+    "attribute": "Attribute",
+    "farmer": "Farmer",
+    "price": "Price",
+    "quantity": "Quantity",
+    "unit": "Unit",
+    "rating": "Rating",
+    "category": "Category",
+    "grade": "Grade",
+    "weight": "Weight",
+    "allergens": "Allergens",
+    "freshness": "Freshness",
+    "none": "None",
+    "noReviews": "No reviews",
+    "expired": "Expired",
+    "expiresToday": "Expires today",
+    "daysLeft": "{{days}}d left"
   }
 }

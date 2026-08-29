@@ -17,6 +17,39 @@ vi.mock('../components/StarRating', () => ({
 import { useCompare } from '../context/CompareContext';
 import Compare from '../pages/Compare';
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key) => {
+      const translations = {
+        'compare.title': 'Compare Products',
+        'compare.description': 'Compare selected marketplace products side by side.',
+        'compare.exportCsv': 'Export CSV',
+        'compare.printPdf': 'Print / Save as PDF',
+        'compare.noProducts': 'No products selected for comparison yet.',
+        'compare.selectTwo': 'Select at least two products to compare them side by side.',
+        'compare.backToMarketplace': 'Back to Marketplace',
+        'compare.attribute': 'Attribute',
+        'compare.farmer': 'Farmer',
+        'compare.price': 'Price',
+        'compare.quantity': 'Quantity',
+        'compare.unit': 'Unit',
+        'compare.rating': 'Rating',
+        'compare.category': 'Category',
+        'compare.grade': 'Grade',
+        'compare.weight': 'Weight',
+        'compare.allergens': 'Allergens',
+        'compare.freshness': 'Freshness',
+        'compare.none': 'None',
+        'compare.noReviews': 'No reviews',
+        'compare.expired': 'Expired',
+        'compare.expiresToday': 'Expires today',
+        'compare.daysLeft': '{{days}}d left',
+      };
+      return translations[key] || key;
+    },
+  }),
+}));
+
 const fullProduct = {
   id: 1,
   name: 'Tomatoes',
@@ -140,5 +173,39 @@ describe('Compare export (#782)', () => {
     fireEvent.click(screen.getByText('Export CSV'));
 
     expect(createObjectURLSpy).not.toHaveBeenCalled();
+  });
+
+  it('generates CSV with localized headers when Swahili locale is active', async () => {
+    useCompare.mockReturnValue({ products: [fullProduct, minimalProduct] });
+
+    const createObjectURLSpy = vi.fn(() => 'blob:mock-url');
+    const revokeObjectURLSpy = vi.fn();
+    window.URL.createObjectURL = createObjectURLSpy;
+    window.URL.revokeObjectURL = revokeObjectURLSpy;
+
+    const clickSpy = vi.fn();
+    const anchor = { click: clickSpy, href: '', download: '' };
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tag) => (
+      tag === 'a' ? anchor : originalCreateElement(tag)
+    ));
+
+    render(<Compare />);
+    fireEvent.click(screen.getByText('Export CSV'));
+
+    expect(createObjectURLSpy).toHaveBeenCalledTimes(1);
+    const blobArg = createObjectURLSpy.mock.calls[0][0];
+    expect(blobArg).toBeInstanceOf(Blob);
+    expect(blobArg.type).toBe('text/csv');
+
+    const csvText = await blobArg.text();
+    expect(csvText).toContain('Attribute');
+    expect(csvText).toContain('Price');
+    expect(csvText).toContain('Category');
+    expect(csvText).toContain('Allergens');
+    expect(csvText).toContain('Grade');
+    expect(csvText).toContain('Rating');
+
+    document.createElement.mockRestore();
   });
 });
