@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCompare } from '../context/CompareContext';
+import { useTranslation } from 'react-i18next';
 import StarRating from '../components/StarRating';
 
 const s = {
@@ -20,18 +21,18 @@ const s = {
   exportBtnDisabled: { background: '#a8a8a8', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: 8, cursor: 'not-allowed', fontSize: 14, fontWeight: 600 },
 };
 
-function buildComparisonCsv(products) {
+function buildComparisonCsv(products, t) {
   const rows = [
-    ['Attribute', ...products.map(p => p?.name ?? '—')],
-    ['Price (XLM)', ...products.map(p => (p?.price != null ? `${p.price} XLM` : '—'))],
-    ['Category', ...products.map(p => p?.category ?? '—')],
-    ['Allergens', ...products.map(p => {
+    [t('compare.attribute'), ...products.map(p => p?.name ?? '—')],
+    [t('compare.price') + ' (XLM)', ...products.map(p => (p?.price != null ? `${p.price} XLM` : '—'))],
+    [t('compare.category'), ...products.map(p => p?.category ?? '—')],
+    [t('compare.allergens'), ...products.map(p => {
       let allergens = [];
       try { allergens = p?.allergens ? JSON.parse(p.allergens) : []; } catch {}
-      return allergens.length === 0 ? 'None' : allergens.map(a => a.charAt(0).toUpperCase() + a.slice(1)).join(', ');
+      return allergens.length === 0 ? t('compare.none') : allergens.map(a => a.charAt(0).toUpperCase() + a.slice(1)).join(', ');
     })],
-    ['Grade', ...products.map(p => p?.grade ?? '—')],
-    ['Rating', ...products.map(p => ((p?.review_count ?? 0) > 0 ? `${p.avg_rating} (${p.review_count})` : 'No reviews'))],
+    [t('compare.grade'), ...products.map(p => p?.grade ?? '—')],
+    [t('compare.rating'), ...products.map(p => ((p?.review_count ?? 0) > 0 ? `${p.avg_rating} (${p.review_count})` : t('compare.noReviews')))],
   ];
 
   return rows
@@ -42,13 +43,14 @@ function buildComparisonCsv(products) {
 export default function Compare() {
   const navigate = useNavigate();
   const { products } = useCompare();
+  const { t } = useTranslation();
 
   const hasEnoughProducts = products.length >= 2;
   const isEmpty = products.length === 0;
 
   const handleExportCsv = () => {
     if (isEmpty) return;
-    const csv = buildComparisonCsv(products);
+    const csv = buildComparisonCsv(products, t);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -65,9 +67,9 @@ export default function Compare() {
 
   return (
     <div style={s.page}>
-      <div style={s.header}>Compare Products</div>
+      <div style={s.header}>{t('compare.title')}</div>
       <div style={s.description}>
-        Compare selected marketplace products side by side. Select up to four products on the marketplace to view them here.
+        {t('compare.description')}
       </div>
 
       <div className="compare-actions" style={s.actions}>
@@ -76,24 +78,24 @@ export default function Compare() {
           onClick={handleExportCsv}
           disabled={isEmpty}
         >
-          Export CSV
+          {t('compare.exportCsv')}
         </button>
         <button
           style={isEmpty ? s.exportBtnDisabled : s.exportBtn}
           onClick={handlePrint}
           disabled={isEmpty}
         >
-          Print / Save as PDF
+          {t('compare.printPdf')}
         </button>
       </div>
 
       {!hasEnoughProducts ? (
         <div style={s.empty}>
           {products.length === 0
-            ? 'No products selected for comparison yet.'
-            : 'Select at least two products to compare them side by side.'}
+            ? t('compare.noProducts')
+            : t('compare.selectTwo')}
           <div>
-            <button style={s.backBtn} onClick={() => navigate('/marketplace')}>Back to Marketplace</button>
+            <button style={s.backBtn} onClick={() => navigate('/marketplace')}>{t('compare.backToMarketplace')}</button>
           </div>
         </div>
       ) : (
@@ -101,7 +103,7 @@ export default function Compare() {
           <table className="compare-table" style={s.table}>
             <thead>
               <tr>
-                <th style={{ ...s.th, ...s.rowLabel }}>Attribute</th>
+                <th style={{ ...s.th, ...s.rowLabel }}>{t('compare.attribute')}</th>
                 {products.map(product => (
                   <th key={product.id} style={s.th}>{product.name}</th>
                 ))}
@@ -109,53 +111,53 @@ export default function Compare() {
             </thead>
             <tbody>
               <tr>
-                <td style={{ ...s.td, ...s.rowLabel }}>Farmer</td>
+                <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.farmer')}</td>
                 {products.map(product => (
                   <td key={`${product.id}-farmer`} style={s.td}>{product?.farmer_name ?? '—'}</td>
                 ))}
               </tr>
               <tr>
-                <td style={{ ...s.td, ...s.rowLabel }}>Price</td>
+                <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.price')}</td>
                 {products.map(product => (
                   <td key={`${product.id}-price`} style={s.td}>{product?.price != null ? `${product.price} XLM` : '—'}</td>
                 ))}
               </tr>
               <tr>
-                <td style={{ ...s.td, ...s.rowLabel }}>Quantity</td>
+                <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.quantity')}</td>
                 {products.map(product => (
                   <td key={`${product.id}-quantity`} style={s.td}>{product?.quantity != null ? `${product.quantity} ${product?.unit ?? ''}`.trim() : '—'}</td>
                 ))}
               </tr>
               <tr>
-                <td style={{ ...s.td, ...s.rowLabel }}>Unit</td>
+                <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.unit')}</td>
                 {products.map(product => (
                   <td key={`${product.id}-unit`} style={s.td}>{product?.unit ?? '—'}</td>
                 ))}
               </tr>
               <tr>
-                <td style={{ ...s.td, ...s.rowLabel }}>Rating</td>
+                <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.rating')}</td>
                 {products.map(product => (
                   <td key={`${product.id}-rating`} style={s.td}>
                     {(product?.review_count ?? 0) > 0 ? (
                       <StarRating value={product.avg_rating} count={product.review_count} size={14} />
-                    ) : 'No reviews'}
+                    ) : t('compare.noReviews')}
                   </td>
                 ))}
               </tr>
               <tr>
-                <td style={{ ...s.td, ...s.rowLabel }}>Category</td>
+                <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.category')}</td>
                 {products.map(product => (
                   <td key={`${product.id}-category`} style={s.td}>{product?.category ?? '—'}</td>
                 ))}
               </tr>
               <tr>
-                <td style={{ ...s.td, ...s.rowLabel }}>Grade</td>
+                <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.grade')}</td>
                 {products.map(product => (
                   <td key={`${product.id}-grade`} style={s.td}>{product?.grade ?? '—'}</td>
                 ))}
               </tr>
               <tr>
-                <td style={{ ...s.td, ...s.rowLabel }}>Weight</td>
+                <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.weight')}</td>
                 {products.map(product => {
                   let weight = '—';
                   if (product?.pricing_type === 'weight' && product.min_weight != null && product.max_weight != null) {
@@ -167,24 +169,24 @@ export default function Compare() {
                 })}
               </tr>
               <tr>
-                <td style={{ ...s.td, ...s.rowLabel }}>Allergens</td>
+                <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.allergens')}</td>
                 {products.map(product => {
                   let allergens = [];
                   try { allergens = product?.allergens ? JSON.parse(product.allergens) : []; } catch {}
                   return (
                     <td key={`${product.id}-allergens`} style={s.td}>
-                      {allergens.length === 0 ? 'None' : allergens.map(a => a.charAt(0).toUpperCase() + a.slice(1)).join(', ')}
+                      {allergens.length === 0 ? t('compare.none') : allergens.map(a => a.charAt(0).toUpperCase() + a.slice(1)).join(', ')}
                     </td>
                   );
                 })}
               </tr>
               <tr>
-                <td style={{ ...s.td, ...s.rowLabel }}>Freshness</td>
+                <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.freshness')}</td>
                 {products.map(product => {
                   const bestBefore = product?.best_before;
                   if (!bestBefore) return <td key={`${product.id}-freshness`} style={s.td}>—</td>;
                   const diffDays = Math.ceil((new Date(bestBefore) - new Date()) / (1000 * 60 * 60 * 24));
-                  const label = diffDays < 0 ? 'Expired' : diffDays === 0 ? 'Expires today' : `${diffDays}d left`;
+                  const label = diffDays < 0 ? t('compare.expired') : diffDays === 0 ? t('compare.expiresToday') : t('compare.daysLeft', { days: diffDays });
                   return <td key={`${product.id}-freshness`} style={s.td}>{new Date(bestBefore).toLocaleDateString()} ({label})</td>;
                 })}
               </tr>

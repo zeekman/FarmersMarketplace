@@ -157,6 +157,7 @@ export default function Wallet() {
       .finally(() => setClaimableLoading(false));
   }, []);
 
+  const connectStream = useCallback(async () => {
   const loadStreams = useCallback(() => {
     if (typeof api.getPaymentStreams !== 'function') return;
     api.getPaymentStreams()
@@ -167,8 +168,14 @@ export default function Wallet() {
   const connectStream = useCallback(() => {
     if (unmounted.current || typeof EventSource === 'undefined') return;
     if (typeof api.getWalletStreamUrl !== 'function') return;
-    const url = api.getWalletStreamUrl();
-    if (!url.includes('token=') || url.endsWith('token=')) {
+    let url;
+    try {
+      url = await api.getWalletStreamUrl();
+    } catch {
+      url = '';
+    }
+    if (unmounted.current) return;
+    if (!url || !url.includes('token=') || url.endsWith('token=')) {
       reconnectTimer.current = setTimeout(connectStream, 1000);
       return;
     }

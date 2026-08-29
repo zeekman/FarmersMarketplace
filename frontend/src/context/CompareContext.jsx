@@ -9,6 +9,7 @@ const HISTORY_KEY = 'comparison_history';
 export function CompareProvider({ children }) {
   const [products, setProducts] = useState([]);
   const [history, setHistory] = useState([]);
+  const [compareWarning, setCompareWarning] = useState('');
   const location = useLocation();
 
   // Load history from localStorage on mount
@@ -25,7 +26,8 @@ export function CompareProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    const allowed = location.pathname.startsWith('/marketplace') || location.pathname.startsWith('/compare');
+    const allowed =
+      location.pathname.startsWith('/marketplace') || location.pathname.startsWith('/compare');
     if (!allowed && products.length > 0) {
       setProducts([]);
     }
@@ -34,7 +36,7 @@ export function CompareProvider({ children }) {
   const saveToHistory = useCallback((productIds) => {
     if (!productIds || productIds.length === 0) return;
 
-    setHistory(prev => {
+    setHistory((prev) => {
       // Create new history entry with product IDs
       const newEntry = {
         id: Date.now(),
@@ -44,7 +46,7 @@ export function CompareProvider({ children }) {
 
       // Keep only last MAX_RECENTLY_COMPARED comparisons
       const updated = [newEntry, ...prev].slice(0, MAX_RECENTLY_COMPARED);
-      
+
       // Persist to localStorage
       try {
         localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
@@ -58,23 +60,38 @@ export function CompareProvider({ children }) {
   }, []);
 
   const addProduct = useCallback((product) => {
-    setProducts(prev => {
-      if (prev.some(p => p.id === product.id)) return prev;
-      const next = [...prev, product];
-      return next.length > 4 ? next.slice(1) : next;
+    setProducts((prev) => {
+      if (prev.some((p) => p.id === product.id)) return prev;
+      if (prev.length >= 4) {
+        setCompareWarning(
+          `Compare list is full (max 4). Remove a product before adding "${product.name}".`
+        );
+        return prev;
+      }
+      setCompareWarning('');
+      return [...prev, product];
     });
   }, []);
 
   const removeProduct = useCallback((productId) => {
-    setProducts(prev => prev.filter(p => p.id !== productId));
+    setProducts((prev) => prev.filter((p) => p.id !== productId));
   }, []);
 
   const toggleProduct = useCallback((product) => {
-    setProducts(prev => {
-      const exists = prev.some(p => p.id === product.id);
-      if (exists) return prev.filter(p => p.id !== product.id);
-      const next = [...prev, product];
-      return next.length > 4 ? next.slice(1) : next;
+    setProducts((prev) => {
+      const exists = prev.some((p) => p.id === product.id);
+      if (exists) {
+        setCompareWarning('');
+        return prev.filter((p) => p.id !== product.id);
+      }
+      if (prev.length >= 4) {
+        setCompareWarning(
+          `Compare list is full (max 4). Remove a product before adding "${product.name}".`
+        );
+        return prev;
+      }
+      setCompareWarning('');
+      return [...prev, product];
     });
   }, []);
 
@@ -97,23 +114,29 @@ export function CompareProvider({ children }) {
     }
   }, []);
 
-  const isCompared = useCallback((productId) => {
-    return products.some(p => p.id === productId);
-  }, [products]);
+  const isCompared = useCallback(
+    (productId) => {
+      return products.some((p) => p.id === productId);
+    },
+    [products]
+  );
 
   return (
-    <CompareContext.Provider value={{
-      products,
-      history,
-      addProduct,
-      removeProduct,
-      toggleProduct,
-      clearProducts,
-      saveToHistory,
-      restoreComparison,
-      clearHistory,
-      isCompared,
-    }}>
+    <CompareContext.Provider
+      value={{
+        products,
+        history,
+        compareWarning,
+        addProduct,
+        removeProduct,
+        toggleProduct,
+        clearProducts,
+        saveToHistory,
+        restoreComparison,
+        clearHistory,
+        isCompared,
+      }}
+    >
       {children}
     </CompareContext.Provider>
   );

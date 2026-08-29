@@ -21,6 +21,19 @@ const s = {
   modalTitle: { fontWeight: 700, fontSize: 17, marginBottom: 16, color: '#2d6a4f' },
 };
 
+const COUNTRY_OPTIONS = [
+  { code: 'US', label: 'United States' },
+  { code: 'GB', label: 'United Kingdom' },
+  { code: 'KE', label: 'Kenya' },
+  { code: 'NG', label: 'Nigeria' },
+  { code: 'ZA', label: 'South Africa' },
+  { code: 'GH', label: 'Ghana' },
+  { code: 'IN', label: 'India' },
+  { code: 'AU', label: 'Australia' },
+  { code: 'CA', label: 'Canada' },
+  { code: 'DE', label: 'Germany' },
+];
+
 const EMPTY_FORM = { label: '', street: '', city: '', country: '', postal_code: '', is_default: false };
 
 function AddressFormModal({ initial, onSave, onCancel, loading }) {
@@ -72,13 +85,17 @@ function AddressFormModal({ initial, onSave, onCancel, loading }) {
           />
 
           <label style={s.label}>Country</label>
-          <input
+          <select
             style={s.input}
             value={form.country}
             onChange={e => setForm({ ...form, country: e.target.value })}
             required
-            maxLength={100}
-          />
+          >
+            <option value="">Select a country</option>
+            {COUNTRY_OPTIONS.map(({ code, label }) => (
+              <option key={code} value={code}>{label}</option>
+            ))}
+          </select>
 
           <label style={s.label}>Postal Code (optional)</label>
           <input

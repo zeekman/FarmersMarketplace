@@ -2,14 +2,14 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
-vi.mock('../../api/client', () => ({
+vi.mock('../api/client', () => ({
   api: {
     bulkUpdatePrices: vi.fn(),
   },
 }));
 
-import BulkPricePanel from '../../components/dashboard/BulkPricePanel';
-import { api } from '../../api/client';
+import BulkPricePanel from '../components/dashboard/BulkPricePanel';
+import { api } from '../api/client';
 
 const PRODUCTS = [
   { id: 1, name: 'Tomatoes', price: 5 },

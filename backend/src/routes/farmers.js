@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { webhookMiddleware } = require('../services/webhookVerify');
 
 const PUBLIC_FIELDS =
+  'u.id, u.name, u.bio, u.location, u.avatar_url, u.created_at, u.latitude, u.longitude, u.farm_address, u.verification_status';
   'u.id, u.name, u.bio, u.location, u.avatar_url, u.created_at, u.latitude, u.longitude, u.farm_address, u.verified';
 
 // GET /api/farmers/:id
@@ -23,6 +24,17 @@ router.get('/:id', async (req, res) => {
      FROM products WHERE farmer_id = $1 AND quantity > 0 ORDER BY created_at DESC`,
     [req.params.id]
   );
+  const { rows: cooperatives } = await db.query(
+    `SELECT c.id, c.name FROM cooperatives c
+     JOIN cooperative_members cm ON cm.cooperative_id = c.id
+     WHERE cm.user_id = $1`,
+    [req.params.id]
+  );
+  const { verification_status, ...farmer } = rows[0];
+  res.json({
+    success: true,
+    data: { ...farmer, verified: verification_status === 'verified', cooperatives, listings },
+  });
   const { rewriteImageUrl } = require('../utils/cdn');
   const listingsWithImages = listings.map((l) => ({ ...l, image_url: rewriteImageUrl(l.image_url) }));
   res.json({ success: true, data: { ...rows[0], listings: listingsWithImages } });
