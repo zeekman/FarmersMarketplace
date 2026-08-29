@@ -7,13 +7,12 @@ module.exports = async (req, res, next) => {
   if (!token) return err(res, 401, 'No token provided', 'missing_token');
 
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = jwt.verify(token, process.env.JWT_SECRET, { clockTolerance: 30 });
     // Check if user is still active
     const { rows } = await db.query('SELECT active FROM users WHERE id = $1', [req.user.id]);
     if (!rows[0] || rows[0].active !== 1) {
       return err(res, 401, 'Account deactivated', 'deactivated');
     }
-    req.user = jwt.verify(token, process.env.JWT_SECRET, { clockTolerance: 30 });
     next();
   } catch (e) {
     if (e instanceof jwt.TokenExpiredError)
