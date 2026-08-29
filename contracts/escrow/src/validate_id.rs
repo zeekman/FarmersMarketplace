@@ -4,8 +4,13 @@
 /// Length: 3–64 characters (inclusive).
 ///
 /// Returns `true` if `id` is valid, `false` otherwise.
-/// Apply to `payment_id`, `order_id` (string form), `refund_id`, and
-/// `dispute_id` before any state is written.
+///
+/// TODO(#1219): Not currently wired into any entrypoint. Every ID-like
+/// argument in this crate (`order_id`, snapshot/dispute lookups, etc.) is a
+/// `u64`, not a string, so there is nothing to call this against yet. Apply
+/// it to `payment_id`, `order_id` (string form), `refund_id`, and
+/// `dispute_id` before any state is written if/when a string-typed ID is
+/// introduced.
 pub fn is_valid_id(id: &str) -> bool {
     let len = id.len();
     if len < 3 || len > 64 {

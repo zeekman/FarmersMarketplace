@@ -5,6 +5,7 @@ const validate = require('../middleware/validate');
 const { err } = require('../middleware/error');
 const { sanitizeText } = require('../utils/sanitize');
 const mailer = require('../utils/mailer');
+const logger = require('../logger');
 
 // POST /api/alerts - Create a new crop alert (farmer only)
 router.post('/', auth, validate.cropAlert, async (req, res) => {
@@ -31,7 +32,7 @@ router.post('/', auth, validate.cropAlert, async (req, res) => {
   // Notify nearby farmers (async, don't block response)
   if (latitude && longitude) {
     notifyNearbyFarmers(rows[0]).catch((err) =>
-      console.error('[Alerts] Failed to notify farmers:', err)
+      logger.error('[Alerts] Failed to notify farmers', { error: err.message, stack: err.stack })
     );
   }
 
@@ -116,7 +117,7 @@ async function notifyNearbyFarmers(alert) {
         text: `Hello ${farmer.name},\n\nA nearby farmer has reported a ${alert.alert_type} alert:\n\n${alert.description}\n\nLocation: ${alert.location || 'Not specified'}\nSeverity: ${alert.severity}\n\nStay informed and take necessary precautions.\n\nBest regards,\nFarmers Marketplace`,
       });
     } catch (err) {
-      console.error(`[Alerts] Failed to email ${farmer.email}:`, err.message);
+      logger.error(`[Alerts] Failed to email ${farmer.email}`, { error: err.message });
     }
   }
 }

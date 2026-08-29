@@ -6,6 +6,8 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
+# Paired with the legacy `contract/` integration surface, hence the same SDK
+# generation. See ADR 0001 (docs/adr/0001-soroban-contract-boundaries.md).
 [dependencies]
 soroban-sdk = { version = "=21.0.0" }
 

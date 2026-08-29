@@ -163,9 +163,7 @@ impl RewardToken {
 
     pub fn mint(env: Env, to: Address, amount: i128) {
         let minter: Address = env.storage().instance().get(&DataKey::Minter).expect("minter not set");
-        if env.invoker() != minter {
-            panic!("unauthorized: only minter can mint");
-        }
+        minter.require_auth();
         if amount <= 0 {
             panic!("amount must be positive");
         }
@@ -315,9 +313,11 @@ impl RewardToken {
 
     /// Redeem reward tokens for a discount on an order. (#879)
     ///
-    /// Burns `token_amount` tokens from `buyer` and emits a redemption event
-    /// that the backend can verify before applying a discount to the order total.
-    /// Maximum redemption per order is `max_redemption_bps` (default 20% of order value).
+    /// Burns `token_amount` tokens from `buyer` and emits a redemption event.
+    /// The backend verifies the event and enforces `max_redemption_bps` against the
+    /// off-chain order total before applying any discount; this contract has neither
+    /// an order value nor a token/XLM conversion rate. Direct calls only burn tokens
+    /// and cannot grant a discount without that verified backend step.
     ///
     /// If the order fails and refund is issued, the escrow contract should re-mint
     /// the redeemed tokens back to the buyer.
@@ -677,6 +677,17 @@ mod test {
         client.burn(&user, &30);
         assert_eq!(client.total_supply(), 70);
         assert_eq!(client.balance(&user), 70);
+    }
+
+    #[test]
+    fn redeem_over_a_hypothetical_order_cap_only_burns_unverified_tokens() {
+        let env = Env::default();
+        let (client, _admin, minter) = setup_token(&env);
+        let buyer = Address::generate(&env);
+        env.mock_auths(&[&minter, &buyer]);
+        client.mint(&buyer, &1_000);
+        client.redeem(&buyer, &42, &300); // 30% of a hypothetical 1,000-value order.
+        assert_eq!(client.balance(&buyer), 700); // Backend must not apply this event as a discount.
     }
 
     #[test]

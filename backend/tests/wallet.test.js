@@ -1,3 +1,8 @@
+/**
+ * Basic functionality tests for wallet endpoints.
+ * Rate limiting tests are in wallet-rate-limiting.test.js
+ */
+
 const jwt = require('jsonwebtoken');
 const { request, app, mockQuery, getCsrf } = require('./setup');
 const stellar = jest.requireMock('../src/utils/stellar');

@@ -19,8 +19,8 @@ db.exec(`
   );
 `);
 // Ensure avg_rating and review_count exist on products
-try { db.exec(`ALTER TABLE products ADD COLUMN avg_rating REAL DEFAULT 0`); } catch {}
-try { db.exec(`ALTER TABLE products ADD COLUMN review_count INTEGER DEFAULT 0`); } catch {}
+try { db.exec(`ALTER TABLE products ADD COLUMN avg_rating REAL DEFAULT 0`); } catch { /* column may already exist */ }
+try { db.exec(`ALTER TABLE products ADD COLUMN review_count INTEGER DEFAULT 0`); } catch { /* column may already exist */ }
 
 function recalcRating(productId) {
   const row = db.prepare(`
@@ -40,29 +40,6 @@ router.get('/:productId', (req, res) => {
     ORDER BY r.created_at DESC
   `).all(req.params.productId);
   res.json({ success: true, data: rows });
-});
-
-// POST /api/reviews - buyer submits a review (pending by default)
-router.post('/', auth, (req, res) => {
-  if (req.user.role !== 'buyer') return err(res, 403, 'Buyers only', 'forbidden');
-
-  const product_id = parseInt(req.body.product_id, 10);
-  const rating = parseInt(req.body.rating, 10);
-  if (!product_id || isNaN(rating) || rating < 1 || rating > 5)
-    return err(res, 400, 'product_id and rating (1-5) are required', 'validation_error');
-
-  const product = db.prepare('SELECT id FROM products WHERE id = ?').get(product_id);
-  if (!product) return err(res, 404, 'Product not found', 'not_found');
-
-  try {
-    const result = db.prepare(
-      'INSERT INTO reviews (product_id, buyer_id, rating, body, status) VALUES (?, ?, ?, ?, ?)'
-    ).run(product_id, req.user.id, rating, req.body.body || null, 'pending');
-    res.status(201).json({ success: true, id: result.lastInsertRowid, status: 'pending' });
-  } catch (e) {
-    if (e.message.includes('UNIQUE')) return err(res, 409, 'You have already reviewed this product', 'duplicate_review');
-    throw e;
-  }
 });
 
 // PATCH /api/admin/reviews/:id/approve - admin moderation
@@ -111,7 +88,6 @@ router.delete('/:id', auth, (req, res) => {
 });
 
 const validate = require('../middleware/validate');
-const { err } = require('../middleware/error');
 const { sanitizeText } = require('../utils/sanitize');
 
 // POST /api/reviews

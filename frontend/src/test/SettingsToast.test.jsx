@@ -52,7 +52,7 @@ describe('#454 Settings – save confirmation toast', () => {
     await userEvent.click(screen.getByRole('button', { name: /Save Changes/i }));
 
     await waitFor(() => {
-      expect(screen.getByText('Network error')).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('Network error');
     });
   });
 

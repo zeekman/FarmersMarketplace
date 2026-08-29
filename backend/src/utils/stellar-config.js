@@ -1,4 +1,8 @@
+// Shared Stellar network configuration for account/key-derivation utilities.
+// Kept separate from stellar.js so key-management code (stellar-accounts.js)
+// does not need to pull in the full payments/escrow module surface.
 const StellarSdk = require('@stellar/stellar-sdk');
+const logger = require('../logger');
 
 const STELLAR_NETWORK = (process.env.STELLAR_NETWORK || 'testnet').toLowerCase();
 
@@ -6,6 +10,11 @@ if (!['testnet', 'mainnet'].includes(STELLAR_NETWORK)) {
   throw new Error(`Invalid STELLAR_NETWORK "${STELLAR_NETWORK}". Must be "testnet" or "mainnet".`);
 }
 
+const isTestnet = STELLAR_NETWORK === 'testnet';
+
+const horizonUrl =
+  process.env.STELLAR_HORIZON_URL ||
+  (isTestnet ? 'https://horizon-testnet.stellar.org' : 'https://horizon.stellar.org');
 if (STELLAR_NETWORK === 'mainnet' && process.env.STELLAR_MAINNET_CONFIRMED !== 'true') {
   throw new Error(
     'Mainnet use requires STELLAR_MAINNET_CONFIRMED=true in your environment. ' +
@@ -18,6 +27,18 @@ const isTestnet = STELLAR_NETWORK === 'testnet';
 const sorobanRpcUrl =
   process.env.SOROBAN_RPC_URL ||
   (isTestnet ? 'https://soroban-testnet.stellar.org' : 'https://soroban.stellar.org');
+
+const networkPassphrase = isTestnet ? StellarSdk.Networks.TESTNET : StellarSdk.Networks.PUBLIC;
+const server = new StellarSdk.Horizon.Server(horizonUrl);
+
+module.exports = {
+  StellarSdk,
+  STELLAR_NETWORK,
+  isTestnet,
+  horizonUrl,
+  sorobanRpcUrl,
+  networkPassphrase,
+  server,
 const sorobanServer = new StellarSdk.SorobanRpc.Server(sorobanRpcUrl);
 
 const horizonUrl =
@@ -54,7 +75,7 @@ const OPTIONAL_STELLAR_VARS = ['REWARD_TOKEN_CONTRACT_ID', 'REWARD_TOKEN_ADMIN_S
  */
 function validateStellarConfig() {
   const network = isTestnet ? 'testnet' : 'mainnet';
-  console.log(`[stellar-config] Validating Stellar config for ${network} (${networkPassphrase})`);
+  logger.info(`[stellar-config] Validating Stellar config for ${network} (${networkPassphrase})`);
 
   const resolved = {
     SOROBAN_RPC_URL: sorobanRpcUrl, // always set (falls back to a network default)
@@ -72,7 +93,7 @@ function validateStellarConfig() {
 
   for (const name of OPTIONAL_STELLAR_VARS) {
     if (!process.env[name]) {
-      console.warn(`[stellar-config] Optional variable ${name} is not set; related features are disabled.`);
+      logger.warn(`[stellar-config] Optional variable ${name} is not set; related features are disabled.`);
     }
   }
 

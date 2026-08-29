@@ -60,8 +60,8 @@ function Toast({ toast }) {
   const isOk = toast.type === 'ok';
   return (
     <div
-      role="status"
-      aria-live="polite"
+      role={isOk ? 'status' : 'alert'}
+      aria-live={isOk ? 'polite' : 'assertive'}
       style={{
         position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
         background: isOk ? '#2d6a4f' : '#c0392b', color: '#fff',
@@ -70,6 +70,10 @@ function Toast({ toast }) {
       }}
     >
       {toast.text}
+    </div>
+  );
+}
+
 function PasswordStrengthBar({ password }) {
   if (!password) return null;
   const issues = validatePassword(password);
@@ -131,14 +135,18 @@ function PasswordChangeForm() {
         <PasswordStrengthBar password={form.newPw} />
 
         <label style={{ ...s.label, marginTop: 12 }} htmlFor="cp-confirm">Confirm New Password</label>
-        <input id="cp-confirm" style={s.input} type="password" value={form.confirm}
-          onChange={e => setForm(f => ({ ...f, confirm: e.target.value }))} autoComplete="new-password" />
+        <input id="cp-confirm"
+          style={{ ...s.input, ...(form.confirm && form.newPw !== form.confirm ? { border: '1px solid #c0392b' } : {}) }}
+          type="password" value={form.confirm}
+          onChange={e => setForm(f => ({ ...f, confirm: e.target.value }))} autoComplete="new-password"
+          aria-invalid={!!(form.confirm && form.newPw !== form.confirm)}
+          aria-describedby={form.confirm && form.newPw !== form.confirm ? 'cp-confirm-err' : undefined} />
         {form.confirm && form.newPw !== form.confirm && (
-          <div style={{ fontSize: 12, color: '#c0392b', marginTop: 3 }}>Passwords do not match</div>
+          <div id="cp-confirm-err" style={{ fontSize: 12, color: '#c0392b', marginTop: 3 }} role="alert">Passwords do not match</div>
         )}
 
         {msg && (
-          <div style={{ ...s.err, ...(msg.type === 'ok' ? { color: '#2d6a4f', background: '#d8f3dc' } : {}), marginTop: 10 }}>
+          <div role={msg.type === 'ok' ? 'status' : 'alert'} style={{ ...s.err, ...(msg.type === 'ok' ? { color: '#2d6a4f', background: '#d8f3dc' } : {}), marginTop: 10 }}>
             {msg.text}
           </div>
         )}

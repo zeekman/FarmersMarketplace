@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -8,14 +8,40 @@ import { getErrorMessage } from '../utils/errorMessages';
 import { showToast } from '../utils/toast';
 import { useXlmRate } from '../utils/useXlmRate';
 import { calculateHaversineDistance, formatDistanceLabel } from '../utils/distance';
+import { buildSrcSet } from '../utils/imageUtils';
 import StarRating from '../components/StarRating';
 import Spinner from '../components/Spinner';
 import FlashSaleCountdown from '../components/FlashSaleCountdown';
 import ShareButtons from '../components/ShareButtons';
 import PriceHistoryChart from '../components/PriceHistoryChart';
-import MapView from '../components/MapView';
 import { Helmet } from 'react-helmet-async';
 import { useTranslation } from 'react-i18next';
+
+const MapView = lazy(() => import('../components/MapView'));
+
+function LazyMapView(props) {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setVisible(true); obs.disconnect(); } },
+      { rootMargin: '200px' }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  return (
+    <div ref={ref} style={{ minHeight: 300 }}>
+      {visible && (
+        <Suspense fallback={<div style={{ height: 300, background: '#f0faf4', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Loading map…</div>}>
+          <MapView {...props} />
+        </Suspense>
+      )}
+    </div>
+  );
+}
 import QRCode from 'qrcode.react';
 import { useReviewForm } from '../hooks/useReviewForm';
 import { usePaymentLink } from '../hooks/usePaymentLink';
@@ -813,6 +839,8 @@ export default function ProductDetail() {
                 onMouseLeave={e => e.currentTarget.querySelector('img').style.transform = ''}>
                 <img
                   src={images[safeActiveImg].url}
+                  srcSet={buildSrcSet(images[safeActiveImg].url)}
+                  sizes="(max-width: 640px) 100vw, 640px"
                   alt={`${product.name} photo ${safeActiveImg + 1}`}
                   style={s.galleryMain}
                 />
@@ -831,6 +859,8 @@ export default function ProductDetail() {
                     <img
                       key={img.id}
                       src={img.url}
+                      srcSet={buildSrcSet(img.url)}
+                      sizes="(max-width: 600px) 25vw, 80px"
                       alt={t('productDetail.thumbnail', { n: i + 1 })}
                       loading="lazy"
                       style={{ ...s.thumb, ...(i === safeActiveImg ? s.thumbActive : {}) }}
@@ -853,7 +883,7 @@ export default function ProductDetail() {
             )}
           </div>
         ) : product.image_url ? (
-          <img src={product.image_url} alt={product.name} style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 10, marginBottom: 16 }} />
+          <img src={product.image_url} srcSet={buildSrcSet(product.image_url)} sizes="(max-width: 640px) 100vw, 640px" alt={product.name} style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 10, marginBottom: 16 }} />
         ) : (
           <div style={{ fontSize: 48, marginBottom: 12 }}>🥬</div>
         )}
@@ -922,7 +952,7 @@ export default function ProductDetail() {
         {product.farm_lat != null && product.farm_lng != null ? (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#2d6a4f', marginBottom: 12 }}>Farm Location</div>
-            <MapView lat={product.farm_lat} lng={product.farm_lng} farmerName={product.farmer_name} />
+          <LazyMapView lat={product.farm_lat} lng={product.farm_lng} farmerName={product.farmer_name} />
           </div>
         ) : (
           <div style={{ marginBottom: 20, padding: '16px', borderRadius: 10, background: '#f8fdf9', color: '#555' }}>

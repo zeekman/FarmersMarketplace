@@ -12,6 +12,8 @@
 
 const router = require('express').Router();
 const crypto = require('crypto');
+const dns = require('dns').promises;
+const net = require('net');
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const adminAuth = require('../middleware/adminAuth');
@@ -31,7 +33,6 @@ function keyPair() {
   if (_keyPair) return _keyPair;
   const seed = process.env.NETWORK_SIGNING_SECRET || process.env.JWT_SECRET || 'default-dev-seed';
   const seedBuf = crypto.createHash('sha256').update(seed).digest(); // 32 bytes
-  const privateKey = crypto.createPrivateKey({ key: seedBuf, format: 'der', type: 'pkcs8' });
   // Build PKCS8 DER for Ed25519: fixed 16-byte header + 32-byte seed
   const pkcs8Header = Buffer.from('302e020100300506032b657004220420', 'hex');
   const pkcs8Der = Buffer.concat([pkcs8Header, seedBuf]);
@@ -60,6 +61,7 @@ async function signedFetch(url) {
   const timestamp = Date.now().toString();
   const signature = sign(`GET ${url} ${timestamp}`);
   const res = await fetch(url, {
+    redirect: 'manual',
     headers: {
       'X-Timestamp': timestamp,
       'X-Signature': signature,
@@ -82,6 +84,59 @@ router.get('/identity', (req, res) => {
   });
 });
 
+function isPrivateAddress(address) {
+  const normalized = address.toLowerCase();
+  if (net.isIP(normalized) === 4) {
+    const octets = normalized.split('.').map(Number);
+    const [a, b] = octets;
+    return (
+      a === 0 ||
+      a === 10 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 0 && octets[2] === 0) ||
+      (a === 192 && b === 0 && octets[2] === 2) ||
+      (a === 192 && b === 168) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      (a === 198 && b === 51 && octets[2] === 100) ||
+      (a === 203 && b === 0 && octets[2] === 113) ||
+      a >= 224
+    );
+  }
+
+  if (net.isIP(normalized) === 6) {
+    return (
+      normalized === '::' ||
+      normalized === '::1' ||
+      normalized.startsWith('fc') ||
+      normalized.startsWith('fd') ||
+      normalized.startsWith('fe8') ||
+      normalized.startsWith('fe9') ||
+      normalized.startsWith('fea') ||
+      normalized.startsWith('feb') ||
+      normalized.startsWith('ff') ||
+      normalized.startsWith('::ffff:127.') ||
+      normalized.startsWith('::ffff:10.') ||
+      normalized.startsWith('::ffff:192.168.')
+    );
+  }
+
+  return true;
+}
+
+async function validatePeerUrl(peerUrl) {
+  if (!['http:', 'https:'].includes(peerUrl.protocol) || peerUrl.username || peerUrl.password) {
+    return false;
+  }
+
+  const addresses = net.isIP(peerUrl.hostname)
+    ? [{ address: peerUrl.hostname }]
+    : await dns.lookup(peerUrl.hostname, { all: true, verbatim: true });
+  return addresses.length > 0 && addresses.every(({ address }) => !isPrivateAddress(address));
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/network/peers  (admin only)
 // Body: { url }
@@ -97,6 +152,14 @@ router.post('/peers', adminAuth, async (req, res) => {
     peerUrl = new URL(url);
   } catch {
     return err(res, 400, 'Invalid peer URL', 'validation_error');
+  }
+
+  try {
+    if (!(await validatePeerUrl(peerUrl))) {
+      return err(res, 400, 'Peer URL must resolve to a public HTTP(S) address', 'validation_error');
+    }
+  } catch {
+    return err(res, 400, 'Could not resolve peer URL', 'validation_error');
   }
 
   // Verify peer by fetching its /api/network/identity

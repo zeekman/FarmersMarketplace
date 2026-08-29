@@ -5,7 +5,12 @@
  * Transfers all data from the SQLite database (market.db) to PostgreSQL.
  *
  * Usage:
- *   DATABASE_URL=postgresql://user:pass@host:5432/dbname node backend/scripts/migrate-sqlite-to-pg.js
+ *   DATABASE_URL=postgresql://user:pass@host:5432/dbname node backend/scripts/migrate-sqlite-to-pg.js [--dry-run]
+ *
+ * Flags:
+ *   --dry-run   Preview mode: reads SQLite, counts rows, detects type-conversion
+ *               issues, and prints a diff-style report WITHOUT writing anything to
+ *               PostgreSQL. Safe to run against the production DATABASE_URL.
  *
  * Prerequisites:
  *   - PostgreSQL database must exist and be reachable via DATABASE_URL
@@ -14,6 +19,8 @@
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+
+const DRY_RUN = process.argv.includes('--dry-run');
 
 if (!process.env.DATABASE_URL) {
   console.error('ERROR: DATABASE_URL environment variable is required.');
@@ -27,6 +34,23 @@ const path = require('path');
 const sqlitePath = path.join(__dirname, '../market.db');
 const sqlite = new Database(sqlitePath, { readonly: true });
 const pg = new Pool({ connectionString: process.env.DATABASE_URL });
+
+/** Detect likely type-conversion issues in a row for reporting purposes. */
+function detectConversionIssues(tableName, row) {
+  const issues = [];
+  for (const [col, val] of Object.entries(row)) {
+    if (val === null || val === undefined) continue;
+    // SQLite stores booleans as 0/1 integers — flag columns that look boolean
+    if (typeof val === 'number' && (val === 0 || val === 1) && /^(is_|has_|active|enabled|verified|deleted)/.test(col)) {
+      issues.push(`  ${col}: SQLite integer ${val} → PostgreSQL boolean column may need casting`);
+    }
+    // Detect oversized strings that might exceed varchar limits
+    if (typeof val === 'string' && val.length > 255 && !/text|description|message|body|content|notes/.test(col)) {
+      issues.push(`  ${col}: string length ${val.length} may exceed varchar(255)`);
+    }
+  }
+  return issues;
+}
 
 // Tables to migrate in dependency order (parents before children)
 const TABLES = [
@@ -49,6 +73,21 @@ async function migrateTable(tableName) {
   const rows = sqlite.prepare(`SELECT * FROM ${tableName}`).all();
   if (rows.length === 0) {
     console.log(`  [${tableName}] 0 rows — skipped`);
+    return;
+  }
+
+  if (DRY_RUN) {
+    console.log(`  [${tableName}] ${rows.length} rows would be migrated`);
+    // Scan a sample of up to 10 rows for conversion issues
+    const sample = rows.slice(0, 10);
+    const allIssues = [];
+    for (const row of sample) {
+      allIssues.push(...detectConversionIssues(tableName, row));
+    }
+    if (allIssues.length) {
+      console.warn(`    ⚠ Potential type-conversion issues detected:`);
+      for (const issue of [...new Set(allIssues)]) console.warn(`   ${issue}`);
+    }
     return;
   }
 
@@ -90,13 +129,16 @@ async function resetSequences() {
 }
 
 async function run() {
+  if (DRY_RUN) {
+    console.log('\n⚠  DRY-RUN MODE — no data will be written to PostgreSQL\n');
+  }
   console.log(`\nMigrating SQLite → PostgreSQL`);
   console.log(`Source: ${sqlitePath}`);
   console.log(`Target: ${process.env.DATABASE_URL.replace(/:\/\/.*@/, '://<credentials>@')}\n`);
 
   const client = await pg.connect();
   try {
-    await client.query('BEGIN');
+    if (!DRY_RUN) await client.query('BEGIN');
     for (const table of TABLES) {
       try {
         await migrateTable(table);
@@ -104,11 +146,15 @@ async function run() {
         console.warn(`  [${table}] Warning: ${e.message}`);
       }
     }
-    await resetSequences();
-    await client.query('COMMIT');
-    console.log('\nMigration complete.');
+    if (DRY_RUN) {
+      console.log('\nDry-run complete. No changes were made to PostgreSQL.');
+    } else {
+      await resetSequences();
+      await client.query('COMMIT');
+      console.log('\nMigration complete.');
+    }
   } catch (e) {
-    await client.query('ROLLBACK');
+    if (!DRY_RUN) await client.query('ROLLBACK');
     console.error('\nMigration failed, rolled back:', e.message);
     process.exit(1);
   } finally {

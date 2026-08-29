@@ -1,4 +1,5 @@
-const CACHE_NAME = 'fm-shell-v1';
+const APP_VERSION = self.__APP_VERSION__ || '1.0.0';
+const CACHE_NAME = `fm-shell-${APP_VERSION}`;
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_URLS = [
@@ -11,17 +12,32 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
   );
-  self.skipWaiting();
+  // Do NOT call skipWaiting() here — activation is controlled via the
+  // SKIP_WAITING message so the user gets a chance to see the update prompt.
 });
 
-// Activate: clean up old caches
+// Activate: clean up old caches, then notify clients of the update
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+    caches.keys()
+      .then((keys) =>
+        Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      )
+      .then(() => self.clients.claim())
+      .then(() =>
+        self.clients.matchAll({ includeUncontrolled: true, type: 'window' }).then((clients) =>
+          clients.forEach((c) => c.postMessage({ type: 'SW_UPDATED' }))
+        )
+      )
   );
-  self.clients.claim();
+});
+
+// Controlled activation: the UpdatePrompt component sends SKIP_WAITING
+// so we only take over after the user has acknowledged the update.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // Fetch strategies

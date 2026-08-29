@@ -62,6 +62,24 @@ html {
   }
 }
 
+/* ── Reduce / disable non-essential motion for users who prefer it ─────────── */
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * Kill every animation and transition by default so no component accidentally
+   * moves when the user has opted out of motion at the OS level.
+   * Components may still apply instant colour / opacity changes via
+   * transition: none overrides.
+   */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ── Image rendering normalization ────────────────────────────────────────── */
 img {
   display: block;

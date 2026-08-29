@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const db = require('../db/schema');
 const { sendFreshnessAlert } = require('../utils/mailer');
 const { sendPushToUser } = require('../utils/pushNotifications');
+const logger = require('../logger');
 
 function getAlertDays() {
   const val = parseInt(process.env.FRESHNESS_ALERT_DAYS, 10);
@@ -20,7 +21,7 @@ function groupByProduct(rows) {
 
 async function runFreshnessAlerts() {
   const alertDays = getAlertDays();
-  console.log(`[freshness] Checking for products expiring within ${alertDays} day(s)...`);
+  logger.info(`[freshness] Checking for products expiring within ${alertDays} day(s)...`);
 
   let expiringProducts;
   if (db.isPostgres) {
@@ -50,11 +51,11 @@ async function runFreshnessAlerts() {
   }
 
   if (expiringProducts.length === 0) {
-    console.log(`[freshness] No products expiring within ${alertDays} day(s)`);
+    logger.info(`[freshness] No products expiring within ${alertDays} day(s)`);
     return;
   }
 
-  console.log(`[freshness] Processing ${expiringProducts.length} expiring product(s)`);
+  logger.info(`[freshness] Processing ${expiringProducts.length} expiring product(s)`);
 
   const productIds = expiringProducts.map((p) => p.id);
 
@@ -101,9 +102,9 @@ async function runFreshnessAlerts() {
           daysLeft,
         });
       } catch (e) {
-        console.error(
-          `[freshness] Failed to alert farmer ${product.farmer_email} for product ${product.id}:`,
-          e.message
+        logger.error(
+          `[freshness] Failed to alert farmer ${product.farmer_email} for product ${product.id}`,
+          { error: e.message }
         );
       }
 
@@ -116,9 +117,9 @@ async function runFreshnessAlerts() {
             body: `${product.name} expires in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} — order now!`,
           });
         } catch (e) {
-          console.error(
-            `[freshness] Failed to notify buyer ${buyerId} for product ${product.id}:`,
-            e.message
+          logger.error(
+            `[freshness] Failed to notify buyer ${buyerId} for product ${product.id}`,
+            { error: e.message }
           );
         }
       }
@@ -132,7 +133,7 @@ async function runFreshnessAlerts() {
         [product.id]
       );
     } catch (e) {
-      console.error(`[freshness] Unexpected error processing product ${product.id}:`, e.message);
+      logger.error(`[freshness] Unexpected error processing product ${product.id}`, { error: e.message });
     }
   }
 }
@@ -145,7 +146,7 @@ async function processFreshnessAlerts() {
 
 function startFreshnessJob() {
   processFreshnessAlerts();
-  console.log('[freshness] Cron job scheduled (daily at 9 AM)');
+  logger.info('[freshness] Cron job scheduled (daily at 9 AM)');
 }
 
 module.exports = { startFreshnessJob, processFreshnessAlerts, runFreshnessAlerts };

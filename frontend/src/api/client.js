@@ -243,6 +243,10 @@ export const api = {
     const { token } = await request('/auth/stream-token');
     return `/api/orders/stream?token=${encodeURIComponent(token || '')}`;
   },
+  getWalletStreamUrl: () => `/api/wallet/stream?token=${encodeURIComponent(accessToken || '')}`,
+  getOrdersStreamUrl: () => `/api/orders/stream?token=${encodeURIComponent(accessToken || '')}`,
+  getMessagesStreamUrl: () => `/api/messages/events?token=${encodeURIComponent(accessToken || '')}`,
+  getUnreadMessageCount: () => request('/messages/unread-count'),
 
   getFarmer: (id) => request(`/farmers/${id}`),
   updateProfile: (body) => request('/auth/me', { method: 'PATCH', body }),
@@ -290,7 +294,7 @@ export const api = {
   adminUnbanUser: (id) => request(`/admin/users/${id}/ban`, { method: 'DELETE' }),
   adminGetStats: () => request('/admin/stats'),
   adminGetDisputes: () => request('/disputes'),
-  adminResolveDispute: (id, body) => request(`/disputes/${id}`, { method: 'PATCH', body }),
+  adminResolveDispute: (id, body) => request(`/disputes/${id}/resolve`, { method: 'PATCH', body }),
   adminGetContracts: (qs = '') => request(`/admin/contracts${qs}`),
   adminRegisterContract: (body) => request('/admin/contracts', { method: 'POST', body }),
   adminDeployContract: (formData) => request('/admin/contracts/deploy', { method: 'POST', body: formData }),
@@ -383,6 +387,9 @@ export const api = {
   signPendingTx: (txId) => request(`/cooperatives/transactions/${txId}/sign`, { method: 'POST' }),
   getPendingTxs: (coopId) => request(`/cooperatives/${coopId}/pending`),
   // Coupons
+  getMyCoupons: () => request('/coupons'),
+  createCoupon: (body) => request('/coupons', { method: 'POST', body }),
+  deleteCoupon: (id) => request(`/coupons/${id}`, { method: 'DELETE' }),
   validateCoupon: (body) => request('/coupons/validate', { method: 'POST', body }),
 
   // Platform fee
@@ -398,6 +405,16 @@ export const api = {
   adminUpdateAnnouncement: (id, body) => request(`/announcements/admin/${id}`, { method: 'PATCH', body }),
   adminDeleteAnnouncement: (id) => request(`/announcements/admin/${id}`, { method: 'DELETE' }),
 
+  // Creator earnings (Stellar claim)
+  getCreatorEarnings: () => request('/wallet/earnings'),
+  claimCreatorEarnings: () => request('/wallet/earnings/claim', { method: 'POST' }),
+
+  // Payment streams
+  getPaymentStreams: () => request('/streams'),
+  createPaymentStream: (body) => request('/streams', { method: 'POST', body }),
+  cancelPaymentStream: (id) => request(`/streams/${id}/cancel`, { method: 'POST' }),
+  decreasePaymentStreamRate: (id, rate) => request(`/streams/${id}/decrease-rate`, { method: 'PATCH', body: { rate } }),
+  withdrawPaymentStream: (id) => request(`/streams/${id}/withdraw`, { method: 'POST' }),
   // Claimable balances
   getClaimableBalances: () => request('/wallet/claimable-balances'),
   claimBalance: (balance_id) => request('/wallet/claim', { method: 'POST', body: { balance_id } }),

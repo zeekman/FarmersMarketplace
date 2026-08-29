@@ -61,6 +61,7 @@ const EnvSchema = z.object({
   SOROBAN_XLM_TOKEN_CONTRACT_ID: z.string().optional(),
   SOROBAN_SIMULATION_SOURCE_PUBLIC_KEY: z.string().optional(),
   SOROBAN_ESCROW_TIMEOUT_DAYS: z.coerce.number().int().positive().default(14),
+  SOROBAN_CREATOR_EARNINGS_CONTRACT_ID: z.string().optional(),
 
   // Reward token contract
   REWARD_TOKEN_CONTRACT_ID: z.string().optional(),
@@ -120,6 +121,7 @@ const config = {
   sorobanXlmTokenContractId: env.SOROBAN_XLM_TOKEN_CONTRACT_ID || null,
   sorobanSimulationSourcePublicKey: env.SOROBAN_SIMULATION_SOURCE_PUBLIC_KEY || null,
   sorobanEscrowTimeoutDays: env.SOROBAN_ESCROW_TIMEOUT_DAYS,
+  sorobanCreatorEarningsContractId: env.SOROBAN_CREATOR_EARNINGS_CONTRACT_ID || null,
   rewardTokenContractId: env.REWARD_TOKEN_CONTRACT_ID || null,
   rewardTokenAdminSecret: env.REWARD_TOKEN_ADMIN_SECRET || null,
   rewardTokenCode: env.REWARD_TOKEN_CODE || 'FRT',

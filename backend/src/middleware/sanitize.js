@@ -3,7 +3,12 @@
  * This is a safety net to ensure stellar_secret_key and password are never exposed
  */
 
-const SENSITIVE_FIELDS = ['stellar_secret_key', 'password'];
+const SENSITIVE_FIELDS = [
+  'stellar_secret_key',
+  'stellar_mnemonic',
+  'webhook_secret',
+  'password',
+];
 
 /**
  * Recursively strip sensitive fields from an object

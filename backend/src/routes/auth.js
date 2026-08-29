@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const db = require('../db/schema');
+const { currentTimestamp } = require('../db/dialect');
 const {
   createWalletFromMnemonic,
   deriveKeypairFromMnemonic,
@@ -15,14 +16,16 @@ const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 const logger = require('../logger');
 const { createPerIpRateLimiter } = require('../middleware/rateLimitPerUser');
+const { csrfTokenHandler, generateCsrfToken } = require('../middleware/csrf');
+const { encrypt } = require('../utils/crypto');
 
 const loginRateLimit = createPerIpRateLimiter(
   parseInt(process.env.RATE_LIMIT_LOGIN_MAX || '5', 10),
-  60 * 1000,
+  60 * 1000
 );
 const registerRateLimit = createPerIpRateLimiter(
   parseInt(process.env.RATE_LIMIT_REGISTER_MAX || '3', 10),
-  60 * 1000,
+  60 * 1000
 );
 
 const ACCESS_TOKEN_TTL = '15m';
@@ -121,10 +124,10 @@ async function rotateRefreshToken(userId, oldRawToken) {
 
   // Replay detected: token exists but was already used — nuke the entire family
   if (existing.used) {
-    await db.query(
-      'DELETE FROM refresh_tokens WHERE user_id = $1 AND family_id = $2',
-      [userId, existing.family_id]
-    );
+    await db.query('DELETE FROM refresh_tokens WHERE user_id = $1 AND family_id = $2', [
+      userId,
+      existing.family_id,
+    ]);
     return { reuse: true, userId, familyId: existing.family_id };
   }
 
@@ -189,6 +192,7 @@ router.post('/register', registerRateLimit, validate.register, async (req, res) 
     const hashed = await bcrypt.hash(password, 12);
     const wallet = createWalletFromMnemonic();
     const encryptedMnemonic = await encryptMnemonic(wallet.mnemonic, password);
+    const encryptedSecretKey = await encrypt(wallet.secretKey);
     const referralCode = crypto.randomBytes(4).toString('hex').toUpperCase();
 
     let referredBy = null;
@@ -205,7 +209,7 @@ router.post('/register', registerRateLimit, validate.register, async (req, res) 
         hashed,
         role,
         wallet.publicKey,
-        wallet.secretKey,
+        encryptedSecretKey,
         encryptedMnemonic,
         referralCode,
         referredBy,
@@ -461,15 +465,17 @@ router.post('/deactivate', auth, async (req, res) => {
   const { rows } = await db.query('SELECT id FROM users WHERE id = $1', [req.user.id]);
   if (!rows[0]) return err(res, 404, 'User not found', 'not_found');
 
-  await db.query(
-    'UPDATE users SET active = 0, deactivated_at = CURRENT_TIMESTAMP WHERE id = $1',
-    [req.user.id]
-  );
+  await db.query('UPDATE users SET active = 0, deactivated_at = CURRENT_TIMESTAMP WHERE id = $1', [
+    req.user.id,
+  ]);
 
   // Revoke all sessions
   await db.query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.user.id]);
   res.clearCookie('refreshToken', { path: '/api/auth' });
-  res.json({ success: true, message: 'Account deactivated. Your data will be anonymized after 30 days.' });
+  res.json({
+    success: true,
+    message: 'Account deactivated. Your data will be anonymized after 30 days.',
+  });
 });
 
 // DELETE /api/auth/account — self-service account deletion
@@ -641,16 +647,17 @@ router.post('/2fa/verify', auth, validate.verify2FA, async (req, res) => {
     }
 
     // Hash backup codes
-    const hashedBackupCodes = backupCodes.map(code => 
+    const hashedBackupCodes = backupCodes.map((code) =>
       crypto.createHash('sha256').update(code).digest('hex')
     );
 
-    // Store 2FA settings
+    // Store 2FA settings. SQLite uses datetime('now'); PostgreSQL uses NOW().
+    const nowExpression = currentTimestamp(db.isPostgres);
     await db.query(
       `INSERT INTO user_2fa_settings (user_id, totp_secret, backup_codes, enabled, created_at)
-       VALUES ($1, $2, $3, 1, NOW())
+       VALUES ($1, $2, $3, 1, ${nowExpression})
        ON CONFLICT (user_id) DO UPDATE SET
-       totp_secret = $2, backup_codes = $3, enabled = 1, updated_at = NOW()`,
+       totp_secret = $2, backup_codes = $3, enabled = 1, updated_at = ${nowExpression}`,
       [req.user.id, secret, JSON.stringify(hashedBackupCodes)]
     );
 
@@ -667,10 +674,9 @@ router.post('/2fa/verify', auth, validate.verify2FA, async (req, res) => {
  */
 router.get('/2fa/status', auth, async (req, res) => {
   try {
-    const { rows } = await db.query(
-      'SELECT enabled FROM user_2fa_settings WHERE user_id = $1',
-      [req.user.id]
-    );
+    const { rows } = await db.query('SELECT enabled FROM user_2fa_settings WHERE user_id = $1', [
+      req.user.id,
+    ]);
 
     const enabled = rows[0]?.enabled === 1;
     res.json({ enabled });
@@ -686,8 +692,9 @@ router.get('/2fa/status', auth, async (req, res) => {
  */
 router.post('/2fa/disable', auth, async (req, res) => {
   try {
+    const nowExpression = currentTimestamp(db.isPostgres);
     await db.query(
-      'UPDATE user_2fa_settings SET enabled = 0, updated_at = NOW() WHERE user_id = $1',
+      `UPDATE user_2fa_settings SET enabled = 0, updated_at = ${nowExpression} WHERE user_id = $1`,
       [req.user.id]
     );
 

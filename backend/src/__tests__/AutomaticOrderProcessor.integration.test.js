@@ -308,3 +308,75 @@ describe('#805 — AutomaticOrderProcessor waitlist processing', () => {
     expect(result.skipped).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #1016 — partial-batch failure: one order throws mid-batch, rest still process
+// ---------------------------------------------------------------------------
+describe('#1016 — partial-batch failure isolation', () => {
+  const db = require('../db/schema');
+  const mailer = require('../utils/mailer');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.spyOn(mailer, 'sendOrderEmails').mockResolvedValue(undefined);
+  });
+
+  const product = {
+    id: 1, farmer_id: 2, name: 'Tomatoes', price: 3.0,
+    category: 'vegetables', unit: 'kg', quantity: 20, is_active: true,
+  };
+
+  // 5-entry batch: orders 1, 2, 4, 5 succeed; order 3 throws (Stellar error)
+  const makeEntry = (id, pos) => ({
+    id, buyer_id: id * 10, product_id: 1, quantity: 1, position: pos,
+    buyer_name: `Buyer ${id}`, buyer_email: `buyer${id}@test.com`,
+    stellar_public_key: `GPUB${id}`, stellar_secret_key: `SSEC${id}`,
+  });
+
+  test('remaining orders in the batch are processed when order 3 of 5 throws', async () => {
+    const entries = [1, 2, 3, 4, 5].map((i) => makeEntry(i, i));
+    const proc = new AutomaticOrderProcessor();
+
+    jest.spyOn(proc, 'createAutomaticOrder')
+      .mockResolvedValueOnce({ success: true, orderId: 101, txHash: 'TX1' })  // order 1 ✓
+      .mockResolvedValueOnce({ success: true, orderId: 102, txHash: 'TX2' })  // order 2 ✓
+      .mockRejectedValueOnce(new Error('Stellar submission failed'))           // order 3 ✗ throws
+      .mockResolvedValueOnce({ success: true, orderId: 104, txHash: 'TX4' })  // order 4 ✓
+      .mockResolvedValueOnce({ success: true, orderId: 105, txHash: 'TX5' }); // order 5 ✓
+
+    db.query = jest.fn()
+      .mockResolvedValueOnce({ rows: [product], rowCount: 1 })   // product lookup
+      .mockResolvedValueOnce({ rows: entries, rowCount: 5 })     // waitlist entries
+      // DELETE for each successful entry + UPDATE for failed + recalculate positions calls
+      .mockResolvedValue({ rows: [], rowCount: 1 });
+
+    const result = await proc.processWaitlistOnRestock(1, 10);
+
+    // The batch must not abort entirely — orders 1, 2, 4, 5 should be processed
+    expect(result.success).toBe(true);
+    expect(result.processed).toBe(4);
+    expect(result.skipped).toBe(1);
+    // The error from order 3 should be captured in the errors array
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].entryId).toBe(3);
+  });
+
+  test('a single-entry batch that throws leaves processed=0 and reports the error', async () => {
+    const entries = [makeEntry(1, 1)];
+    const proc = new AutomaticOrderProcessor();
+
+    jest.spyOn(proc, 'createAutomaticOrder')
+      .mockRejectedValueOnce(new Error('Network timeout'));
+
+    db.query = jest.fn()
+      .mockResolvedValueOnce({ rows: [product], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: entries, rowCount: 1 })
+      .mockResolvedValue({ rows: [], rowCount: 1 });
+
+    const result = await proc.processWaitlistOnRestock(1, 5);
+
+    expect(result.success).toBe(true);
+    expect(result.processed).toBe(0);
+    expect(result.skipped).toBe(1);
+  });
+});

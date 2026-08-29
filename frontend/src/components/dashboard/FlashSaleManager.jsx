@@ -12,14 +12,24 @@ const s = {
 export default function FlashSaleManager({ products, onChanged }) {
   const [form, setForm] = useState({ product_id: '', flash_sale_price: '', flash_sale_ends_at: '' });
   const [msg, setMsg] = useState(null);
+  const [endsAtError, setEndsAtError] = useState('');
+  const [confirmCancel, setConfirmCancel] = useState(null); // { id, name } of product pending cancel
 
   async function handleSubmit(e) {
     e.preventDefault();
     setMsg(null);
+    setEndsAtError('');
+
+    const endsAt = new Date(form.flash_sale_ends_at);
+    if (!form.flash_sale_ends_at || endsAt <= new Date()) {
+      setEndsAtError('End time must be in the future.');
+      return;
+    }
+
     try {
       const res = await api.setFlashSale(parseInt(form.product_id, 10), {
         flash_sale_price: parseFloat(form.flash_sale_price),
-        flash_sale_ends_at: new Date(form.flash_sale_ends_at).toISOString(),
+        flash_sale_ends_at: endsAt.toISOString(),
       });
       setMsg({ type: 'ok', text: `Flash sale set for product #${res.data.id}` });
       onChanged?.();
@@ -28,24 +38,64 @@ export default function FlashSaleManager({ products, onChanged }) {
     }
   }
 
-  async function handleCancel(productId) {
+  function requestCancel(product) {
+    setConfirmCancel({ id: product.id, name: product.name });
+  }
+
+  async function confirmCancelSale() {
+    const { id } = confirmCancel;
+    setConfirmCancel(null);
     try {
-      await api.cancelFlashSale(productId);
-      setMsg({ type: 'ok', text: `Flash sale canceled for product #${productId}` });
+      await api.cancelFlashSale(id);
+      setMsg({ type: 'ok', text: `Flash sale canceled for product #${id}` });
       onChanged?.();
     } catch (e) {
       setMsg({ type: 'err', text: getErrorMessage(e) });
     }
   }
 
+  function dismissConfirm() {
+    setConfirmCancel(null);
+  }
+
   return (
     <div style={{ background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 }}>
       <h3 style={{ marginBottom: 12, color: '#333' }}>Flash Sales</h3>
       {msg && (
-        <div style={{ ...s.msg, background: msg.type === 'ok' ? '#d8f3dc' : '#fee', color: msg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
+        <div role={msg.type === 'ok' ? 'status' : 'alert'} style={{ ...s.msg, background: msg.type === 'ok' ? '#d8f3dc' : '#fee', color: msg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>
           {msg.text}
         </div>
       )}
+
+      {confirmCancel && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cancel-flash-sale-title"
+          style={{ background: '#fff7f7', border: '1px solid #c0392b', borderRadius: 10, padding: 20, marginBottom: 16 }}
+        >
+          <p id="cancel-flash-sale-title" style={{ marginBottom: 12, fontWeight: 600, color: '#333' }}>
+            Cancel flash sale for <strong>{confirmCancel.name}</strong>? This will end the promotion immediately.
+          </p>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              type="button"
+              style={{ ...s.btn, background: '#c0392b' }}
+              onClick={confirmCancelSale}
+            >
+              Yes, cancel sale
+            </button>
+            <button
+              type="button"
+              style={{ ...s.btn, background: '#888' }}
+              onClick={dismissConfirm}
+            >
+              Keep sale
+            </button>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 10, alignItems: 'end' }}>
         <div>
           <label style={s.label}>Product</label>
@@ -60,7 +110,19 @@ export default function FlashSaleManager({ products, onChanged }) {
         </div>
         <div>
           <label style={s.label}>Ends At</label>
-          <input style={s.input} type="datetime-local" required value={form.flash_sale_ends_at} onChange={e => setForm(f => ({ ...f, flash_sale_ends_at: e.target.value }))} />
+          <input
+            style={{ ...s.input, ...(endsAtError ? { borderColor: '#c0392b' } : {}) }}
+            type="datetime-local"
+            required
+            value={form.flash_sale_ends_at}
+            onChange={e => { setEndsAtError(''); setForm(f => ({ ...f, flash_sale_ends_at: e.target.value })); }}
+            aria-describedby={endsAtError ? 'ends-at-error' : undefined}
+          />
+          {endsAtError && (
+            <span id="ends-at-error" role="alert" style={{ color: '#c0392b', fontSize: 12 }}>
+              {endsAtError}
+            </span>
+          )}
         </div>
         <button type="submit" style={s.btn}>Set Flash Sale</button>
       </form>
@@ -70,7 +132,7 @@ export default function FlashSaleManager({ products, onChanged }) {
             <div style={{ fontSize: 14 }}>
               <strong>{p.name}</strong> – {p.flash_sale_price} XLM until {new Date(p.flash_sale_ends_at).toLocaleString()}
             </div>
-            <button type="button" style={{ ...s.btn, background: '#c0392b' }} onClick={() => handleCancel(p.id)}>Cancel</button>
+            <button type="button" style={{ ...s.btn, background: '#c0392b' }} onClick={() => requestCancel(p)}>Cancel</button>
           </div>
         ))}
       </div>

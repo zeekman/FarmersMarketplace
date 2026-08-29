@@ -1,5 +1,0 @@
-    Updating crates.io index
-error: failed to select a version for the requirement `soroban-sdk = "=21.0.0"`
-  version 21.0.0 is yanked
-location searched: crates.io index
-required by package `escrow v0.1.0 (/Users/apple/FarmersMarketplace/contract)`

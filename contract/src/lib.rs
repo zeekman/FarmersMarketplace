@@ -150,6 +150,12 @@ fn get_admin(env: &Env) -> Address {
 
 // ── Contract ──────────────────────────────────────────────────────────────────
 
+// TTL bump applied to instance storage on every write so the escrow record doesn't
+// get archived between create() and submit_work()/approve()/cancel()/expire() (in
+// ledgers, ~5s each): ~6 days threshold, ~30 days bump.
+const BUMP_THRESHOLD: u32 = 100_000;
+const BUMP_AMOUNT: u32 = 500_000;
+
 #[contract]
 pub struct EscrowContract;
 

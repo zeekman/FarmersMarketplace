@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
+import AdminAnalyticsSummary from '../components/admin/AdminAnalyticsSummary';
+import AdminUsersPanel from '../components/admin/AdminUsersPanel';
+import AdminOrdersPanel from '../components/admin/AdminOrdersPanel';
+import AdminDisputesPanel from '../components/admin/AdminDisputesPanel';
+import AdminAnnouncementsPanel from '../components/admin/AdminAnnouncementsPanel';
 
 function DeactivateModal({ user, onConfirm, onCancel }) {
   const confirmRef = useRef(null);
@@ -80,27 +85,28 @@ function BanModal({ user, onConfirm, onCancel, loading }) {
 
 function ResolveDisputeModal({ dispute, onConfirm, onCancel }) {
   const confirmRef = useRef(null);
-  const [status, setStatus] = useState(dispute.status === 'open' ? 'under_review' : 'resolved');
-  const [resolution, setResolution] = useState('');
+  const [resolution, setResolution] = useState('farmer');
+  const [splitPercentBuyer, setSplitPercentBuyer] = useState('50');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   useEffect(() => { confirmRef.current?.focus(); }, []);
   async function handleSubmit(e) {
     e.preventDefault();
-    if (status === 'resolved' && !resolution.trim()) { setErr('Resolution note is required.'); return; }
     setBusy(true);
     setErr('');
-    try { await onConfirm(dispute.id, { status, resolution: resolution.trim() || undefined }); }
+    const body = resolution === 'split'
+      ? { resolution, split_percent_buyer: Number(splitPercentBuyer) }
+      : { resolution };
+    try { await onConfirm(dispute.id, body); }
     catch (e) { setErr(e.message); setBusy(false); }
   }
-  const nextStatuses = dispute.status === 'open' ? ['under_review'] : dispute.status === 'under_review' ? ['resolved'] : [];
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="resolve-modal-title"
       onKeyDown={e => e.key === 'Escape' && onCancel()}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
       <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 460, width: '90%', boxShadow: '0 4px 24px #0003' }}>
         <div id="resolve-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 6, color: '#333' }}>
-          Update Dispute #{dispute.id}
+          Resolve Dispute #{dispute.id}
         </div>
         <div style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>
           <strong>{dispute.product_name}</strong> · {dispute.buyer_name} · {Number(dispute.total_price).toFixed(2)} XLM
@@ -109,23 +115,25 @@ function ResolveDisputeModal({ dispute, onConfirm, onCancel }) {
           <strong>Reason:</strong> {dispute.reason}
         </div>
         <form onSubmit={handleSubmit}>
-          <label style={{ display: 'block', fontSize: 13, color: '#555', marginBottom: 4 }}>New Status</label>
-          <select value={status} onChange={e => setStatus(e.target.value)}
+          <label style={{ display: 'block', fontSize: 13, color: '#555', marginBottom: 4 }}>Resolve in favor of</label>
+          <select ref={confirmRef} value={resolution} onChange={e => setResolution(e.target.value)}
             style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 14 }}>
-            {nextStatuses.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            <option value="farmer">Farmer (release funds)</option>
+            <option value="buyer">Buyer (refund)</option>
+            <option value="split">Split</option>
           </select>
-          {status === 'resolved' && (
+          {resolution === 'split' && (
             <>
-              <label style={{ display: 'block', fontSize: 13, color: '#555', marginBottom: 4 }}>Resolution Note</label>
-              <textarea ref={confirmRef} required value={resolution} onChange={e => setResolution(e.target.value)}
-                placeholder="Describe the resolution (release/refund/other)…"
-                style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, resize: 'vertical', minHeight: 80, boxSizing: 'border-box', marginBottom: 14 }} />
+              <label style={{ display: 'block', fontSize: 13, color: '#555', marginBottom: 4 }}>Buyer share (%)</label>
+              <input type="number" min="0" max="100" required value={splitPercentBuyer}
+                onChange={e => setSplitPercentBuyer(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 14, boxSizing: 'border-box' }} />
             </>
           )}
           {err && <div style={{ color: '#c0392b', fontSize: 13, marginBottom: 10 }}>{err}</div>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onCancel} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
-            <button type="submit" ref={status !== 'resolved' ? confirmRef : undefined} disabled={busy}
+            <button type="submit" disabled={busy}
               style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: busy ? '#ccc' : '#2d6a4f', color: '#fff', cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
               {busy ? 'Saving…' : 'Confirm'}
             </button>
@@ -310,38 +318,10 @@ export default function AdminDashboard() {
     loadOrders(ordersPage);
     loadContracts();
     loadContractAlerts('unacknowledged');
-    loadAnnouncements();
     loadDisputes();
   }, []);
 
-  // Announcements
-  const [announcements, setAnnouncements] = useState([]);
-  const [annForm, setAnnForm] = useState({ message: '', type: 'info', expires_at: '' });
-  const [annMsg, setAnnMsg] = useState('');
-  const [editingAnn, setEditingAnn] = useState(null);
-
-  async function loadAnnouncements() {
-    try { const res = await api.adminGetAnnouncements(); setAnnouncements(res.data ?? []); } catch {}
-  }
-
-  async function handleAnnSubmit(e) {
-    e.preventDefault();
-    try {
-      const body = { ...annForm, expires_at: annForm.expires_at || null };
-      if (editingAnn) {
-        await api.adminUpdateAnnouncement(editingAnn, body);
-        setAnnMsg('Updated.');
-        setEditingAnn(null);
-      } else {
-        await api.adminCreateAnnouncement(body);
-        setAnnMsg('Created.');
-      }
-      setAnnForm({ message: '', type: 'info', expires_at: '' });
-      loadAnnouncements();
-    } catch (err) { setAnnMsg(err.message); }
-  }
-
-  async function loadContracts(filters = contractFilter) {
+    async function loadContracts(filters = contractFilter) {
     try {
       const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString();
       const res = await api.adminGetContracts(params ? `?${params}` : '');
@@ -589,234 +569,40 @@ export default function AdminDashboard() {
       <div style={s.title}>🛡️ Admin Dashboard</div>
       {error && <div style={s.err}>{error}</div>}
 
-      {stats && (
-        <div style={s.grid}>
-          <div style={s.stat}>
-            <div style={s.statVal}>{stats.users}</div>
-            <div style={s.statLabel}>Total Users</div>
-          </div>
-          <div style={s.stat}>
-            <div style={s.statVal}>{stats.products}</div>
-            <div style={s.statLabel}>Products Listed</div>
-          </div>
-          <div style={s.stat}>
-            <div style={s.statVal}>{stats.orders}</div>
-            <div style={s.statLabel}>Total Orders</div>
-          </div>
-          <div style={s.stat}>
-            <div style={s.statVal}>{Number(stats.total_revenue_xlm).toFixed(2)}</div>
-            <div style={s.statLabel}>Revenue (XLM)</div>
-          </div>
-          {stats.fee_bump_enabled && (
-            <div style={s.stat}>
-              <div style={s.statVal}>{stats.fee_bump_count ?? 0}</div>
-              <div style={s.statLabel}>Fee Bumps Used</div>
-            </div>
-          )}
-        </div>
-      )}
+      <AdminAnalyticsSummary stats={stats} />
 
-      <div style={s.card}>
-        <h3 style={{ marginBottom: 16, color: '#333' }}>Users ({pagination.total})</h3>
-        <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-          <input
-            type="text"
-            placeholder="Search by email or name…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') loadUsers(1); }}
-            style={{ flex: '1 1 200px', ...s.input }}
-          />
-          <select
-            value={roleFilter}
-            onChange={e => { setRoleFilter(e.target.value); }}
-            style={{ flex: '0 1 120px', ...s.input }}
-          >
-            <option value="">All Roles</option>
-            <option value="admin">Admin</option>
-            <option value="farmer">Farmer</option>
-            <option value="buyer">Buyer</option>
-          </select>
-          <select
-            value={verifiedFilter}
-            onChange={e => setVerifiedFilter(e.target.value)}
-            style={{ flex: '0 1 120px', ...s.input }}
-          >
-            <option value="">All Verified</option>
-            <option value="true">Yes</option>
-            <option value="false">No</option>
-          </select>
-          <select
-            value={bannedFilter}
-            onChange={e => setBannedFilter(e.target.value)}
-            style={{ flex: '0 1 120px', ...s.input }}
-          >
-            <option value="">All Banned</option>
-            <option value="true">Yes</option>
-            <option value="false">No</option>
-          </select>
-          <button onClick={() => loadUsers(1)} style={{ ...s.btn(false), flex: '0 1 auto' }}>Search</button>
-        </div>
-        <table style={s.table}>
-          <thead>
-            <tr>
-              <th style={s.th}>ID</th>
-              <th style={s.th}>Name</th>
-              <th style={s.th}>Email</th>
-              <th style={s.th}>Role</th>
-              <th style={s.th}>Verified</th>
-              <th style={s.th}>Banned At</th>
-              <th style={s.th}>Joined</th>
-              <th style={s.th}>Status</th>
-              <th style={s.th}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(u => (
-              <tr key={u.id}>
-                <td style={s.td}>{u.id}</td>
-                <td style={s.td}>{u.name}</td>
-                <td style={s.td}>{u.email}</td>
-                <td style={s.td}><span style={s.badge(u.role)}>{u.role}</span></td>
-                <td style={s.td}>{u.verified ? '✓' : '—'}</td>
-                <td style={s.td}>{u.banned_at ? new Date(u.banned_at).toLocaleDateString() : '—'}</td>
-                <td style={s.td}>{new Date(u.created_at).toLocaleDateString()}</td>
-                <td style={s.td}>
-                  {u.banned_at
-                    ? <span style={{ color: '#c0392b', fontSize: 12, fontWeight: 600 }}>Banned</span>
-                    : u.active === 0
-                    ? <span style={s.inactive}>Inactive</span>
-                    : <span style={{ color: '#2d6a4f', fontSize: 12 }}>Active</span>}
-                </td>
-                <td style={s.td}>
-                  {u.role !== 'admin' && u.active !== 0 && (
-                    <>
-                      {u.banned_at ? (
-                        <button style={{ ...s.deactivate, background: '#d8f3dc', color: '#2d6a4f' }} onClick={() => confirmUnban(u.id)}>
-                          Unban
-                        </button>
-                      ) : (
-                        <button style={s.deactivate} onClick={() => handleBan(u.id, u.name)}>
-                          Ban
-                        </button>
-                      )}
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <AdminUsersPanel
+        users={users}
+        pagination={pagination}
+        searchQuery={searchQuery}
+        roleFilter={roleFilter}
+        verifiedFilter={verifiedFilter}
+        bannedFilter={bannedFilter}
+        onSearchChange={setSearchQuery}
+        onRoleChange={setRoleFilter}
+        onVerifiedChange={setVerifiedFilter}
+        onBannedChange={setBannedFilter}
+        onSearch={() => loadUsers(1)}
+        onPageChange={loadUsers}
+        onDeactivate={handleDeactivate}
+        onBan={handleBan}
+        onUnban={confirmUnban}
+      />
 
-        <div style={s.pagination}>
-          <button
-            style={s.pgBtn(pagination.page <= 1)}
-            disabled={pagination.page <= 1}
-            onClick={() => loadUsers(pagination.page - 1)}
-          >← Prev</button>
-          <span style={{ fontSize: 13, color: '#666' }}>Page {pagination.page} of {pagination.pages}</span>
-          <button
-            style={s.pgBtn(pagination.page >= pagination.pages)}
-            disabled={pagination.page >= pagination.pages}
-            onClick={() => loadUsers(pagination.page + 1)}
-          >Next →</button>
-        </div>
-      </div>
+            {/* Orders Table */}
+      <AdminOrdersPanel
+        orders={orders}
+        orderPagination={orderPagination}
+        onPageChange={loadOrders}
+      />
 
-      {/* Orders Table */}
-      <div style={{ ...s.card, marginTop: 32 }}>
-        <h3 style={{ marginBottom: 16, color: '#333' }}>Orders ({orderPagination.total})</h3>
-        <table style={s.table}>
-          <thead>
-            <tr>
-              <th style={s.th}>ID</th>
-              <th style={s.th}>Buyer</th>
-              <th style={s.th}>Product</th>
-              <th style={s.th}>Qty</th>
-              <th style={s.th}>Total (XLM)</th>
-              <th style={s.th}>Status</th>
-              <th style={s.th}>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map(o => (
-              <tr key={o.id}>
-                <td style={s.td}>{o.id}</td>
-                <td style={s.td}>{o.buyer_name || o.buyer_id}</td>
-                <td style={s.td}>{o.product_name || o.product_id}</td>
-                <td style={s.td}>{o.quantity}</td>
-                <td style={s.td}>{Number(o.total_price).toFixed(2)}</td>
-                <td style={s.td}>{o.status}</td>
-                <td style={s.td}>{new Date(o.created_at).toLocaleDateString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div style={s.pagination}>
-          <button
-            style={s.pgBtn(orderPagination.page <= 1)}
-            disabled={orderPagination.page <= 1}
-            onClick={() => loadOrders(orderPagination.page - 1)}
-          >← Prev</button>
-          <span style={{ fontSize: 13, color: '#666' }}>Page {orderPagination.page} of {orderPagination.pages}</span>
-          <button
-            style={s.pgBtn(orderPagination.page >= orderPagination.pages)}
-            disabled={orderPagination.page >= orderPagination.pages}
-            onClick={() => loadOrders(orderPagination.page + 1)}
-          >Next →</button>
-        </div>
-      </div>
+            {/* Disputes */}
+      <AdminDisputesPanel
+        disputes={disputes}
+        onResolve={setResolveTarget}
+      />
 
-      {/* Disputes */}
-      <div style={{ ...s.card, marginTop: 32 }}>
-        <h3 style={{ marginBottom: 16, color: '#333' }}>⚖️ Disputes ({disputes.length})</h3>
-        {disputes.length === 0 ? (
-          <div style={{ color: '#888', fontSize: 14 }}>No disputes filed.</div>
-        ) : (
-          <table style={s.table}>
-            <thead>
-              <tr>
-                <th style={s.th}>ID</th>
-                <th style={s.th}>Buyer</th>
-                <th style={s.th}>Product</th>
-                <th style={s.th}>Qty</th>
-                <th style={s.th}>Total (XLM)</th>
-                <th style={s.th}>Status</th>
-                <th style={s.th}>Reason</th>
-                <th style={s.th}>Resolution</th>
-                <th style={s.th}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {disputes.map(d => {
-                const statusColor = d.status === 'resolved' ? '#2d6a4f' : d.status === 'under_review' ? '#b8860b' : '#c0392b';
-                const statusBg = d.status === 'resolved' ? '#d8f3dc' : d.status === 'under_review' ? '#ffeaa7' : '#fee';
-                return (
-                  <tr key={d.id}>
-                    <td style={s.td}>{d.id}</td>
-                    <td style={s.td}>{d.buyer_name}<br /><span style={{ fontSize: 11, color: '#aaa' }}>{d.buyer_email}</span></td>
-                    <td style={s.td}>{d.product_name}</td>
-                    <td style={s.td}>{d.quantity}</td>
-                    <td style={s.td}>{Number(d.total_price).toFixed(2)}</td>
-                    <td style={s.td}>
-                      <span style={{ ...s.badge(d.status), background: statusBg, color: statusColor }}>{d.status.replace('_', ' ')}</span>
-                    </td>
-                    <td style={{ ...s.td, maxWidth: 160, wordBreak: 'break-word', fontSize: 13 }}>{d.reason}</td>
-                    <td style={{ ...s.td, maxWidth: 160, wordBreak: 'break-word', fontSize: 13, color: '#555' }}>{d.resolution || '—'}</td>
-                    <td style={s.td}>
-                      {d.status !== 'resolved' && (
-                        <button style={s.deactivate} onClick={() => setResolveTarget(d)}>Resolve</button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Contract Deployment */}
+            {/* Contract Deployment */}
       <div style={{ ...s.card, marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>🚀 Deploy Soroban Contract</h3>
         {deployMsg && (
@@ -1650,73 +1436,7 @@ export default function AdminDashboard() {
         )}
       </div>
       {/* Announcements Management */}
-      <div style={{ ...s.card, marginTop: 32 }}>
-        <h3 style={{ marginBottom: 16, color: '#333' }}>📢 Announcements</h3>
-        <form onSubmit={handleAnnSubmit} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-          <textarea
-            required
-            placeholder="Message (markdown supported)"
-            value={annForm.message}
-            onChange={e => setAnnForm(f => ({ ...f, message: e.target.value }))}
-            style={{ flex: '3 1 260px', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, resize: 'vertical', minHeight: 60 }}
-          />
-          <select value={annForm.type} onChange={e => setAnnForm(f => ({ ...f, type: e.target.value }))}
-            style={{ flex: '0 0 110px', padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 }}>
-            <option value="info">ℹ info</option>
-            <option value="warning">⚠ warning</option>
-            <option value="error">🔴 error</option>
-          </select>
-          <input type="datetime-local" value={annForm.expires_at}
-            onChange={e => setAnnForm(f => ({ ...f, expires_at: e.target.value }))}
-            style={{ flex: '1 1 180px', padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 }}
-            title="Expires at (optional)" />
-          <button type="submit" style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2d6a4f', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
-            {editingAnn ? 'Update' : 'Create'}
-          </button>
-          {editingAnn && (
-            <button type="button" onClick={() => { setEditingAnn(null); setAnnForm({ message: '', type: 'info', expires_at: '' }); }}
-              style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-          )}
-        </form>
-        {annMsg && <div style={{ fontSize: 13, color: '#2d6a4f', marginBottom: 10 }}>{annMsg}</div>}
-        {announcements.length === 0
-          ? <div style={{ color: '#888', fontSize: 14 }}>No announcements yet.</div>
-          : (
-            <table style={s.table}>
-              <thead><tr>
-                <th style={s.th}>Message</th>
-                <th style={s.th}>Type</th>
-                <th style={s.th}>Active</th>
-                <th style={s.th}>Expires</th>
-                <th style={s.th}></th>
-              </tr></thead>
-              <tbody>
-                {announcements.map(a => (
-                  <tr key={a.id}>
-                    <td style={{ ...s.td, fontSize: 13, maxWidth: 320, wordBreak: 'break-word' }}>{a.message}</td>
-                    <td style={s.td}><span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
-                      background: a.type === 'error' ? '#fee2e2' : a.type === 'warning' ? '#fef9c3' : '#dbeafe',
-                      color: a.type === 'error' ? '#991b1b' : a.type === 'warning' ? '#854d0e' : '#1e40af' }}>{a.type}</span></td>
-                    <td style={s.td}>
-                      <button onClick={async () => { await api.adminUpdateAnnouncement(a.id, { active: a.active ? 0 : 1 }); loadAnnouncements(); }}
-                        style={{ padding: '2px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                          background: a.active ? '#d8f3dc' : '#f3f4f6', color: a.active ? '#2d6a4f' : '#888' }}>
-                        {a.active ? 'Active' : 'Inactive'}
-                      </button>
-                    </td>
-                    <td style={{ ...s.td, fontSize: 12, color: '#888' }}>{a.expires_at ? new Date(a.expires_at).toLocaleString() : '—'}</td>
-                    <td style={{ ...s.td, display: 'flex', gap: 6 }}>
-                      <button onClick={() => { setEditingAnn(a.id); setAnnForm({ message: a.message, type: a.type, expires_at: a.expires_at ? a.expires_at.slice(0, 16) : '' }); setAnnMsg(''); }}
-                        style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#e0f2fe', color: '#0369a1', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Edit</button>
-                      <button onClick={async () => { if (!confirm('Delete?')) return; await api.adminDeleteAnnouncement(a.id); loadAnnouncements(); }}
-                        style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#fee2e2', color: '#c0392b', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Delete</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-      </div>
+      <AdminAnnouncementsPanel />
     </div>
   );
 }

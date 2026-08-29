@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useCompare } from '../context/CompareContext';
 
 export const MAX_RECENTLY_COMPARED = 10;
-export const MAX_DISPLAY_PAIRS = 5;
+const SESSION_KEY = 'rc_strip_dismissed';
+const MAX_VISIBLE = 4;
 
 const s = {
   strip: {
@@ -59,7 +60,10 @@ const s = {
 
 export default function RecentlyCompared() {
   const navigate = useNavigate();
-  const { history, clearHistory } = useCompare();
+  const { history, products: compareProducts, addProduct } = useCompare();
+  const [dismissed, setDismissed] = useState(
+    () => !!sessionStorage.getItem(SESSION_KEY)
+  );
   const [productNames, setProductNames] = useState({});
 
   const latest = history[0];
@@ -97,65 +101,23 @@ export default function RecentlyCompared() {
   }
 
   return (
-    <div style={s.container}>
-      <div style={s.header}>
-        <h3 style={s.title}>📊 Recently Compared</h3>
-        <button
-          style={{ ...s.clearBtn, marginRight: 8, borderColor: '#2d6a4f', color: '#2d6a4f' }}
-          onClick={() => navigate('/compare')}
-        >
-          View Compare Page
-        </button>
-        <button
-          style={s.clearBtn}
-          onClick={clearHistory}
-          onMouseEnter={(e) => (e.target.style.background = '#fee')}
-          onMouseLeave={(e) => (e.target.style.background = '#fff')}
-        >
-          Clear History
-        </button>
+    <div style={s.strip} role="region" aria-label="Recently compared products">
+      <span style={s.label}>📊 Recently Compared</span>
+      <div style={s.items}>
+        {visible.map(id => (
+          <div key={id} style={s.thumb}>
+            <span style={{ fontSize: 20 }}>🥬</span>
+            <span style={{ marginTop: 4 }}>{productNames[id] || `#${id}`}</span>
+          </div>
+        ))}
+        {latest.productIds.length > MAX_VISIBLE && (
+          <div style={{ ...s.thumb, justifyContent: 'center' }}>
+            +{latest.productIds.length - MAX_VISIBLE} more
+          </div>
+        )}
       </div>
-
-      {history.length === 0 ? (
-        <div style={s.empty}>No comparison history yet</div>
-      ) : (
-        <div style={s.list}>
-          {history.slice(0, MAX_DISPLAY_PAIRS).map((entry) => (
-            <div
-              key={entry.id}
-              style={s.item}
-              onMouseEnter={(e) => Object.assign(e.currentTarget.style, s.itemHover)}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '';
-                e.currentTarget.style.borderColor = '#ddd';
-              }}
-            >
-              <div style={{ flex: 1 }}>
-                <div style={s.productNames}>
-                  {entry.productIds
-                    .map((id) => productNames[id] || `Product ${id}`)
-                    .join(', ')}
-                </div>
-                <div style={s.timestamp}>{formatDate(entry.timestamp)}</div>
-              </div>
-              <button
-                style={s.restoreBtn}
-                onClick={() => handleRestore(entry)}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#2d6a4f';
-                  e.target.style.color = '#fff';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#e8f5e9';
-                  e.target.style.color = '#2d6a4f';
-                }}
-              >
-                Restore
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      <button style={s.compareBtn} onClick={handleCompareNow}>Compare now</button>
+      <button style={s.closeBtn} onClick={handleDismiss} aria-label="Dismiss">✕</button>
     </div>
   );
 }

@@ -7,7 +7,18 @@
  *
  * - De-duplicates via ON CONFLICT (contract_id) DO NOTHING.
  * - Persists a high-water mark (last synced ledger) to avoid re-scanning old ledgers.
- * - Retries Horizon API failures after REGISTRY_SYNC_RETRY_DELAY_MS with exponential backoff.
+ * - Retries Horizon API failures with exponential backoff (see REGISTRY_SYNC_RETRY_DELAY_MS).
+ *
+ * Startup retry / backoff behaviour
+ * ----------------------------------
+ * If the Horizon endpoint (or Soroban RPC) is unreachable when the job first runs at
+ * application startup, `fetchDeployments` will retry up to MAX_RETRIES times with
+ * exponential backoff (BASE_RETRY_DELAY_MS * 2^attempt, capped at MAX_BACKOFF_MS).
+ * After all retries are exhausted the error is re-thrown from `fetchDeployments`.
+ * `runSync` catches that error, logs it, and returns early with zero insertions —
+ * the job does NOT crash the process.  The next scheduled run (see startRegistrySync)
+ * will attempt again, so a transient provider restart at startup is recovered from
+ * automatically within one poll interval (SYNC_INTERVAL_MS).
  */
 
 const db = require('../db/schema');
@@ -17,6 +28,8 @@ const logger = require('../logger');
 const NETWORK = isTestnet ? 'testnet' : 'mainnet';
 const BASE_RETRY_DELAY_MS = parseInt(process.env.REGISTRY_SYNC_RETRY_DELAY_MS || '5000', 10);
 const MAX_RETRIES = 3;
+const MAX_BACKOFF_MS = parseInt(process.env.REGISTRY_SYNC_MAX_BACKOFF_MS || '60000', 10);
+const SYNC_INTERVAL_MS = parseInt(process.env.REGISTRY_SYNC_INTERVAL_MS || '300000', 10); // 5 min
 const SYNC_LIMIT = 200; // Horizon page size
 
 /**
@@ -80,13 +93,14 @@ async function fetchDeployments(fromLedger, retryCount = 0) {
     return records;
   } catch (err) {
     if (retryCount < MAX_RETRIES) {
-      const delay = BASE_RETRY_DELAY_MS * Math.pow(2, retryCount);
+      const delay = Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, retryCount), MAX_BACKOFF_MS);
       logger.warn('[contractRegistrySync] Horizon API error, retrying', {
         error: err.message, retryCount, delay,
       });
       await new Promise((resolve) => setTimeout(resolve, delay));
       return fetchDeployments(fromLedger, retryCount + 1);
     }
+    // All retries exhausted — re-throw so runSync can handle gracefully
     throw err;
   }
 }
@@ -161,4 +175,23 @@ async function runSync() {
   return { inserted, skipped, lastLedger: maxLedger };
 }
 
-module.exports = { runSync, getHighWaterMark, setHighWaterMark, fetchDeployments };
+/**
+ * Start the periodic registry sync job.
+ * Runs an initial sync immediately on startup (with retry/backoff built into
+ * fetchDeployments), then repeats on SYNC_INTERVAL_MS.  A failure during the
+ * startup run is caught and logged — it does not crash the process.
+ * @returns {NodeJS.Timeout} interval handle (call clearInterval to stop)
+ */
+function startRegistrySync() {
+  logger.info('[contractRegistrySync] Starting — sync interval every ' + SYNC_INTERVAL_MS + 'ms');
+  runSync().catch((err) =>
+    logger.error('[contractRegistrySync] Startup sync failed after all retries', { error: err.message })
+  );
+  return setInterval(() => {
+    runSync().catch((err) =>
+      logger.error('[contractRegistrySync] Scheduled sync failed', { error: err.message })
+    );
+  }, SYNC_INTERVAL_MS);
+}
+
+module.exports = { runSync, getHighWaterMark, setHighWaterMark, fetchDeployments, startRegistrySync };

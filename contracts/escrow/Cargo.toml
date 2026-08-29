@@ -6,6 +6,10 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
+# Pinned to the newer SDK generation used by the `contracts/` workspace. This
+# is intentionally ahead of the `=21.0.0` pin in `contract/` — see ADR 0001
+# (docs/adr/0001-soroban-contract-boundaries.md) for why the two layouts are
+# not unified yet.
 [dependencies]
 soroban-sdk = { version = "=22.0.0" }
 

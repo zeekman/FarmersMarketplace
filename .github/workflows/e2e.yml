@@ -75,12 +75,21 @@ jobs:
         run: npx wait-on http://localhost:4000/api/products http://localhost:3000 --timeout 60000
         working-directory: frontend
 
+      - name: Seed admin user
+        run: node scripts/seed-admin.js
+        working-directory: backend
+        env:
+          ADMIN_EMAIL: e2e-admin@test.invalid
+          ADMIN_PASSWORD: TestPass1!
+
       - name: Run E2E tests
         run: npx playwright test
         working-directory: e2e
         env:
           BASE_URL: http://localhost:3000
           CI: "true"
+          ADMIN_EMAIL: e2e-admin@test.invalid
+          ADMIN_PASSWORD: TestPass1!
 
       - name: Upload Playwright report
         if: always()

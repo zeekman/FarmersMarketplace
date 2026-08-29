@@ -9,11 +9,15 @@ crate-type = ["cdylib", "rlib"]
 [features]
 testutils = ["soroban-sdk/testutils"]
 
+# Pinned to the legacy SDK generation used throughout `contract/`. This is
+# intentionally older than the `=22.0.0` pin in `contracts/` — see ADR 0001
+# (docs/adr/0001-soroban-contract-boundaries.md) for why the two layouts are
+# not unified yet.
 [dependencies]
-soroban-sdk = { version = "=21.0.0" }
+soroban-sdk = { version = "=21.7.7" }
 
 [dev-dependencies]
-soroban-sdk = { version = "=21.0.0", features = ["testutils"] }
+soroban-sdk = { version = "=21.7.7", features = ["testutils"] }
 
 [profile.release]
 opt-level = "z"

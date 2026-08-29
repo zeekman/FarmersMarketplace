@@ -16,6 +16,7 @@ const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 const { createWallet, server, networkPassphrase } = require('../utils/stellar');
 const { encrypt, decrypt } = require('../utils/crypto');
+const logger = require('../logger');
 
 const MULTISIG_THRESHOLD_XLM = 50; // payments above this require multi-sig
 const TX_EXPIRY_HOURS = 24;
@@ -35,10 +36,10 @@ router.post('/', auth, async (req, res) => {
   const coopId = rows[0].id;
 
   // Add creator as first member and admin
-  await db.query(`INSERT INTO cooperative_members (cooperative_id, user_id, is_admin) VALUES ($1, $2, TRUE)`, [
-    coopId,
-    req.user.id,
-  ]);
+  await db.query(
+    `INSERT INTO cooperative_members (cooperative_id, user_id, is_admin) VALUES ($1, $2, TRUE)`,
+    [coopId, req.user.id]
+  );
 
   res.status(201).json({ success: true, id: coopId, publicKey: wallet.publicKey });
 });
@@ -98,12 +99,13 @@ router.post('/:id/multisig-setup', auth, async (req, res) => {
     );
   }
 
-  // Verify caller is a member
-  const { rows: memCheck } = await db.query(
-    `SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2`,
+  // Only cooperative administrators may change signers or thresholds.
+  const { rows: adminCheck } = await db.query(
+    `SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2 AND is_admin = TRUE`,
     [coopId, req.user.id]
   );
-  if (!memCheck.length) return err(res, 403, 'Not a member of this cooperative', 'forbidden');
+  if (!adminCheck.length)
+    return err(res, 403, 'Only cooperative admins may configure multisig', 'forbidden');
 
   const { rows: coopRows } = await db.query(
     `SELECT stellar_secret_key, stellar_public_key FROM cooperatives WHERE id = $1`,
@@ -166,7 +168,9 @@ router.post('/:id/multisig-setup', auth, async (req, res) => {
     await server.submitTransaction(tx);
   } catch (e) {
     // If account not funded yet, just save the config — Stellar setup will happen when funded
-    console.warn('[multisig-setup] Stellar setup skipped (account may not be funded):', e.message);
+    logger.warn('[multisig-setup] Stellar setup skipped (account may not be funded)', {
+      error: e.message,
+    });
   }
 
   // Save threshold
@@ -365,7 +369,10 @@ router.post('/:id/join', auth, async (req, res) => {
   );
   if (existing.length) return err(res, 409, 'Already a member', 'already_member');
 
-  await db.query('INSERT INTO cooperative_members (cooperative_id, user_id) VALUES ($1, $2)', [coopId, req.user.id]);
+  await db.query('INSERT INTO cooperative_members (cooperative_id, user_id) VALUES ($1, $2)', [
+    coopId,
+    req.user.id,
+  ]);
   res.status(201).json({ success: true });
 });
 
@@ -387,7 +394,10 @@ router.post('/:id/leave', auth, async (req, res) => {
   if (adminIds.length === 1 && adminIds[0] === req.user.id)
     return err(res, 400, 'Transfer admin role before leaving.', 'last_admin');
 
-  await db.query('DELETE FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2', [coopId, req.user.id]);
+  await db.query('DELETE FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2', [
+    coopId,
+    req.user.id,
+  ]);
   res.json({ success: true });
 });
 
@@ -397,7 +407,13 @@ router.patch('/:id/royalty', auth, async (req, res) => {
   const coopId = parseInt(req.params.id, 10);
   const { royalty_bps } = req.body;
 
-  if (royalty_bps == null || typeof royalty_bps !== 'number' || !Number.isInteger(royalty_bps) || royalty_bps < 0 || royalty_bps > 2000) {
+  if (
+    royalty_bps == null ||
+    typeof royalty_bps !== 'number' ||
+    !Number.isInteger(royalty_bps) ||
+    royalty_bps < 0 ||
+    royalty_bps > 2000
+  ) {
     return err(res, 400, 'royalty_bps must be an integer between 0 and 2000', 'validation_error');
   }
 
@@ -406,7 +422,8 @@ router.patch('/:id/royalty', auth, async (req, res) => {
     'SELECT 1 FROM cooperative_members WHERE cooperative_id = $1 AND user_id = $2 AND is_admin = TRUE',
     [coopId, req.user.id]
   );
-  if (!callerRows.length) return err(res, 403, 'Only cooperative admins can set royalty rate', 'forbidden');
+  if (!callerRows.length)
+    return err(res, 403, 'Only cooperative admins can set royalty rate', 'forbidden');
 
   const { rows: coopRows } = await db.query('SELECT id FROM cooperatives WHERE id = $1', [coopId]);
   if (!coopRows.length) return err(res, 404, 'Cooperative not found', 'not_found');
@@ -435,8 +452,14 @@ router.patch('/:id/admin', auth, async (req, res) => {
   );
   if (!targetRows.length) return err(res, 404, 'Target user is not a member', 'not_found');
 
-  await db.query('UPDATE cooperative_members SET is_admin = FALSE WHERE cooperative_id = $1 AND user_id = $2', [coopId, req.user.id]);
-  await db.query('UPDATE cooperative_members SET is_admin = TRUE WHERE cooperative_id = $1 AND user_id = $2', [coopId, new_admin_id]);
+  await db.query(
+    'UPDATE cooperative_members SET is_admin = FALSE WHERE cooperative_id = $1 AND user_id = $2',
+    [coopId, req.user.id]
+  );
+  await db.query(
+    'UPDATE cooperative_members SET is_admin = TRUE WHERE cooperative_id = $1 AND user_id = $2',
+    [coopId, new_admin_id]
+  );
   res.json({ success: true });
 });
 

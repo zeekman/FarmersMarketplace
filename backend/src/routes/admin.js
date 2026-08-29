@@ -1,6 +1,8 @@
 const router = require('express').Router();
 const db = require('../db/schema');
 const adminAuth = require('../middleware/adminAuth');
+const auth = require('../middleware/auth');
+const requireAdmin = require('../middleware/requireAdmin');
 const { sendPayment } = require('../utils/stellar');
 
 // GET /api/admin/returns - list all return requests
@@ -266,6 +268,55 @@ router.get('/analytics/summary', adminAuth, (req, res) => {
 router.get('/failed-emails', adminAuth, (req, res) => {
   const rows = db.prepare('SELECT * FROM failed_emails ORDER BY created_at DESC').all();
   res.json({ success: true, data: rows });
+});
+
+// GET /api/admin/analytics/creator-earnings — Issue #998
+// Platform-wide Creator Earnings totals + a daily time-series breakdown,
+// aggregated from the creator_earnings_ledger table populated by
+// jobs/creatorEarningsMonitor.js.
+router.get('/analytics/creator-earnings', auth, requireAdmin, async (req, res) => {
+  const { rows: totalsRows } = await db.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN event_type = 'credit' THEN amount ELSE 0 END), 0) AS total_credited,
+       COALESCE(SUM(CASE WHEN event_type = 'claim'  THEN amount ELSE 0 END), 0) AS total_claimed,
+       COALESCE(SUM(CASE WHEN event_type = 'credit' THEN fee_amount ELSE 0 END), 0) AS total_platform_fee
+     FROM creator_earnings_ledger`
+  );
+
+  const dayExpr = db.isPostgres ? `TO_CHAR(created_at, 'YYYY-MM-DD')` : `date(created_at)`;
+  const { rows: seriesRows } = await db.query(
+    `SELECT ${dayExpr} AS day,
+            event_type,
+            COALESCE(SUM(amount), 0) AS amount,
+            COALESCE(SUM(fee_amount), 0) AS fee_amount
+     FROM creator_earnings_ledger
+     GROUP BY ${dayExpr}, event_type
+     ORDER BY day ASC`
+  );
+
+  const byDay = new Map();
+  for (const row of seriesRows) {
+    if (!byDay.has(row.day)) {
+      byDay.set(row.day, { day: row.day, credited: 0, claimed: 0, platform_fee: 0 });
+    }
+    const bucket = byDay.get(row.day);
+    if (row.event_type === 'credit') {
+      bucket.credited += Number(row.amount);
+      bucket.platform_fee += Number(row.fee_amount);
+    } else if (row.event_type === 'claim') {
+      bucket.claimed += Number(row.amount);
+    }
+  }
+
+  res.json({
+    success: true,
+    data: {
+      total_credited_xlm: Number(totalsRows[0].total_credited),
+      total_claimed_xlm: Number(totalsRows[0].total_claimed),
+      total_platform_fee_xlm: Number(totalsRows[0].total_platform_fee),
+      time_series: [...byDay.values()],
+    },
+  });
 });
 
 module.exports = router;

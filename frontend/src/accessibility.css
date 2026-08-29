@@ -1,0 +1,23 @@
+/* "Skip to main content" link: the first focusable element on every page.
+   Visually hidden off-screen until it receives keyboard focus, so sighted
+   mouse users never see it but keyboard users can Tab straight to it. */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 0;
+  z-index: 1000;
+  background: #1b4332;
+  color: #fff;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 0 0 6px 0;
+  transition: top 0.15s ease-in-out;
+}
+
+.skip-link:focus {
+  top: 0;
+  outline: 3px solid #95d5b2;
+  outline-offset: 2px;
+}

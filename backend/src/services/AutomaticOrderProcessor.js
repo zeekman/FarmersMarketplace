@@ -11,6 +11,7 @@ const db = require('../db/schema');
 const { sendPayment, getBalance } = require('../utils/stellar');
 const { invokeEscrowContract } = require('../utils/stellar-contracts');
 const { sendOrderEmails } = require('../utils/mailer');
+const logger = require('../logger');
 
 // Default escrow timeout for automatic (waitlist) orders: 7 days from deposit.
 const DEFAULT_ESCROW_TIMEOUT_DAYS = 7;
@@ -82,7 +83,7 @@ class AutomaticOrderProcessor {
         farmer,
         isAutomatic: true,
       }).catch((error) => {
-        console.error('[AutomaticOrderProcessor] Notification failed:', error.message);
+        logger.error('[AutomaticOrderProcessor] Notification failed', { error: error.message });
       });
 
       return {
@@ -94,7 +95,7 @@ class AutomaticOrderProcessor {
         code: 'ORDER_CREATED',
       };
     } catch (error) {
-      console.error('[AutomaticOrderProcessor] Error creating automatic order:', error);
+      logger.error('[AutomaticOrderProcessor] Error creating automatic order', { error: error.message, stack: error.stack });
       return {
         success: false,
         error: 'Failed to create automatic order: ' + error.message,
@@ -319,7 +320,7 @@ class AutomaticOrderProcessor {
           cooperativeRoyaltyBps = coopRows[0].royalty_bps || 0;
         }
       } catch (coopErr) {
-        console.warn('[AutomaticOrderProcessor] cooperative lookup failed (non-fatal):', coopErr.message);
+        logger.warn('[AutomaticOrderProcessor] cooperative lookup failed (non-fatal)', { error: coopErr.message });
       }
 
       const result = await invokeEscrowContract({
@@ -341,7 +342,7 @@ class AutomaticOrderProcessor {
         code: 'ESCROW_FUNDED',
       };
     } catch (error) {
-      console.error('[AutomaticOrderProcessor] Escrow deposit failed:', error.message);
+      logger.error('[AutomaticOrderProcessor] Escrow deposit failed', { error: error.message });
       return {
         success: false,
         error: 'Escrow deposit failed: ' + error.message,
@@ -392,7 +393,7 @@ class AutomaticOrderProcessor {
         code: 'PAYMENT_SUCCESS',
       };
     } catch (error) {
-      console.error('[AutomaticOrderProcessor] Payment failed:', error);
+      logger.error('[AutomaticOrderProcessor] Payment failed', { error: error.message, stack: error.stack });
 
       // Handle specific Stellar errors
       if (error.code === 'account_not_found') {
@@ -487,11 +488,11 @@ class AutomaticOrderProcessor {
       });
 
       // Log successful notification
-      console.log(
+      logger.info(
         `[AutomaticOrderProcessor] Notifications sent for ${isAutomatic ? 'automatic' : 'manual'} order #${order.id}`
       );
     } catch (error) {
-      console.error('[AutomaticOrderProcessor] Failed to send notifications:', error);
+      logger.error('[AutomaticOrderProcessor] Failed to send notifications', { error: error.message, stack: error.stack });
       // Don't throw - notifications are not critical for order success
     }
   }
@@ -507,7 +508,7 @@ class AutomaticOrderProcessor {
   async notifyInsufficientStock(waitlistEntry, product, buyer, availableStock) {
     // Enhanced input validation
     if (!waitlistEntry || !product || !buyer) {
-      console.error('[AutomaticOrderProcessor] Invalid inputs for insufficient stock notification');
+      logger.error('[AutomaticOrderProcessor] Invalid inputs for insufficient stock notification');
       return;
     }
 
@@ -516,7 +517,7 @@ class AutomaticOrderProcessor {
       const nodemailer = require('nodemailer');
 
       if (!process.env.SMTP_HOST) {
-        console.warn(
+        logger.warn(
           '[AutomaticOrderProcessor] SMTP not configured - skipping insufficient stock notification'
         );
         return;
@@ -558,13 +559,13 @@ Farmers Marketplace`;
         text: message,
       });
 
-      console.log(
+      logger.info(
         `[AutomaticOrderProcessor] Insufficient stock notification sent to ${buyer.email} for product #${product.id}`
       );
     } catch (error) {
-      console.error(
-        '[AutomaticOrderProcessor] Failed to send insufficient stock notification:',
-        error
+      logger.error(
+        '[AutomaticOrderProcessor] Failed to send insufficient stock notification',
+        { error: error.message, stack: error.stack }
       );
     }
   }
@@ -648,20 +649,35 @@ Farmers Marketplace`;
             },
             remainingStock
           ).catch((error) => {
-            console.error('[AutomaticOrderProcessor] Notification error:', error);
+            logger.error('[AutomaticOrderProcessor] Notification error', { error: error.message, stack: error.stack });
           });
 
           continue;
         }
 
-        // Try to create automatic order
-        const orderResult = await this.createAutomaticOrder(entry, product, {
-          id: entry.buyer_id,
-          name: entry.buyer_name,
-          email: entry.buyer_email,
-          stellar_public_key: entry.stellar_public_key,
-          stellar_secret_key: entry.stellar_secret_key,
-        });
+        // Try to create automatic order. An unexpected throw (e.g. a Stellar
+        // submission error) must not abort the entire batch — catch it here and
+        // treat it as a skipped entry so the next buyer in the queue is still
+        // processed. (#1016)
+        let orderResult;
+        try {
+          orderResult = await this.createAutomaticOrder(entry, product, {
+            id: entry.buyer_id,
+            name: entry.buyer_name,
+            email: entry.buyer_email,
+            stellar_public_key: entry.stellar_public_key,
+            stellar_secret_key: entry.stellar_secret_key,
+          });
+        } catch (entryErr) {
+          logger.error(
+            `[AutomaticOrderProcessor] Unexpected error for waitlist entry #${entry.id} — skipping to next`,
+            { error: entryErr.message }
+          );
+          skipped++;
+          errors.push({ entryId: entry.id, buyerId: entry.buyer_id, error: entryErr.message, code: 'INTERNAL_ERROR' });
+          await db.query('UPDATE waitlist_entries SET status = $1 WHERE id = $2', ['payment_failed', entry.id]);
+          continue;
+        }
 
         if (orderResult.success) {
           // Order created successfully
@@ -679,9 +695,9 @@ Farmers Marketplace`;
             buyer: { name: entry.buyer_name, email: entry.buyer_email },
             farmer: { name: product.farmer_name || '', email: product.farmer_email || '' },
             isAutomatic: true,
-          }).catch((e) => console.error('[AutomaticOrderProcessor] Notification error:', e));
+          }).catch((e) => logger.error('[AutomaticOrderProcessor] Notification error', { error: e.message, stack: e.stack }));
 
-          console.log(
+          logger.info(
             `[AutomaticOrderProcessor] Processed waitlist entry #${entry.id}, order #${orderResult.orderId}`
           );
         } else {
@@ -705,11 +721,11 @@ Farmers Marketplace`;
             product: { name: product.name, category: product.category || '', unit: product.unit || 'unit' },
             buyer: { name: entry.buyer_name, email: entry.buyer_email },
             farmer: { name: product.farmer_name || '', email: product.farmer_email || '' },
-          }).catch((e) => console.error('[AutomaticOrderProcessor] Failure mailer error:', e));
+          }).catch((e) => logger.error('[AutomaticOrderProcessor] Failure mailer error', { error: e.message, stack: e.stack }));
 
-          console.error(
-            `[AutomaticOrderProcessor] Failed to process waitlist entry #${entry.id}:`,
-            orderResult.error
+          logger.error(
+            `[AutomaticOrderProcessor] Failed to process waitlist entry #${entry.id}`,
+            { error: orderResult.error }
           );
         }
       }
@@ -729,7 +745,7 @@ Farmers Marketplace`;
         code: 'PROCESSING_COMPLETE',
       };
     } catch (error) {
-      console.error('[AutomaticOrderProcessor] Error processing waitlist on restock:', error);
+      logger.error('[AutomaticOrderProcessor] Error processing waitlist on restock', { error: error.message, stack: error.stack });
       return {
         success: false,
         error: 'Failed to process waitlist: ' + error.message,
@@ -765,12 +781,12 @@ Farmers Marketplace`;
       }
 
       await db.query('COMMIT');
-      console.log(
+      logger.info(
         `[AutomaticOrderProcessor] Recalculated positions for ${rows.length} remaining waitlist entries`
       );
     } catch (error) {
       await db.query('ROLLBACK');
-      console.error('[AutomaticOrderProcessor] Failed to recalculate positions:', error);
+      logger.error('[AutomaticOrderProcessor] Failed to recalculate positions', { error: error.message, stack: error.stack });
     }
   }
 }

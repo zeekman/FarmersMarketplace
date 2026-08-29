@@ -6,6 +6,8 @@
     "e2e:report": "playwright show-report"
   },
   "devDependencies": {
-    "@playwright/test": "^1.44.0"
+    "@playwright/test": "^1.44.0",
+    "@types/speakeasy": "^2.0.10",
+    "speakeasy": "^2.0.0"
   }
 }

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -27,6 +26,7 @@ export default function Navbar() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [network, setNetwork] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
   const navRef = useRef(null);
   const hamburgerRef = useRef(null);
   const drawerRef = useRef(null);
@@ -34,6 +34,39 @@ export default function Navbar() {
   useEffect(() => {
     api.getNetwork().then(res => setNetwork(res.network)).catch(() => {});
   }, []);
+
+  // Initial unread-message count
+  useEffect(() => {
+    if (!user || typeof api.getUnreadMessageCount !== 'function') { setUnreadCount(0); return; }
+    let cancelled = false;
+    api.getUnreadMessageCount()
+      .then(res => { if (!cancelled) setUnreadCount(res.count || 0); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user]);
+
+  // Live updates via SSE — increment on new_message
+  useEffect(() => {
+    if (!user || typeof EventSource === 'undefined' || typeof api.getMessagesStreamUrl !== 'function') return;
+    const es = new EventSource(api.getMessagesStreamUrl());
+    es.addEventListener('new_message', () => {
+      setUnreadCount(c => c + 1);
+    });
+    return () => es.close();
+  }, [user]);
+
+  // Refresh the count whenever messages are marked read elsewhere in the app
+  useEffect(() => {
+    if (!user) return;
+    function handleMessagesRead() {
+      if (typeof api.getUnreadMessageCount !== 'function') return;
+      api.getUnreadMessageCount()
+        .then(res => setUnreadCount(res.count || 0))
+        .catch(() => {});
+    }
+    window.addEventListener('messages:read', handleMessagesRead);
+    return () => window.removeEventListener('messages:read', handleMessagesRead);
+  }, [user]);
 
   // Escape key handler
   useEffect(() => {
@@ -103,14 +136,9 @@ export default function Navbar() {
         to="/"
         end
         style={({ isActive }) => (isActive ? { ...s.brand, textDecoration: 'underline' } : s.brand)}
-        aria-current={undefined}
       >
         🌿 FarmersMarket
       </NavLink>
-    <nav style={s.nav} ref={navRef}>
-      <NavLink to="/" end style={({ isActive }) => (isActive ? s.activeLink : s.brand)}>🌿 FarmersMarket</NavLink>
-    <nav ref={navRef} style={s.nav}>
-      <Link to="/" style={s.brand}>🌿 FarmersMarket</Link>
       {network && (
         <span style={{
           background: network === 'mainnet' ? '#c0392b' : '#2d6a4f',
@@ -162,6 +190,15 @@ export default function Navbar() {
             {user.role !== 'admin' && <NavLink to="/wallet" style={navLinkStyle} onClick={closeDrawer}>Wallet</NavLink>}
             <NavLink to="/settings" style={navLinkStyle} onClick={closeDrawer}>Settings</NavLink>
             <span style={{ color: '#d8f3dc', fontSize: 13 }}>{user.name} ({user.role})</span>
+            {unreadCount > 0 && (
+              <span
+                role="status"
+                aria-label={`${unreadCount} unread message${unreadCount !== 1 ? 's' : ''}`}
+                style={{ background: '#e63946', color: '#fff', borderRadius: 10, padding: '2px 7px', fontSize: 11, fontWeight: 700, minWidth: 18, textAlign: 'center' }}
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
             <button style={s.toggleBtn} onClick={toggleTheme} aria-label="Toggle dark mode">{theme === 'light' ? '🌙' : '☀️'}</button>
             <button style={{ ...s.toggleBtn, fontSize: 12, minWidth: 120, color: '#fff' }} onClick={useSystemTheme} aria-label="Use system theme">
               {isUsingSystemTheme ? 'System' : 'Use system'}
@@ -182,6 +219,7 @@ export default function Navbar() {
         >
           <option value="en">EN</option>
           <option value="sw">SW</option>
+          <option value="ar">AR</option>
         </select>
       </div>
     </nav>

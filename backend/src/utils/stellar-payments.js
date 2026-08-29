@@ -1,6 +1,7 @@
 const config = require('../config');
 const { StellarSdk, isTestnet, server, networkPassphrase } = require('./stellar-config');
 const { getBalance } = require('./stellar-accounts');
+const logger = require('../logger');
 
 async function wrapWithFeeBump(innerTx, feeAccountSecret) {
   const feeKeypair = StellarSdk.Keypair.fromSecret(feeAccountSecret);
@@ -17,11 +18,11 @@ async function wrapWithFeeBump(innerTx, feeAccountSecret) {
 /**
  * Sends XLM from one account to another, splitting off the platform fee when configured.
  * Wraps the transaction in a fee-bump if the sender's balance is below `FEE_BUMP_THRESHOLD_XLM`.
- * @param {{ senderSecret: string, receiverPublicKey: string, amount: number, memo?: string }} params
+ * @param {{ senderSecret: string, receiverPublicKey: string, amount: number, memo?: string, requestId?: string }} params
  * @returns {Promise<string>} Transaction hash
  * @throws {{ code: 'account_not_found' }} if the sender account is not funded
  */
-async function sendPayment({ senderSecret, receiverPublicKey, amount, memo }) {
+async function sendPayment({ senderSecret, receiverPublicKey, amount, memo, requestId }) {
   const senderKeypair = StellarSdk.Keypair.fromSecret(senderSecret);
   let senderAccount;
   try {
@@ -81,6 +82,13 @@ async function sendPayment({ senderSecret, receiverPublicKey, amount, memo }) {
   }
 
   const result = await server.submitTransaction(txToSubmit);
+  logger.info('stellar_payment_submitted', {
+    requestId: requestId || null,
+    txHash: result.hash,
+    from: senderKeypair.publicKey(),
+    to: receiverPublicKey,
+    amount,
+  });
   return result.hash;
 }
 
@@ -149,6 +157,10 @@ function getPlatformFeeInfo(amount) {
   const feeAmount = parseFloat(((amount * feePercent) / 100).toFixed(7));
   const farmerAmount = parseFloat((amount - feeAmount).toFixed(7));
   return { feePercent, feeAmount, farmerAmount, platformWallet };
+}
+
+function getPathPaymentSendMax(sourceAmount, slippagePercent = 0.5) {
+  return parseFloat((sourceAmount * (1 + slippagePercent / 100)).toFixed(7));
 }
 
 /**
@@ -312,12 +324,12 @@ async function createPreorderClaimableBalance({ senderSecret, farmerPublicKey, a
 async function mintRewardTokens(buyerAddress, amount) {
   const contractId = config.rewardTokenContractId;
   if (!contractId) {
-    console.warn('[Stellar] REWARD_TOKEN_CONTRACT_ID not set, skipping reward mint');
+    logger.warn('[Stellar] REWARD_TOKEN_CONTRACT_ID not set, skipping reward mint');
     return null;
   }
   const adminSecret = config.rewardTokenAdminSecret;
   if (!adminSecret) {
-    console.warn('[Stellar] REWARD_TOKEN_ADMIN_SECRET not set, skipping reward mint');
+    logger.warn('[Stellar] REWARD_TOKEN_ADMIN_SECRET not set, skipping reward mint');
     return null;
   }
   try {
@@ -338,7 +350,7 @@ async function mintRewardTokens(buyerAddress, amount) {
     const result = await server.submitTransaction(transaction);
     return result.hash;
   } catch (error) {
-    console.error('[Stellar] Failed to mint reward tokens:', error.message);
+    logger.error('[Stellar] Failed to mint reward tokens', { error: error.message });
     return null;
   }
 }
@@ -354,12 +366,12 @@ async function mintRewardTokens(buyerAddress, amount) {
 async function burnRewardTokens(buyerAddress, amount) {
   const contractId = config.rewardTokenContractId;
   if (!contractId) {
-    console.warn('[Stellar] REWARD_TOKEN_CONTRACT_ID not set, skipping reward burn');
+    logger.warn('[Stellar] REWARD_TOKEN_CONTRACT_ID not set, skipping reward burn');
     return null;
   }
   const adminSecret = config.rewardTokenAdminSecret;
   if (!adminSecret) {
-    console.warn('[Stellar] REWARD_TOKEN_ADMIN_SECRET not set, skipping reward burn');
+    logger.warn('[Stellar] REWARD_TOKEN_ADMIN_SECRET not set, skipping reward burn');
     return null;
   }
   try {
@@ -380,7 +392,7 @@ async function burnRewardTokens(buyerAddress, amount) {
     const result = await server.submitTransaction(transaction);
     return result.hash;
   } catch (error) {
-    console.warn('[Stellar] Failed to burn reward tokens (non-fatal):', error.message);
+    logger.warn('[Stellar] Failed to burn reward tokens (non-fatal)', { error: error.message });
     return null;
   }
 }
@@ -437,6 +449,7 @@ module.exports = {
   getTransactions,
   generatePaymentLink,
   getPlatformFeeInfo,
+  getPathPaymentSendMax,
   getPathPaymentEstimate,
   pathPayment,
   createClaimableBalance,

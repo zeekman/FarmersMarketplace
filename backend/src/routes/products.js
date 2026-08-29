@@ -41,7 +41,6 @@ function normalizePreorderInput(body) {
 }
 
 /**
-/**
  * @swagger
  * /api/products:
  *   get:
@@ -552,7 +551,7 @@ router.patch('/:id/restock', auth, async (req, res) => {
     if (wasOutOfStock) {
       const processor = new AutomaticOrderProcessor();
       waitlistResults = await processor.processWaitlistOnRestock(parseInt(req.params.id), quantity);
-      if (!waitlistResults.success) console.error('[Restock] Waitlist processing failed:', waitlistResults.error);
+      if (!waitlistResults.success) logger.error('[Restock] Waitlist processing failed', { error: waitlistResults.error });
 
       const { rows: subscribers } = await db.query(
         `SELECT u.email, u.name FROM stock_alerts sa JOIN users u ON sa.user_id = u.id WHERE sa.product_id = $1`,
@@ -561,7 +560,7 @@ router.patch('/:id/restock', auth, async (req, res) => {
       if (subscribers.length > 0) {
         await db.query('DELETE FROM stock_alerts WHERE product_id = $1', [req.params.id]);
         Promise.all(subscribers.map((s) => sendBackInStockEmail({ email: s.email, name: s.name, productName: product.name })))
-          .catch((e) => console.error('[stock-alert] Email send failed:', e.message));
+          .catch((e) => logger.error('[stock-alert] Email send failed', { error: e.message }));
       }
     }
 
@@ -577,7 +576,7 @@ router.patch('/:id/restock', auth, async (req, res) => {
     }
     res.json(response);
   } catch (error) {
-    console.error('[Restock] Error processing restock:', error);
+    logger.error('[Restock] Error processing restock', { error: error.message, stack: error.stack });
     return err(res, 500, 'Internal server error during restock', 'internal_error');
   }
 });
@@ -666,6 +665,8 @@ router.get('/:id', (req, res) => {
   `).get(req.params.id);
   if (!product) return err(res, 404, 'Product not found', 'not_found');
   res.json({ success: true, data: product });
+});
+
 // DELETE /api/products/:id/images/:imgId
 router.delete('/:id/images/:imgId', auth, async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Only farmers can delete images', 'forbidden');
@@ -984,7 +985,7 @@ router.post('/:id/restock', auth, (req, res) => {
         }),
       ]);
     })
-  ).catch(err => console.error('Restock notification error:', err.message));
+  ).catch(err => logger.error('Restock notification error', { error: err.message }));
 
   res.json({ message: 'Restocked', notified: buyerIds.length });
 });

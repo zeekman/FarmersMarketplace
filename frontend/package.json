@@ -8,6 +8,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:report": "playwright show-report",
+    "check:bundle-size": "node scripts/check-bundle-size.js",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write . --ignore-path ../.prettierignore"
   },

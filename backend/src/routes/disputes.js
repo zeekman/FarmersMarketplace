@@ -6,6 +6,7 @@ const { sendDisputeOpenedEmail, sendDisputeResolvedEmail } = require('../utils/m
 const { burnRewardTokens, invokeEscrowContract } = require('../utils/stellar');
 const { sendPushToUser } = require('../utils/pushNotifications');
 const logger = require('../logger');
+const { writeAuditLog } = require('../utils/auditLog');
 
 const DISPUTE_WINDOW_HOURS = parseInt(process.env.DISPUTE_WINDOW_HOURS || '72', 10);
 
@@ -163,6 +164,20 @@ router.patch('/:id/resolve', auth, async (req, res, next) => {
       `UPDATE disputes SET status = 'resolved', resolution = $1, split_percent_buyer = $2 WHERE id = $3`,
       [resolution, resolution === 'split' ? split_percent_buyer : null, dispute.id]
     );
+
+    // Audit log — non-fatal
+    await writeAuditLog({
+      adminId: req.user.id,
+      action: 'resolve_dispute',
+      targetType: 'dispute',
+      targetId: dispute.id,
+      before: { status: 'open' },
+      after: {
+        status: 'resolved',
+        resolution,
+        split_percent_buyer: resolution === 'split' ? split_percent_buyer : null,
+      },
+    });
 
     const { rows: productRows } = await db.query('SELECT * FROM products WHERE id = $1', [dispute.product_id]);
     const product = productRows[0];

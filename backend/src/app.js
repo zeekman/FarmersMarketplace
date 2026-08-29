@@ -118,6 +118,8 @@ app.use(errorHandler);
 if (process.env.NODE_ENV !== 'test') {
   const { startActivityMonitor } = require('./jobs/activityMonitor');
   startActivityMonitor();
+  const { startOrphanedUploadsCleanupJob } = require('./jobs/reconcileOrphanedUploads');
+  startOrphanedUploadsCleanupJob();
 }
 
 module.exports = app;

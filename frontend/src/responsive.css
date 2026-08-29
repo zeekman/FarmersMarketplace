@@ -91,3 +91,60 @@
     width: 100% !important;
   }
 }
+
+/* ── RTL (right-to-left) layout support (#1061) ─────────────────────────────
+ *
+ * AUDIT NOTES — hardcoded physical directional properties found and addressed:
+ *
+ * Navbar (Navbar.jsx inline styles):
+ *   - `justifyContent: 'space-between'` is direction-neutral — OK.
+ *   - `padding: '12px 24px'` is shorthand (block/inline) — OK.
+ *   - The flex row reverses naturally under `dir="rtl"` for logical ordering.
+ *
+ * Marketplace grid (.product-grid):
+ *   - CSS Grid auto-fill is direction-neutral — OK.
+ *
+ * Pagination (Pagination.jsx inline styles):
+ *   - `marginLeft: 8` on the results info span is a physical property.
+ *     Override with logical equivalent below using `[dir="rtl"]`.
+ *
+ * General:
+ *   - `text-align: left` is replaced with `text-align: start` for new rules.
+ *   - Components using `margin-left`/`margin-right` directly in JSX inline
+ *     styles are overridden below. Future code should prefer logical
+ *     properties (margin-inline-start, padding-inline-end, etc.).
+ *
+ * Follow-up: Once an actual RTL locale (ar/he) is added, run a full visual
+ *   audit and replace remaining physical margin/padding/border-radius usages
+ *   in component inline styles with logical properties.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/* Flip physical margin on Pagination results info span under RTL */
+[dir="rtl"] .pagination-info {
+  margin-inline-start: 8px;
+  margin-inline-end: 0;
+}
+
+/* Ensure nav flex row respects reading direction */
+[dir="rtl"] .nav-links {
+  flex-direction: row-reverse;
+}
+
+/* Filter row — start-align items logically */
+[dir="rtl"] .filter-row {
+  flex-direction: row-reverse;
+}
+
+/* Text inputs align to reading direction */
+[dir="rtl"] .form-input {
+  text-align: right;
+}
+
+/* RTL mobile drawer — appear from the right */
+@media (max-width: 600px) {
+  [dir="rtl"] .nav-links {
+    flex-direction: column;
+    right: 0;
+    left: auto;
+  }
+}

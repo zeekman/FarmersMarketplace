@@ -210,6 +210,12 @@ DATABASE_URL=postgresql://user:pass@host:5432/dbname \
   node backend/scripts/migrate-sqlite-to-pg.js
 ```
 
+## Rate Limiting
+
+Per-user and per-IP rate limits (`backend/src/middleware/rateLimitPerUser.js`) use Redis when `REDIS_URL` is set, and fall back to an in-memory Map otherwise.
+
+The in-memory fallback is fine for local dev and single-process deployments, but it is **not suitable for long-running, high-cardinality production traffic** — set `REDIS_URL` for those deployments so limiter state is bounded and shared across processes.
+
 ## Soroban Contract Layout
 
 The repository currently maintains two Soroban contract layouts. They are
@@ -416,14 +422,34 @@ interchangeable with the workspace escrow at `contracts/escrow/`; see
 
 ### Error Codes
 
-| Error | Meaning |
-|-------|---------|
-| `AlreadyExists` | Duplicate deposit for same order_id |
-| `NotFound` | No escrow record for order_id |
-| `Unauthorized` | Caller not permitted |
-| `NotTimedOut` | Refund called before timeout |
-| `AlreadySettled` | Escrow already released or refunded |
-| `InvalidParties` | buyer and farmer must be different addresses |
+These codes are stable on-chain ABI values. Never reuse a code, even after removing a variant.
+
+| Code | Variant | Meaning |
+|-----:|---------|--------|
+| 1 | `NotFound` | No escrow record for the given order_id |
+| 2 | `AlreadySettled` | Escrow already released or refunded |
+| 3 | `InDispute` | Escrow is currently in a disputed state |
+| 4 | `Unauthorized` | Caller is not permitted to perform this action |
+| 5 | `InvalidAmount` | Amount is zero, negative, or exceeds allowed bounds |
+| 6 | `AlreadyExists` | Duplicate deposit for the same order_id |
+| 7 | `TimeoutNotReached` | Refund called before the escrow timeout |
+| 8 | `InvalidWasmHash` | Upgrade called with an all-zero WASM hash |
+| 9 | `NoPendingAdmin` | `accept_admin` called with no pending admin set |
+| 10 | `InvalidToken` | Token at release does not match token used at deposit |
+| 11 | `MigrationFailed` | A v1 EscrowRecord entry could not be migrated to v2 |
+| 12 | `NotEnoughSignatures` | Fewer valid signatures than the cooperative threshold |
+| 13 | `CoopNotConfigured` | Cooperative members / threshold not yet configured |
+| 14 | `AlreadyInitialized` | `initialize` called more than once |
+| 15 | `NotAdmin` | Caller does not hold the admin role |
+| 16 | `BelowMinDeposit` | Deposit amount is below the configured minimum (dust guard) |
+| 17 | `BatchTooLarge` | `batch_release` called with more than `MAX_BATCH_RELEASE` IDs |
+| 18 | `SnapshotNotFound` | No snapshot exists for the requested (order_id, ledger_sequence) |
+| 19 | `NotYetReleasable` | Release called before the pre-order unlock date |
+| 20 | `SubmissionWindowClosed` | Evidence submission window (48 h) has closed |
+| 21 | `AutoReleaseNotReached` | Auto-release timestamp has not yet been reached |
+| 22 | `TooManyCoopSigners` | Cooperative signer count exceeds `MAX_COOP_SIGNERS` |
+
+Next available code: **23**. See the `NEXT_CODE` comment in `contracts/escrow/src/lib.rs` for the authoritative value.
 
 ### Build & Test
 
@@ -436,8 +462,7 @@ cargo build --target wasm32-unknown-unknown --release
 ### Design Notes
 
 - **#468** — Every function that reads/writes an escrow entry calls `extend_ttl(TTL_MIN=100_000, TTL_MAX=200_000)` so entries never expire and lock funds.
-- **#469** — `deposit` rejects calls where `buyer == farmer` with `EscrowError::InvalidParties`.
-- **#470** — `deposit` panics if `timeout_unix` is not at least 1 hour (`3600 s`) in the future.
+- **#470** — `deposit` returns `EscrowError::InvalidAmount` if `timeout_unix` is not at least 1 hour (`3600 s`) in the future.
 - **#471** — `deposit`, `release`, and `refund` each emit a Soroban event so the backend can subscribe to the RPC event stream instead of polling.
 
 ## i18n Translation Sync

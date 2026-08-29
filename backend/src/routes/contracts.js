@@ -4,6 +4,7 @@ const adminAuth = require('../middleware/adminAuth');
 const db = require('../db/schema');
 const { getContractState, getContractEvents, simulateContractCall } = require('../utils/stellar');
 const { err } = require('../middleware/error');
+const { writeAuditLog } = require('../utils/auditLog');
 
 function validateContractId(contractId) {
   return /^[A-Z2-7]{56}$|^[0-9a-fA-F]{64}$/.test(contractId);
@@ -78,6 +79,16 @@ router.post('/:contractId/simulate', auth, adminAuth, async (req, res) => {
   }
 
   await logInvocation({ contractId, method: method.trim(), args, result: out.result, success: !!out.success, error: out.error || null, userId: req.user.id });
+
+  // Audit log — non-fatal
+  await writeAuditLog({
+    adminId: req.user.id,
+    action: 'contract_simulate',
+    targetType: 'contract',
+    targetId: contractId,
+    after: { method: method.trim(), success: !!out.success },
+  });
+
   return res.json(out);
 });
 

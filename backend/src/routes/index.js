@@ -85,7 +85,7 @@ async function checkDatabase() {
   }
 }
 
-async function checkStellarHorizon() {
+async function checkStellarHorizon(requestId) {
   const startTime = Date.now();
   try {
     const horizonUrl = process.env.STELLAR_HORIZON_URL || 
@@ -95,15 +95,16 @@ async function checkStellarHorizon() {
     const server = new Server(horizonUrl);
     await server.root();
     const duration = Date.now() - startTime;
+    logger.info(JSON.stringify({ requestId: requestId || null, event: 'horizon_health_check', status: 'ok', responseTime: `${duration}ms` }));
     return { status: 'ok', responseTime: `${duration}ms` };
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.error('Stellar Horizon health check failed:', { error: error.message });
+    logger.error('Stellar Horizon health check failed:', { requestId: requestId || null, error: error.message });
     return { status: 'down', responseTime: `${duration}ms`, error: error.message };
   }
 }
 
-async function checkSorobanRPC() {
+async function checkSorobanRPC(requestId) {
   const startTime = Date.now();
   try {
     const sorobanUrl = process.env.SOROBAN_RPC_URL;
@@ -150,7 +151,7 @@ async function checkSorobanRPC() {
       
       req.on('error', (error) => {
         const duration = Date.now() - startTime;
-        logger.error('Soroban RPC health check failed:', { error: error.message });
+        logger.error('Soroban RPC health check failed:', { requestId: requestId || null, error: error.message });
         resolve({ status: 'down', responseTime: `${duration}ms`, error: error.message });
       });
       
@@ -196,13 +197,13 @@ async function checkRedis() {
 // Health Endpoint Handler
 // ============================================================================
 
-async function getHealthCheckResponse(includeVersion = false) {
+async function getHealthCheckResponse(includeVersion = false, requestId) {
   const startTime = Date.now();
   try {
     const [dbCheck, horizonCheck, sorobanCheck, redisCheck] = await Promise.all([
       checkDatabase(),
-      checkStellarHorizon(),
-      checkSorobanRPC(),
+      checkStellarHorizon(requestId),
+      checkSorobanRPC(requestId),
       checkRedis()
     ]);
 
@@ -280,12 +281,12 @@ router.get('/robots.txt', (req, res) => {
 router.get('/api/health', async (req, res) => {
   res.setHeader('Deprecation', 'true');
   res.setHeader('X-API-Warn', 'Use /api/v1/health instead');
-  const { healthData, statusCode } = await getHealthCheckResponse(false);
+  const { healthData, statusCode } = await getHealthCheckResponse(false, req.requestId);
   res.status(statusCode).json(healthData);
 });
 
 router.get('/api/v1/health', async (req, res) => {
-  const { healthData, statusCode } = await getHealthCheckResponse(true);
+  const { healthData, statusCode } = await getHealthCheckResponse(true, req.requestId);
   res.status(statusCode).json(healthData);
 });
 
@@ -348,11 +349,15 @@ registerRoute('/', '/products', require('./products'));
 registerRoute('/', '/orders', require('./orderBudgetGuard'));
 registerRoute('/', '/orders', require('./orders'));
 registerRoute('/', '/orders/:id/return', require('./returns'));
+registerRoute('/', '/disputes', require('./disputes'));
 registerRoute('/', '/waitlist', require('./waitlist'));
 registerRoute('/', '/wallet', require('./wallet'));
 registerRoute('/', '/cooperatives', require('./cooperatives'));
 registerRoute('/', '/analytics', require('./analytics'));
 registerRoute('/', '/admin', require('./admin'));
+registerRoute('/', '/admin', require('./adminBan'));
+registerRoute('/', '/admin/audit-log', require('./adminAuditLog'));
+registerRoute('/', '/admin/uploads', require('./adminOrphanedUploads'));
 registerRoute('/', '/farmers', require('./farmers'));
 registerRoute('/', '/rates', require('./rates'));
 registerRoute('/', '/recommendations', require('./recommendations'));
@@ -362,6 +367,8 @@ registerRoute('/', '/messages', require('./messages'));
 registerRoute('/', '/notifications', require('./notifications'));
 registerRoute('/', '/contracts', require('./contracts'));
 registerRoute('/', '/escrow', require('./escrow'));
+registerRoute('/', '/creator-earnings', require('./creatorEarnings'));
+registerRoute('/', '/paymentStreams', require('./paymentStreams'));
 registerRoute('/', '/products/bulk', require('./bulkUpload'));
 registerRoute('/', '/coupons', require('./coupons'));
 registerRoute('/', '/alerts', require('./alerts'));
@@ -383,6 +390,8 @@ registerRoute('/', '/farmers/bundles', require('./bundleDiscounts'));
 registerRoute('/', '', require('./export'));
 registerRoute('/', '/announcements', require('./announcements'));
 registerRoute('/', '/auctions', require('./auctions'));
+registerRoute('/', '/disputes', require('./disputes'));
+
 registerRoute('/', '/categories', require('./categories'));
 
 module.exports = router;

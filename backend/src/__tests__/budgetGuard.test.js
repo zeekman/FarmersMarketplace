@@ -161,6 +161,40 @@ function buildWalletApp() {
 }
 
 // ---------------------------------------------------------------------------
+// Build a combined app for integration tests (walletBudget + orderBudgetGuard)
+// ---------------------------------------------------------------------------
+function buildIntegrationApp() {
+  const app = express();
+  app.use(express.json());
+
+  app.use((req, _res, next) => {
+    const userId = parseInt(req.headers['x-test-user-id'], 10);
+    req.user = { id: userId, role: req.headers['x-test-role'] || 'buyer' };
+    next();
+  });
+
+  const walletBudget = require('../routes/walletBudget');
+  app.use('/api/wallet', walletBudget);
+
+  const budgetGuard = require('../routes/orderBudgetGuard');
+  app.use('/api/orders', budgetGuard);
+
+  app.post('/api/orders', async (req, res) => {
+    try {
+      const { rows } = await mockDb.query(
+        'INSERT INTO orders (buyer_id, product_id, quantity, total_price) VALUES ($1,$2,$3,$4) RETURNING id',
+        [req.user.id, 1, 1, req.body.total_price],
+      );
+      res.json({ success: true, orderId: rows[0].id });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  return app;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 function addUser(id, monthlyBudget) {
@@ -505,6 +539,15 @@ describe('Wallet Budget Endpoints', () => {
     expect(res.status).toBe(400);
   });
 
+  test('PUT /budget with non-numeric limit_xlm returns 400', async () => {
+    addUser(39, null);
+    const res = await request(wApp)
+      .put('/api/wallet/budget')
+      .set('x-test-user-id', '39')
+      .send({ limit_xlm: 'abc' });
+    expect(res.status).toBe(400);
+  });
+
   test('PUT /budget response includes current spent_xlm and remaining_xlm', async () => {
     addUser(38, null);
     addOrder(38, 40, 'paid');
@@ -515,5 +558,132 @@ describe('Wallet Budget Endpoints', () => {
     expect(res.status).toBe(200);
     expect(res.body.spent_xlm).toBe(40);
     expect(res.body.remaining_xlm).toBe(60);
+  });
+
+  // --- GET /api/wallet/budget (backward compatible) ---
+
+  test('GET /budget (backward compat) returns same data as /budget-status', async () => {
+    addUser(40, 200);
+    addOrder(40, 80, 'paid');
+    const res = await request(wApp)
+      .get('/api/wallet/budget')
+      .set('x-test-user-id', '40');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.limit_xlm).toBe(200);
+    expect(res.body.spent_xlm).toBe(80);
+    expect(res.body.remaining_xlm).toBe(120);
+    expect(res.body.reset_at).toMatch(/^\d{4}-\d{2}-01T00:00:00\.000Z$/);
+  });
+
+  // --- PATCH /api/wallet/budget (backward compatible) ---
+
+  test('PATCH /budget sets a new spending limit via monthly_limit', async () => {
+    addUser(41, null);
+    const res = await request(wApp)
+      .patch('/api/wallet/budget')
+      .set('x-test-user-id', '41')
+      .send({ monthly_limit: 300 });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.limit_xlm).toBe(300);
+    expect(res.body.budgetGuardEnabled).toBe(true);
+    const user = mockUsers.find((u) => u.id === 41);
+    expect(user.monthly_budget).toBe(300);
+  });
+
+  test('PATCH /budget with 0 removes the limit', async () => {
+    addUser(42, 200);
+    const res = await request(wApp)
+      .patch('/api/wallet/budget')
+      .set('x-test-user-id', '42')
+      .send({ monthly_limit: 0 });
+    expect(res.status).toBe(200);
+    expect(res.body.limit_xlm).toBeNull();
+    expect(res.body.budgetGuardEnabled).toBe(false);
+    const user = mockUsers.find((u) => u.id === 42);
+    expect(user.monthly_budget).toBeNull();
+  });
+
+  // --- Role-based access ---
+
+  test('GET /budget-status returns 403 for non-buyer role', async () => {
+    addUser(43, 100);
+    const res = await request(wApp)
+      .get('/api/wallet/budget-status')
+      .set('x-test-user-id', '43')
+      .set('x-test-role', 'farmer');
+    expect(res.status).toBe(403);
+  });
+
+  test('PUT /budget returns 403 for non-buyer role', async () => {
+    addUser(44, 100);
+    const res = await request(wApp)
+      .put('/api/wallet/budget')
+      .set('x-test-user-id', '44')
+      .set('x-test-role', 'farmer')
+      .send({ limit_xlm: 200 });
+    expect(res.status).toBe(403);
+  });
+
+  test('GET /budget returns 403 for non-buyer role', async () => {
+    addUser(45, 100);
+    const res = await request(wApp)
+      .get('/api/wallet/budget')
+      .set('x-test-user-id', '45')
+      .set('x-test-role', 'farmer');
+    expect(res.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — Integration: walletBudget set limit enforced by orderBudgetGuard
+// ---------------------------------------------------------------------------
+describe('Budget Integration — walletBudget + orderBudgetGuard', () => {
+  let iApp;
+
+  beforeEach(() => {
+    resetState();
+    iApp = buildIntegrationApp();
+  });
+
+  test('budget set via walletBudget is enforced by orderBudgetGuard', async () => {
+    addUser(50, null);
+    const setRes = await request(iApp)
+      .put('/api/wallet/budget')
+      .set('x-test-user-id', '50')
+      .send({ limit_xlm: 100 });
+    expect(setRes.status).toBe(200);
+
+    const orderRes = await request(iApp)
+      .post('/api/orders')
+      .set('x-test-user-id', '50')
+      .send({ total_price: 60 });
+    expect(orderRes.status).toBe(200);
+
+    const orderRes2 = await request(iApp)
+      .post('/api/orders')
+      .set('x-test-user-id', '50')
+      .send({ total_price: 50 });
+    expect(orderRes2.status).toBe(402);
+    expect(orderRes2.body.code).toBe('budget_exceeded');
+  });
+
+  test('budget removed via walletBudget disables orderBudgetGuard', async () => {
+    addUser(51, null);
+    await request(iApp)
+      .put('/api/wallet/budget')
+      .set('x-test-user-id', '51')
+      .send({ limit_xlm: 50 });
+    await request(iApp)
+      .put('/api/wallet/budget')
+      .set('x-test-user-id', '51')
+      .send({ limit_xlm: null });
+
+    const res = await request(iApp)
+      .post('/api/orders')
+      .set('x-test-user-id', '51')
+      .send({ total_price: 999 });
+    expect(res.status).toBe(200);
   });
 });

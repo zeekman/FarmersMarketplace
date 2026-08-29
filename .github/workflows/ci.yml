@@ -70,6 +70,67 @@ jobs:
 
       - name: Run lint
         run: npm run lint
+
+  frontend-bundle-size:
+    name: Frontend Bundle Size Budget
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-frontend-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-frontend-
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Check bundle size budgets
+        # BUNDLE_INITIAL_BUDGET_KB: max KiB for vendor+index (initial load, uncompressed)
+        # BUNDLE_TOTAL_BUDGET_KB:   max KiB for all JS chunks combined (uncompressed)
+        # Raise these intentionally and document the reason — never bump silently.
+        env:
+          BUNDLE_INITIAL_BUDGET_KB: 500
+          BUNDLE_TOTAL_BUDGET_KB: 5000
+        run: node scripts/check-bundle-size.js
+
+      - name: Upload bundle size report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-bundle-size
+          path: frontend/dist/assets/*.js
+          retention-days: 30
+
+  smoke-test-testnet:
+    name: Escrow Testnet Smoke Test
+    # Only on merges to main — this touches live Stellar Testnet, not on every PR.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts/escrow
+    env:
+      ORDER_ID: ${{ github.run_id }}
+      STELLAR_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
         env:
           ESLINT_USE_FLAT_CONFIG: 'false'
 
@@ -163,6 +224,20 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            contracts/escrow/target
+          key: ${{ runner.os }}-escrow-smoke-${{ hashFiles('contracts/escrow/Cargo.lock') }}
+
+      - name: Install Stellar CLI
+        run: command -v stellar >/dev/null || cargo install --locked stellar-cli
+
+      - name: Run smoke test (deposit -> release -> verify Horizon event)
+        run: ./cli.sh smoke-test
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:

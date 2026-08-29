@@ -3,7 +3,7 @@
 //! Tracks accumulated earnings per creator (farmer) and allows them to claim
 //! their balance. A platform fee (in basis points) is deducted on each credit.
 //!
-//! Invariants (verified by property tests):
+//! Invariants (verified by deterministic boundary and invariant tests):
 //!   I1 — credited amount is always positive.
 //!   I2 — fee_bps is always ≤ 10_000.
 //!   I3 — farmer_amount + fee_amount == total credited amount (no value created/destroyed).
@@ -37,13 +37,14 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Address, Env};
-use soroban_sdk::{contract, contractimpl, contracttype, contracterror, symbol_short, token, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN,
+    Env, Vec,
+};
 
 /// Maximum number of entries accepted by `batch_credit` in a single call —
 /// keeps the transaction under Stellar's operation limit.
 const MAX_BATCH_CREDIT: u32 = 20;
-use soroban_sdk::{contract, contractimpl, contracttype, contracterror, token, Address, Env, BytesN};
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -65,10 +66,8 @@ pub enum EarningsError {
     BatchTooLarge = 5,
     /// Contract is paused; credit() and claim() are disabled.
     Paused = 6,
-    /// Contract has already been initialized.
-    AlreadyInitialized = 5,
     /// Invalid WASM hash (all zeros).
-    InvalidWasmHash = 6,
+    InvalidWasmHash = 7,
 }
 
 // ---------------------------------------------------------------------------
@@ -101,13 +100,6 @@ pub struct CreatorEarningsContract;
 
 #[contractimpl]
 impl CreatorEarningsContract {
-    /// One-time initialisation: register the platform fee recipient and authorized caller.
-    /// The authorized caller (typically the escrow contract) is the only address
-    /// permitted to invoke credit(). (#959)
-    pub fn init(env: Env, platform: Address, authorized_caller: Address) {
-        // Idempotent — safe to call again with the same addresses.
-        env.storage().instance().set(&DataKey::Platform, &platform);
-        env.storage().instance().set(&DataKey::AuthorizedCaller, &authorized_caller);
     /// One-time initialisation: register the platform fee recipient.
     /// After first call, only the currently-configured platform address can call this to update itself.
     pub fn init(env: Env, platform: Address) -> Result<(), EarningsError> {
@@ -124,6 +116,21 @@ impl CreatorEarningsContract {
         // First-time init or platform updating its own address: proceed.
         env.storage().instance().set(&DataKey::Platform, &platform);
         env.storage().instance().set(&DataKey::Initialized, &true);
+        Ok(())
+    }
+
+    /// Admin-only: set the authorized caller permitted to invoke `credit()`
+    /// (typically the escrow contract). Gated by the current platform address. (#959)
+    pub fn set_authorized_caller(env: Env, authorized_caller: Address) -> Result<(), EarningsError> {
+        let platform: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Platform)
+            .ok_or(EarningsError::NotInitialised)?;
+        platform.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::AuthorizedCaller, &authorized_caller);
         Ok(())
     }
 
@@ -252,7 +259,6 @@ impl CreatorEarningsContract {
 
     /// Transfer the caller's entire accumulated balance to themselves via
     /// `token`.  Resets their on-chain balance to zero.
-    pub fn claim(env: Env, creator: Address, token: Address) -> Result<i128, EarningsError> {
     /// Emits a `claim` event on success.
     pub fn claim(
         env: Env,
@@ -310,6 +316,8 @@ impl CreatorEarningsContract {
             .persistent()
             .get(&DataKey::LifetimeEarned(creator))
             .unwrap_or(0)
+    }
+
     /// Read-only: return the platform's accumulated fee balance. (#960)
     pub fn platform_balance(env: Env) -> i128 {
         let platform: Address = match env.storage().instance().get(&DataKey::Platform) {
@@ -320,6 +328,8 @@ impl CreatorEarningsContract {
             .persistent()
             .get(&DataKey::Balance(platform))
             .unwrap_or(0)
+    }
+
     /// Read-only: return the currently-configured platform fee recipient address.
     /// Returns NotInitialised if the contract has not been initialized yet.
     pub fn platform(env: Env) -> Result<Address, EarningsError> {

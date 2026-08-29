@@ -23,9 +23,13 @@ const {
   createPreorderClaimableBalance,
   mintRewardTokens,
   invokeEscrowContract,
+  recordCarbonOffset,
+  getCarbonOffset,
   generatePaymentLink,
   getMemo,
 } = require('../utils/stellar');
+const { estimateCarbonFootprint } = require('../utils/carbon');
+const { getPathPaymentSendMax } = require('../utils/stellar-payments');
 const {
   sendOrderEmails,
   sendLowStockAlert,
@@ -37,6 +41,7 @@ const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
 const { getTierPrice } = require('./coupons');
 const { checkGeoFence, checkCoordinateGeoFence } = require('../utils/geocheck');
 const { broadcastStockUpdate } = require('./products');
+const { couponNowExpression } = require('../utils/couponTime');
 
 // XLM per kg per km
 const SHIPPING_RATE = 0.001;
@@ -102,7 +107,7 @@ router.get('/path-estimate', async (req, res) => {
       destAmount,
     });
     const slippagePct = parseFloat(process.env.PATH_PAYMENT_SLIPPAGE_PCT ?? '0.5');
-    const sendMax = parseFloat((estimate.sourceAmount * (1 + slippagePct / 100)).toFixed(7));
+    const sendMax = getPathPaymentSendMax(estimate.sourceAmount, slippagePct);
     return res.json({
       success: true,
       source_asset,
@@ -165,7 +170,7 @@ async function handleBundleOrder(req, res, bundle_id, address_id, coupon_code, u
   let appliedCoupon = null;
   if (coupon_code) {
     const { rows: cRows } = await db.query(
-      `SELECT * FROM coupons WHERE code = $1 AND farmer_id = $2 AND (expires_at IS NULL OR expires_at > NOW()) AND (max_uses IS NULL OR used_count < max_uses)`,
+      `SELECT * FROM coupons WHERE code = $1 AND farmer_id = $2 AND (expires_at IS NULL OR expires_at > ${couponNowExpression(db)}) AND (max_uses IS NULL OR used_count < max_uses)`,
       [coupon_code.trim().toUpperCase(), bundle.farmer_id]
     );
     if (!cRows[0]) return err(res, 400, 'Invalid or expired coupon', 'invalid_coupon');
@@ -293,8 +298,7 @@ async function handleBundleOrder(req, res, bundle_id, address_id, coupon_code, u
  */
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-router.post('/', auth, requireEmailVerified, validate.order, async (req, res) => {
-router.post('/', auth, orderRateLimit, validate.order, async (req, res) => {
+router.post('/', auth, requireEmailVerified, orderRateLimit, validate.order, async (req, res) => {
   if (req.user.role !== 'buyer') return err(res, 403, 'Only buyers can place orders', 'forbidden');
 
   const { product_id, quantity, address_id, coupon_code, use_soroban_escrow, custom_price, weight, source_asset, bundle_id, source_asset_code, source_asset_issuer, max_source_amount } = req.body;
@@ -403,7 +407,7 @@ router.post('/', auth, orderRateLimit, validate.order, async (req, res) => {
   let appliedCoupon = null;
   if (coupon_code) {
     const { rows: cRows } = await db.query(
-      `SELECT * FROM coupons WHERE code = $1 AND farmer_id = $2 AND (expires_at IS NULL OR expires_at > NOW()) AND (max_uses IS NULL OR used_count < max_uses)`,
+      `SELECT * FROM coupons WHERE code = $1 AND farmer_id = $2 AND (expires_at IS NULL OR expires_at > ${couponNowExpression(db)}) AND (max_uses IS NULL OR used_count < max_uses)`,
       [coupon_code.trim().toUpperCase(), product.farmer_id]
     );
     if (!cRows[0]) return err(res, 400, 'Invalid or expired coupon', 'invalid_coupon');
@@ -466,7 +470,7 @@ router.post('/', auth, orderRateLimit, validate.order, async (req, res) => {
     } catch {
       return res.status(402).json({ success: false, code: 'no_payment_path', message: 'No payment path found' });
     }
-    const slippageAdjusted = parseFloat((estimate.sourceAmount * (1 + slippagePct / 100)).toFixed(7));
+    const slippageAdjusted = getPathPaymentSendMax(estimate.sourceAmount, slippagePct);
     if (max_source_amount != null && parseFloat(max_source_amount) < estimate.sourceAmount) {
       return res.status(402).json({ success: false, code: 'no_payment_path', message: 'max_source_amount is below the current path rate' });
     }
@@ -773,8 +777,13 @@ router.patch('/:id/status', auth, validate.updateOrderStatus, async (req, res) =
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
   const { status } = req.body;
   const { rows } = await db.query(
-    `SELECT o.*, p.name as product_name, p.unit, u.name as buyer_name, u.email as buyer_email, u.stellar_public_key as buyer_stellar_address
-     FROM orders o JOIN products p ON o.product_id = p.id JOIN users u ON o.buyer_id = u.id
+    `SELECT o.*, p.name as product_name, p.unit, p.category, p.carbon_kg_per_unit,
+            u.name as buyer_name, u.email as buyer_email, u.stellar_public_key as buyer_stellar_address,
+            f.stellar_public_key as farmer_wallet
+     FROM orders o
+     JOIN products p ON o.product_id = p.id
+     JOIN users u ON o.buyer_id = u.id
+     JOIN users f ON p.farmer_id = f.id
      WHERE o.id = $1 AND p.farmer_id = $2`,
     [req.params.id, req.user.id]
   );
@@ -811,8 +820,25 @@ router.patch('/:id/status', auth, validate.updateOrderStatus, async (req, res) =
     newStatus: status,
   }).catch((e) => logger.error('Status email failed:', { error: e.message }));
 
+  sendPushToUser(order.buyer_id, {
+    title: 'Order status updated',
+    body: `Order #${order.id} is now ${status}`,
+    url: '/orders',
+  }).catch((pushErr) => logger.error('Push notification failed:', { error: pushErr.message }));
   sendPushToUser(order.buyer_id, { title: 'Order status updated', body: `Order #${order.id} is now ${status}`, url: '/orders' })
     .catch((e) => logger.error('Push notification failed:', { error: e.message }));
+
+  if (status === 'delivered') {
+    const estimate = estimateCarbonFootprint(
+      { category: order.category, carbon_kg_per_unit: order.carbon_kg_per_unit },
+      order.quantity
+    );
+    recordCarbonOffset({
+      orderId: order.id,
+      kgCo2: estimate.carbonKg,
+      verifierPublicKey: order.farmer_wallet,
+    }).catch((e) => logger.error('Carbon offset recording failed:', { error: e.message, orderId: order.id }));
+  }
 
   res.json({ success: true, message: 'Order status updated' });
 });
@@ -965,5 +991,38 @@ router.get('/stream', async (req, res) => {
   });
 });
 
+// GET /api/orders/:id/carbon — on-chain carbon offset record + shareable certificate URL
+router.get('/:id/carbon', auth, async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT o.id, o.buyer_id, p.farmer_id
+     FROM orders o JOIN products p ON o.product_id = p.id
+     WHERE o.id = $1`,
+    [req.params.id]
+  );
+  const order = rows[0];
+  if (!order) return err(res, 404, 'Order not found', 'not_found');
+  if (order.buyer_id !== req.user.id && order.farmer_id !== req.user.id && req.user.role !== 'admin') {
+    return err(res, 403, 'Forbidden', 'forbidden');
+  }
+
+  try {
+    const offset = await getCarbonOffset(order.id);
+    if (!offset || offset.success === false) {
+      return err(res, 404, 'No carbon offset record found for this order', 'not_found');
+    }
+    const base = process.env.FRONTEND_URL || process.env.FRONTEND_ORIGIN || '';
+    res.json({
+      success: true,
+      data: {
+        ...offset,
+        certificateUrl: `${base}/orders/${order.id}/carbon-certificate`,
+      },
+    });
+  } catch (e) {
+    err(res, 502, `Failed to fetch carbon offset record: ${e.message}`, 'rpc_error');
+  }
+});
+
 module.exports = router;
+module.exports.couponNowExpression = () => couponNowExpression(db);
 module.exports.broadcastOrderUpdate = broadcastOrderUpdate;

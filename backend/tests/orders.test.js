@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { request, app, mockQuery, getCsrf } = require('./setup');
+const { request, app, mockQuery, mockDb, getCsrf } = require('./setup');
 const stellar = jest.requireMock('../src/utils/stellar');
 
 beforeEach(() => {
@@ -220,6 +220,7 @@ describe('POST /api/orders with bundle', () => {
   });
 
   it('applies coupon discount to bundle order', async () => {
+    mockDb.isPostgres = false;
     const { token: csrf, cookieStr } = await getCsrf();
     stellar.getBalance.mockResolvedValueOnce(9999);
     stellar.sendPayment.mockResolvedValueOnce('TXHASH_BUNDLE');
@@ -263,6 +264,10 @@ describe('POST /api/orders with bundle', () => {
     expect(res.body.discount).toBe(3.0); // 20% of 15.0
     expect(res.body.totalPrice).toBe(12.0); // 15.0 - 3.0
     expect(res.body.coupon).toEqual({ code: 'BUNDLE20', discount_type: 'percent' });
+
+    const couponLookup = mockQuery.mock.calls.find(([sql]) => sql.includes('FROM coupons'));
+    expect(couponLookup[0]).toContain("datetime('now')");
+    expect(couponLookup[0]).not.toContain('NOW()');
   });
 
   it('rolls back stock on payment failure for bundle order', async () => {
@@ -559,6 +564,32 @@ describe('POST /api/orders', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('paid');
+  });
+
+  it('returns 400 for zero quantity', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
+      .send({ product_id: 10, quantity: 0 });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+    expect(res.body.message).toBe('quantity must be a positive integer');
+  });
+
+  it('returns 400 for negative quantity', async () => {
+    const { token: csrf, cookieStr } = await getCsrf();
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
+      .send({ product_id: 10, quantity: -5 });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+    expect(res.body.message).toBe('quantity must be a positive integer');
   });
 });
 

@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const config = require('../config');
 const db = require('../db/schema');
 const { StellarSdk, isTestnet, server, sorobanServer, networkPassphrase } = require('./stellar-config');
+const logger = require('../logger');
 
 function normalizeWasmHash(h) {
   if (h == null || typeof h !== 'string') return null;
@@ -283,11 +284,11 @@ async function simulateContractCall(contractId, method, args = []) {
 /**
  * Invokes a lifecycle action on the Soroban escrow contract and polls until confirmed.
  * Logs every attempt to `contract_invocations`.
- * @param {{ action: 'deposit'|'release'|'refund'|'dispute', senderSecret: string, orderId: number, buyerPublicKey: string, farmerPublicKey: string, amount: number, timeoutUnix: number, userId: number|null, cooperativeAddress?: string|null, cooperativeRoyaltyBps?: number }} params
+ * @param {{ action: 'deposit'|'release'|'refund'|'dispute', senderSecret: string, orderId: number, buyerPublicKey: string, farmerPublicKey: string, amount: number, timeoutUnix: number, userId: number|null, cooperativeAddress?: string|null, cooperativeRoyaltyBps?: number, requestId?: string }} params
  * @returns {Promise<{ txHash: string, contractId: string }>}
  * @throws if the contract IDs are unconfigured, submission fails, or confirmation times out after 15 s
  */
-async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublicKey, farmerPublicKey, amount, timeoutUnix, userId, cooperativeAddress, cooperativeRoyaltyBps, releaseAfterUnix }) {
+async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublicKey, farmerPublicKey, amount, timeoutUnix, userId, cooperativeAddress, cooperativeRoyaltyBps, releaseAfterUnix, requestId }) {
   const contractId = config.sorobanEscrowContractId;
   const xlmTokenContractId = config.sorobanXlmTokenContractId;
   if (!contractId) throw new Error('SOROBAN_ESCROW_CONTRACT_ID is not configured');
@@ -352,24 +353,29 @@ async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublic
   try {
     sendResult = await sorobanServer.sendTransaction(tx);
   } catch (submitErr) {
+    logger.info('soroban_rpc_submit_error', { requestId: requestId || null, contractId, action, orderId, error: submitErr.message });
     await logEscrowInvocation({ contractId, method: action, args: logArgs, txHash: null, success: false, error: submitErr.message, userId });
     throw submitErr;
   }
 
   if (sendResult.status === 'ERROR') {
     const errMsg = sendResult.errorResultXdr || 'Soroban transaction submission failed';
+    logger.info('soroban_rpc_submit_error', { requestId: requestId || null, contractId, action, orderId, error: errMsg });
     await logEscrowInvocation({ contractId, method: action, args: logArgs, txHash: null, success: false, error: errMsg, userId });
     throw new Error(errMsg);
   }
 
   const hash = sendResult.hash || tx.hash().toString('hex');
+  logger.info('soroban_rpc_submitted', { requestId: requestId || null, contractId, action, orderId, txHash: hash });
   for (let i = 0; i < 15; i += 1) {
     const txResult = await sorobanServer.getTransaction(hash);
     if (txResult.status === 'SUCCESS') {
+      logger.info('soroban_rpc_confirmed', { requestId: requestId || null, contractId, action, orderId, txHash: hash });
       await logEscrowInvocation({ contractId, method: action, args: logArgs, txHash: hash, success: true, error: null, userId });
       return { txHash: hash, contractId };
     }
     if (txResult.status === 'FAILED') {
+      logger.info('soroban_rpc_failed', { requestId: requestId || null, contractId, action, orderId, txHash: hash });
       await logEscrowInvocation({ contractId, method: action, args: logArgs, txHash: hash, success: false, error: 'Soroban transaction failed', userId });
       throw new Error('Soroban transaction failed');
     }
@@ -377,6 +383,7 @@ async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublic
   }
 
   const timeoutErr = 'Soroban transaction confirmation timed out';
+  logger.info('soroban_rpc_timeout', { requestId: requestId || null, contractId, action, orderId, txHash: hash });
   await logEscrowInvocation({ contractId, method: action, args: logArgs, txHash: hash, success: false, error: timeoutErr, userId });
   throw new Error(timeoutErr);
 }
@@ -534,7 +541,7 @@ async function getContractABI(contractId) {
     return functions;
   } catch (error) {
     if (error.code === 404) throw error;
-    console.error('[Stellar] Error fetching contract ABI:', error.message);
+    logger.error('[Stellar] Error fetching contract ABI', { error: error.message });
     return [];
   }
 }
