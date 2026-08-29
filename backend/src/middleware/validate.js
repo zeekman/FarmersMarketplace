@@ -37,6 +37,15 @@ module.exports = {
     password: z.string().min(1, 'password is required'),
   })),
 
+  changePassword: validate(z.object({
+    current_password: z.string().min(1, 'current_password is required'),
+    new_password: z.string()
+      .min(8, 'new_password must be at least 8 characters')
+      .regex(/[A-Z]/, 'new_password must contain at least one uppercase letter')
+      .regex(/[0-9]/, 'new_password must contain at least one number')
+      .refine(v => !WEAK_PASSWORDS.has(v), 'new_password is too common, choose a stronger one'),
+  })),
+
   product: validate(z.object({
     name: z.string().min(1, 'name is required').trim(),
     price: z.coerce.number().positive('price must be a positive number'),
