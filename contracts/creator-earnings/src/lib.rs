@@ -104,6 +104,20 @@ pub struct CreatorEarningsContract;
 
 #[contractimpl]
 impl CreatorEarningsContract {
+    /// Shared basis-point fee/royalty/reward-split calculation: `amount * bps / 10_000`.
+    /// Rounds down (truncates toward zero); the remainder stays with whichever side
+    /// did not receive this result. Uses `checked_mul` so an overflowing multiplication
+    /// panics instead of silently wrapping. (#1225)
+    ///
+    /// This is a deliberate copy of `contracts/escrow`'s `compute_fee` — see ADR 0001
+    /// (no shared crate across SDK generations yet).
+    fn compute_fee(amount: i128, bps: u32) -> i128 {
+        amount
+            .checked_mul(bps as i128)
+            .expect("fee calculation overflow")
+            / 10_000
+    }
+
     /// One-time initialisation: register the platform fee recipient.
     /// After first call, only the currently-configured platform address can call this to update itself.
     pub fn init(env: Env, platform: Address) -> Result<(), EarningsError> {
@@ -201,6 +215,7 @@ impl CreatorEarningsContract {
         }
 
         let fee_amount: i128 = (amount * fee_bps as i128) / 10_000;
+        let fee_amount: i128 = Self::compute_fee(amount, fee_bps);
         let farmer_amount: i128 = amount - fee_amount;
 
         // Accumulate the creator's claimable balance.

@@ -78,6 +78,20 @@ pub struct RewardToken;
 
 #[contractimpl]
 impl RewardToken {
+    /// Shared basis-point fee/royalty/reward-split calculation: `amount * bps / 10_000`.
+    /// Rounds down (truncates toward zero); the remainder stays with whichever side
+    /// did not receive this result. Uses `checked_mul` so an overflowing multiplication
+    /// panics instead of silently wrapping. (#1225)
+    ///
+    /// This is a deliberate copy of `contracts/escrow`'s `compute_fee` — see ADR 0001
+    /// (no shared crate across SDK generations yet).
+    fn compute_fee(amount: i128, bps: u32) -> i128 {
+        amount
+            .checked_mul(bps as i128)
+            .expect("fee calculation overflow")
+            / 10_000
+    }
+
     /// Initialise the token.  `max_supply` is the hard cap on total mintable
     /// tokens (#696).  Pass `0` to leave the supply uncapped.
     /// `minter` is the address authorized to mint tokens (#849).
@@ -103,6 +117,12 @@ impl RewardToken {
 
     // TTL buffer added on top of the vesting period when extending vesting entry TTL.
     const fn vesting_ttl_buffer() -> u32 { 10_000 }
+
+    // Bounds (in ledgers, ~5s each) for an allowance's persistent storage TTL,
+    // independent of the network's own extend_ttl limits: never let a short-lived
+    // allowance get archived within an hour, and never ask for more than ~180 days.
+    const MIN_ALLOWANCE_TTL: u32 = 720;
+    const MAX_ALLOWANCE_TTL: u32 = 3_110_400;
 
     /// Sets the burn-on-transfer fee in basis points (#685).
     /// 0 = disabled, 100 = 1%, 10000 = 100% (max).
@@ -157,7 +177,7 @@ impl RewardToken {
         if rate == 0 {
             return; // reward rate not configured, no-op
         }
-        let amount = xlm_amount * rate as i128 / 10_000;
+        let amount = Self::compute_fee(xlm_amount, rate);
         if amount <= 0 {
             return;
         }
@@ -310,14 +330,6 @@ impl RewardToken {
         if amount <= 0 {
             panic!("amount must be positive");
         }
-        let balance = Self::balance(env.clone(), from.clone());
-        if balance == 0 {
-            return;
-        }
-        let actual = if amount > balance { balance } else { amount };
-        env.storage().persistent().set(&DataKey::Balance(from.clone()), &(balance - actual));
-        let supply: i128 = env.storage().instance().get(&DataKey::TotalSupply).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalSupply, &(supply - actual));
         let actual = Self::burn_internal(&env, &from, amount);
         env.events().publish(("reward", "burn", from), actual);
     }
@@ -442,7 +454,7 @@ impl RewardToken {
         }
 
         let fee_bps: u32 = env.storage().instance().get(&DataKey::TransferFeeBps).unwrap_or(0);
-        let burn_amount: i128 = if fee_bps > 0 { amount * fee_bps as i128 / 10_000 } else { 0 };
+        let burn_amount: i128 = if fee_bps > 0 { Self::compute_fee(amount, fee_bps) } else { 0 };
         let net_amount = amount - burn_amount;
 
         env.storage().persistent().set(&DataKey::Balance(from.clone()), &(from_balance - amount));
@@ -485,7 +497,7 @@ impl RewardToken {
         }
 
         let fee_bps: u32 = env.storage().instance().get(&DataKey::TransferFeeBps).unwrap_or(0);
-        let burn_amount: i128 = if fee_bps > 0 { amount * fee_bps as i128 / 10_000 } else { 0 };
+        let burn_amount: i128 = if fee_bps > 0 { Self::compute_fee(amount, fee_bps) } else { 0 };
         let net_amount = amount - burn_amount;
 
         env.storage()
@@ -566,7 +578,14 @@ impl RewardToken {
         let key = AllowanceKey { from: from.clone(), spender: spender.clone() };
         let value = AllowanceValue { amount, expiration_ledger };
         env.storage().persistent().set(&key, &value);
-        env.storage().persistent().extend_ttl(&key, expiration_ledger, expiration_ledger);
+        // extend_ttl takes ledger-relative counts, while expiration_ledger is an
+        // absolute sequence number — convert and clamp to sane bounds so a
+        // short-lived allowance isn't archived almost immediately and a
+        // far-future one doesn't exceed the network's max extend_ttl bound.
+        let relative_ttl = expiration_ledger
+            .saturating_sub(env.ledger().sequence())
+            .clamp(Self::MIN_ALLOWANCE_TTL, Self::MAX_ALLOWANCE_TTL);
+        env.storage().persistent().extend_ttl(&key, relative_ttl, relative_ttl);
         env.events().publish(("approve", from, spender), (amount, expiration_ledger));
     }
 

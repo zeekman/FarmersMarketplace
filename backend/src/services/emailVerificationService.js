@@ -17,6 +17,13 @@ async function issueVerificationToken(userId) {
      WHERE id = $3`,
     [token, expiresAt, userId]
   );
+  return token;
+}
+
+async function verifyEmail(db, token) {
+  const { rows } = await db.query(
+    `SELECT id
+     FROM users
 
   return token;
 }
@@ -30,12 +37,15 @@ async function verifyEmail(token) {
      LIMIT 1`,
     [token, new Date()]
   );
+  const user = rows[0];
+
 
   const user = rows[0];
   if (!user) return { ok: false, error: "Token is invalid or expired." };
 
   await db.query(
     `UPDATE users
+     SET email_verified_at = $1, email_verification_token = NULL,
      SET email_verified_at = $1,
          email_verification_token = NULL,
          email_verification_expires_at = NULL

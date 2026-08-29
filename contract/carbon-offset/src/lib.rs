@@ -35,6 +35,7 @@ pub struct CarbonOffsetContract;
 impl CarbonOffsetContract {
     /// One-time setup: sets the platform admin address allowed to call `record_offset`.
     pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
         if env.storage().instance().has(&ADMIN) {
             panic!("already initialized");
         }
