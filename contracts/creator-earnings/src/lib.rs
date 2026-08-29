@@ -68,6 +68,10 @@ pub enum EarningsError {
     Paused = 6,
     /// Invalid WASM hash (all zeros).
     InvalidWasmHash = 7,
+    /// `creator` is the configured platform address — credit() would merge
+    /// the creator's farmer_amount and the platform's fee_amount into the
+    /// same DataKey::Balance entry.
+    CreatorIsPlatform = 8,
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +201,20 @@ impl CreatorEarningsContract {
             return Err(EarningsError::InvalidFeeBps);
         }
 
+        let platform: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Platform)
+            .ok_or(EarningsError::NotInitialised)?;
+
+        // #1236 — creator and platform share the same DataKey::Balance(Address)
+        // key space; crediting a creator equal to platform would merge the
+        // farmer share and the fee share into one balance entry.
+        if creator == platform {
+            return Err(EarningsError::CreatorIsPlatform);
+        }
+
+        let fee_amount: i128 = (amount * fee_bps as i128) / 10_000;
         let fee_amount: i128 = Self::compute_fee(amount, fee_bps);
         let farmer_amount: i128 = amount - fee_amount;
 
@@ -219,11 +237,6 @@ impl CreatorEarningsContract {
         env.storage().persistent().set(&creator_key, &(creator_prev + farmer_amount));
 
         // Accumulate the platform's claimable fee balance.
-        let platform: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Platform)
-            .ok_or(EarningsError::NotInitialised)?;
         let platform_key = DataKey::Balance(platform);
         let platform_prev: i128 = env.storage().persistent().get(&platform_key).unwrap_or(0);
         env.storage().persistent().set(&platform_key, &(platform_prev + fee_amount));
@@ -369,6 +382,12 @@ impl CreatorEarningsContract {
             return Err(EarningsError::InvalidWasmHash);
         }
 
+        // #1237 — confirmed: this always emits the documented
+        // ("creator_earnings", "upgrade") event on a successful upgrade.
+        // update_current_contract_wasm() only swaps the Wasm at the end of
+        // the top-level invocation (the rest of this call still runs old
+        // code), so publishing the event after it here does not let a
+        // listener observe the new code before the event, or vice versa.
         env.deployer().update_current_contract_wasm(new_wasm_hash);
         env.events().publish(("creator_earnings", "upgrade"), ());
         Ok(())
