@@ -227,6 +227,21 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
+    /// Shared basis-point fee/royalty/reward-split calculation: `amount * bps / 10_000`.
+    /// Rounds down (truncates toward zero); the remainder stays with whichever side
+    /// did not receive this result. Uses `checked_mul` so an overflowing multiplication
+    /// panics instead of silently wrapping. (#1225)
+    ///
+    /// This is the canonical copy — `contracts/creator-earnings` and
+    /// `contract/reward-token` intentionally keep their own copy of this exact
+    /// logic per ADR 0001 (no shared crate across SDK generations yet).
+    fn compute_fee(amount: i128, bps: u32) -> i128 {
+        amount
+            .checked_mul(bps as i128)
+            .expect("fee calculation overflow")
+            / 10_000
+    }
+
     /// Initialize the contract with a platform admin, fee rate, and fee destination. (#837)
     ///
     /// Must be called exactly once after deployment. Subsequent calls return
@@ -397,78 +412,6 @@ impl EscrowContract {
         let token_client = token::Client::new(&env, &xlm_token);
         token_client.transfer(&buyer, &env.current_contract_address(), &amount);
 
-        Ok(())
-    }
-
-    pub fn release(env: Env, xlm_token: Address, order_id: u64) {
-        let key = DataKey::Escrow(order_id);
-        let mut escrow: Escrow = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .expect("escrow not found");
-        // Persist the token used for this escrow so releases/refunds must use the same token contract.
-        env.storage()
-            .persistent()
-            .set(&DataKey::Token(order_id), &token);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(order_id), &escrow);
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
-
-        // #876: maintain buyer and farmer escrow index lists (bounded to 1000 entries)
-        const INDEX_MAX: u32 = 1000;
-        let buyer_key = DataKey::BuyerEscrows(buyer.clone());
-        let mut buyer_ids: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(&buyer_key)
-            .unwrap_or_else(|| Vec::new(&env));
-        if buyer_ids.len() >= INDEX_MAX {
-            buyer_ids.remove(0);
-        }
-        buyer_ids.push_back(order_id);
-        env.storage().persistent().set(&buyer_key, &buyer_ids);
-        env.storage()
-            .persistent()
-            .extend_ttl(&buyer_key, TTL_MIN, TTL_MAX);
-
-        let farmer_key = DataKey::FarmerEscrows(farmer.clone());
-        let mut farmer_ids: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(&farmer_key)
-            .unwrap_or_else(|| Vec::new(&env));
-        if farmer_ids.len() >= INDEX_MAX {
-            farmer_ids.remove(0);
-        }
-        farmer_ids.push_back(order_id);
-        env.storage().persistent().set(&farmer_key, &farmer_ids);
-        env.storage()
-            .persistent()
-            .extend_ttl(&farmer_key, TTL_MIN, TTL_MAX);
-
-        // #471 / #838 / #844: emit deposit event
-        env.events().publish(
-            (symbol_short!("escrow"), symbol_short!("deposit"), order_id),
-            (buyer, farmer, amount),
-        );
-
-        env.events().publish(
-            (symbol_short!("escrow"), symbol_short!("deposit")),
-            (
-                order_id,
-                escrow.buyer.clone(),
-                escrow.farmer.clone(),
-                amount,
-                timeout_unix,
-            ),
-        );
-
-        env.events()
-            .publish(("escrow", "deposit", order_id), amount);
         Ok(())
     }
 
@@ -643,13 +586,13 @@ impl EscrowContract {
             .get(&DataKey::FeeBps)
             .unwrap_or(platform_fee_bps);
 
-        let fee_amount = (escrow.amount * effective_bps as i128) / 10_000;
+        let fee_amount = Self::compute_fee(escrow.amount, effective_bps);
         // Amount remaining after platform fee, before cooperative royalty.
         let after_fee = escrow.amount - fee_amount;
 
         // #860: cooperative royalty — deducted from the farmer's portion.
         let royalty_amount: i128 = match &escrow.cooperative_address {
-            Some(_) => (after_fee * escrow.cooperative_royalty_bps as i128) / 10_000,
+            Some(_) => Self::compute_fee(after_fee, escrow.cooperative_royalty_bps),
             None => 0,
         };
         let farmer_amount = after_fee - royalty_amount;
@@ -707,7 +650,7 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::RewardBps)
             .unwrap_or(100);
-        let reward_amount = (farmer_amount * reward_bps as i128) / 10_000;
+        let reward_amount = Self::compute_fee(farmer_amount, reward_bps);
         if let Some(reward_token_address) = env.storage().instance().get(&DataKey::RewardTokenContract) {
             // Use try_invoke to call reward token mint - if it fails, emit event but don't abort release
             let mint_args = soroban_sdk::vec![
@@ -842,12 +785,12 @@ impl EscrowContract {
             .get(&DataKey::FeeBps)
             .unwrap_or(platform_fee_bps);
 
-        let fee_amount = (escrow.amount * effective_bps as i128) / 10_000;
+        let fee_amount = Self::compute_fee(escrow.amount, effective_bps);
         let after_fee = escrow.amount - fee_amount;
 
         // #860: cooperative royalty — deducted from the farmer's portion.
         let royalty_amount: i128 = match &escrow.cooperative_address {
-            Some(_) => (after_fee * escrow.cooperative_royalty_bps as i128) / 10_000,
+            Some(_) => Self::compute_fee(after_fee, escrow.cooperative_royalty_bps),
             None => 0,
         };
         let farmer_amount = after_fee - royalty_amount;
@@ -1071,7 +1014,7 @@ impl EscrowContract {
     }
         let token_client = token::Client::new(env, &escrow.token);
         let effective_bps: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
-        let fee_amount = (escrow.amount * effective_bps as i128) / 10_000;
+        let fee_amount = Self::compute_fee(escrow.amount, effective_bps);
         let farmer_amount = escrow.amount - fee_amount;
 
         if fee_amount > 0 {
@@ -1279,7 +1222,7 @@ impl EscrowContract {
         // Apply same fee logic as release (using stored fee_bps)
         let fee_bps: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
         let fee_amount = if fee_bps > 0 && fee_bps <= 1000 {
-            (escrow.amount * fee_bps as i128) / 10_000
+            Self::compute_fee(escrow.amount, fee_bps)
         } else {
             0
         };

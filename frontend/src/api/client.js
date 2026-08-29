@@ -220,7 +220,7 @@ export const api = {
   approveReturn: (orderId) => request(`/orders/${orderId}/return/approve`, { method: 'PATCH' }),
   rejectReturn: (orderId, reject_reason) => request(`/orders/${orderId}/return/reject`, { method: 'PATCH', body: { reject_reason } }),
 
-  submitReview: (body) => request('/reviews', { method: 'POST', body }),
+  submitReview: (body) => request("/reviews", { method: "POST", body }),
 
   getWallet: () => request('/wallet'),
   getTransactions: () => request('/wallet/transactions'),
@@ -232,12 +232,25 @@ export const api = {
   getPathEstimate: (params) => request(`/wallet/path-estimate${toQs(params)}`),
   mergeWallet: (body) => request('/wallet/merge', { method: 'POST', body }),
   deleteAccount: (force) => request(`/auth/account${force ? '?force=true' : ''}`, { method: 'DELETE' }),
+  // Streams need a short-lived, stream-scoped token in the URL (EventSource can't
+  // send an Authorization header) instead of the long-lived access token, so it
+  // doesn't leak into server/proxy logs, browser history, or Referer (#1170).
+  getWalletStreamUrl: async () => {
+    const { token } = await request('/auth/stream-token');
+    return `/api/wallet/stream?token=${encodeURIComponent(token || '')}`;
+  },
+  getOrdersStreamUrl: async () => {
+    const { token } = await request('/auth/stream-token');
+    return `/api/orders/stream?token=${encodeURIComponent(token || '')}`;
+  },
   getWalletStreamUrl: () => `/api/wallet/stream?token=${encodeURIComponent(accessToken || '')}`,
   getOrdersStreamUrl: () => `/api/orders/stream?token=${encodeURIComponent(accessToken || '')}`,
   getMessagesStreamUrl: () => `/api/messages/events?token=${encodeURIComponent(accessToken || '')}`,
   getUnreadMessageCount: () => request('/messages/unread-count'),
 
   getFarmer: (id) => request(`/farmers/${id}`),
+  updateFarmerProfile: (body) => request("/farmers/me", { method: "PATCH", body }),
+  updateProfile: (body) => request('/auth/me', { method: 'PATCH', body }),
   updateFarmerProfile: (body) => request('/farmers/me', { method: 'PATCH', body }),
 
   addFavorite: (productId) => request('/favorites', { method: 'POST', body: { product_id: productId } }),

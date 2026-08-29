@@ -59,14 +59,13 @@ async function aggregateProductViews(date) {
     // "no new views" but the lock check prevents double-aggregation.
     productIds = rows.map((r) => r.product_id);
   } else {
-    productIds = db
-      .prepare(
-        `SELECT DISTINCT product_id
+    const { rows } = await db.query(
+      `SELECT DISTINCT product_id
          FROM product_views
-         WHERE date(viewed_at) = ?`
-      )
-      .all(aggDate)
-      .map((r) => r.product_id);
+         WHERE date(viewed_at) = $1`,
+      [aggDate]
+    );
+    productIds = rows.map((r) => r.product_id);
   }
 
   if (productIds.length === 0) {
@@ -136,26 +135,22 @@ async function aggregateBatch(productIds, aggDate) {
       [aggDate, ...productIds]
     );
   } else {
-    // SQLite: use a transaction with individual INSERT OR REPLACE per product
-    // to stay within parameter limits and keep the logic simple.
-    const upsert = db.prepare(
-      `INSERT OR REPLACE INTO product_view_summaries
+    // SQLite uses individual upserts to stay within parameter limits.
+    for (const pid of productIds) {
+      await db.query(
+        `INSERT OR REPLACE INTO product_view_summaries
          (product_id, view_date, view_count, unique_viewers, aggregated_at)
        SELECT product_id,
-              date(?) AS view_date,
+              date($1) AS view_date,
               COUNT(*) AS view_count,
               COUNT(DISTINCT COALESCE(user_id, -id)) AS unique_viewers,
               datetime('now') AS aggregated_at
        FROM product_views
-       WHERE date(viewed_at) = ? AND product_id = ?
-       GROUP BY product_id`
-    );
-
-    db.transaction(() => {
-      for (const pid of productIds) {
-        upsert.run(aggDate, aggDate, pid);
-      }
-    })();
+      WHERE date(viewed_at) = $2 AND product_id = $3
+       GROUP BY product_id`,
+        [aggDate, aggDate, pid]
+      );
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const db = require("../db/schema");
 const { createResetToken, consumeResetToken } = require("../services/passwordResetService");
 const { sendPasswordResetEmail } = require("../services/emailService");
 const logger = require("../logger");
@@ -9,6 +10,7 @@ router.post("/forgot-password", async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Email is required." });
 
+    const result = await createResetToken(db, email);
     const result = await createResetToken(email);
     if (result) {
       await sendPasswordResetEmail(result.user.email, result.token);
@@ -26,6 +28,7 @@ router.post("/reset-password", async (req, res) => {
     if (!token || !password) return res.status(400).json({ error: "Token and password are required." });
     if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters." });
 
+    const result = await consumeResetToken(db, token, password);
     const result = await consumeResetToken(token, password);
     if (!result.ok) return res.status(400).json({ error: result.error });
 

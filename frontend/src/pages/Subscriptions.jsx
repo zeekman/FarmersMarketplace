@@ -20,6 +20,9 @@ const s = {
   badge:   { display: 'inline-block', fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 600 },
   actions: { display: 'flex', gap: 8, flexShrink: 0 },
   smBtn:   { fontSize: 12, padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600 },
+  picker:    { position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #ddd', borderRadius: 8, boxShadow: '0 4px 12px #0002', maxHeight: 220, overflowY: 'auto', zIndex: 10, marginTop: -8, marginBottom: 12 },
+  pickerRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer', fontSize: 14 },
+  pickerImg: { width: 32, height: 32, borderRadius: 6, objectFit: 'cover', flexShrink: 0, background: '#d8f3dc', fontSize: 16 },
   overlay: { position: 'fixed', inset: 0, background: '#0005', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
 };
 
@@ -76,6 +79,24 @@ export default function Subscriptions() {
   const [loading, setLoading] = useState(true);
   const [form, setForm]       = useState({ product_id: '', quantity: 1, frequency: 'weekly' });
   const [msg, setMsg]         = useState(null);
+  const [productQuery, setProductQuery] = useState('');
+  const [productResults, setProductResults] = useState([]);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+
+  useEffect(() => {
+    const q = productQuery.trim();
+    if (!q || selectedProduct) { setProductResults([]); return; }
+    let active = true;
+    api.searchProducts(q).then(res => { if (active) setProductResults(res.data ?? []); }).catch(() => {});
+    return () => { active = false; };
+  }, [productQuery, selectedProduct]);
+
+  function pickProduct(p) {
+    setSelectedProduct(p);
+    setProductQuery(p.name);
+    setProductResults([]);
+    setForm(f => ({ ...f, product_id: p.id }));
+  }
   const [cancelTarget, setCancelTarget] = useState(null); // sub object pending cancellation
 
   async function load() {
@@ -92,10 +113,16 @@ export default function Subscriptions() {
   async function handleCreate(e) {
     e.preventDefault();
     setMsg(null);
+    if (!form.product_id) {
+      setMsg({ type: 'err', text: 'Please select a product from the search results' });
+      return;
+    }
     try {
       await api.createSubscription({ ...form, quantity: parseInt(form.quantity) });
       setMsg({ type: 'ok', text: 'Subscription created!' });
       setForm({ product_id: '', quantity: 1, frequency: 'weekly' });
+      setSelectedProduct(null);
+      setProductQuery('');
       load();
     } catch (err) { setMsg({ type: 'err', text: err.message }); }
   }
@@ -131,13 +158,32 @@ export default function Subscriptions() {
           </div>
         )}
         <form onSubmit={handleCreate}>
-          <label style={s.label}>Product ID</label>
-          <input
-            style={s.input} type="number" min="1" required
-            placeholder="Enter product ID from the marketplace"
-            value={form.product_id}
-            onChange={e => setForm(f => ({ ...f, product_id: e.target.value }))}
-          />
+          <label style={s.label}>Product</label>
+          <div style={{ position: 'relative' }}>
+            <input
+              style={s.input} type="text" required autoComplete="off"
+              placeholder="Search for a product…"
+              value={productQuery}
+              onChange={e => {
+                setProductQuery(e.target.value);
+                setSelectedProduct(null);
+                setForm(f => ({ ...f, product_id: '' }));
+              }}
+            />
+            {productResults.length > 0 && (
+              <div style={s.picker}>
+                {productResults.map(p => (
+                  <div key={p.id} style={s.pickerRow} onClick={() => pickProduct(p)}>
+                    {p.image_url
+                      ? <img src={p.image_url} alt={p.name} style={s.pickerImg} />
+                      : <div style={{ ...s.pickerImg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🥬</div>
+                    }
+                    <span>{p.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <label style={s.label}>Quantity</label>
           <input
             style={s.input} type="number" min="1" required
@@ -156,6 +202,26 @@ export default function Subscriptions() {
         <h3 style={{ marginBottom: 16, color: '#333' }}>My Subscriptions ({subs.length})</h3>
         {loading ? <Spinner /> : subs.length === 0 ? (
           <p style={{ color: '#888', fontSize: 14 }}>No active subscriptions.</p>
+        ) : subs.map(sub => (
+          <div key={sub.id} style={s.row}>
+            <div>
+              <div style={s.name}>{sub.product_name}</div>
+              <div style={s.meta}>{sub.quantity} {sub.unit} · {FREQ_LABEL[sub.frequency]} · {sub.product_price} XLM/unit</div>
+              <div style={s.meta}>
+                Next order: {sub.next_order_at && !isNaN(new Date(sub.next_order_at))
+                  ? new Date(sub.next_order_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                  : 'Not scheduled'}
+              </div>
+            </div>
+            <div style={s.actions}>
+              <span style={{ ...s.badge, ...STATUS_STYLE[sub.status] }}>{sub.status}</span>
+              {sub.status === 'active' && (
+                <button style={{ ...s.smBtn, background: '#fff3cd', color: '#856404' }} onClick={() => handleAction(sub.id, 'pause')}>Pause</button>
+              )}
+              {sub.status === 'paused' && (
+                <button style={{ ...s.smBtn, background: '#d8f3dc', color: '#2d6a4f' }} onClick={() => handleAction(sub.id, 'resume')}>Resume</button>
+              )}
+              <button style={{ ...s.smBtn, background: '#fee', color: '#c0392b' }} onClick={() => { if (confirm('Cancel this subscription?')) handleAction(sub.id, 'cancel'); }}>Cancel</button>
         ) : subs.map(sub => {
           const nextAmount = sub.product_price && sub.quantity
             ? `${(sub.product_price * sub.quantity).toFixed(2)} XLM`

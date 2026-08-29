@@ -647,7 +647,7 @@ export default function Dashboard() {
     if (imageFile) {
       setUploading(true);
       try {
-        const res = await api.uploadImage(imageFile);
+        const res = await api.uploadProductImage(imageFile);
         finalImageUrl = res.imageUrl;
       } catch (err) {
         setUploading(false);
@@ -821,18 +821,23 @@ export default function Dashboard() {
     setBdForm((f) => ({ ...f, [field]: value }));
   }
 
-  async function handleBundleDiscountSubmit(e) {
+  async function handleBundleDiscountSubmit(e, editingId) {
     e.preventDefault();
     setBdMsg(null);
     try {
-      await api.createBundleDiscount({
+      const body = {
         min_products: parseInt(bdForm.min_products, 10),
         discount_percent: parseFloat(bdForm.discount_percent),
-      });
+      };
+      if (editingId) {
+        await api.updateBundleDiscount(editingId, body);
+      } else {
+        await api.createBundleDiscount(body);
+      }
       setBdForm({ min_products: '', discount_percent: '' });
       const res = await api.getBundleDiscounts();
       setBundleDiscounts(res.data ?? []);
-      setBdMsg({ type: 'ok', text: 'Discount tier added.' });
+      setBdMsg({ type: 'ok', text: editingId ? 'Discount tier updated.' : 'Discount tier added.' });
     } catch (err) {
       setBdMsg({ type: 'error', text: err.message });
     }

