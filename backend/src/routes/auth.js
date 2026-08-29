@@ -394,6 +394,41 @@ router.get('/me', auth, async (req, res) => {
   res.json(rows[0]);
 });
 
+// GET /api/auth/stream-token — mints a short-lived, stream-scoped token for
+// SSE connections (EventSource can't send an Authorization header, so the
+// long-lived access token must never be put in the URL — see #1170).
+router.get('/stream-token', auth, (req, res) => {
+  const token = jwt.sign(
+    { id: req.user.id, scope: 'stream' },
+    process.env.JWT_SECRET || 'secret',
+    { expiresIn: '60s' }
+  );
+  res.json({ token, expiresIn: 60 });
+});
+
+// PATCH /api/auth/me — update general account fields (name/email)
+router.patch('/me', auth, async (req, res) => {
+  const { name, email } = req.body || {};
+  if (!name && !email) return err(res, 400, 'Nothing to update', 'validation_error');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return err(res, 400, 'Invalid email', 'validation_error');
+  }
+  try {
+    const { rows } = await db.query(
+      `UPDATE users SET name = COALESCE($1, name), email = COALESCE($2, email)
+       WHERE id = $3
+       RETURNING id, name, email, role, stellar_public_key AS "publicKey", referral_code AS "referralCode"`,
+      [name || null, email || null, req.user.id]
+    );
+    if (!rows[0]) return err(res, 404, 'User not found', 'not_found');
+    res.json(rows[0]);
+  } catch (e) {
+    if (e.message.includes('UNIQUE') || e.code === '23505')
+      return err(res, 409, 'Email already exists', 'conflict');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /**
  * @swagger
  * /api/auth/logout:

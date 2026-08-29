@@ -503,10 +503,10 @@ export default function ProductDetail() {
     setAlertLoading(true);
     try {
       if (alertSet) {
-        await api.deleteAlert(id);
+        await api.removeStockAlert(id);
         setAlertSet(false);
       } else {
-        await api.createAlert(id);
+        await api.setStockAlert(id);
         setAlertSet(true);
       }
     } catch { /* ignore */ }
