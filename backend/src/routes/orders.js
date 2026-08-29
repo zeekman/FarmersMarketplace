@@ -672,7 +672,8 @@ router.post('/', auth, requireEmailVerified, orderRateLimit, validate.order, asy
     }
     await db.query('UPDATE orders SET status = $1 WHERE id = $2', ['failed', orderId]);
     await db.query('UPDATE products SET quantity = quantity + $1 WHERE id = $2', [quantity, product_id]);
-    if (e.code === 'account_not_found')
+
+    if (error.code === 'account_not_found') {
       return res.status(402).json({ success: false, message: 'Please fund your wallet before purchasing', code: 'unfunded_account', orderId });
     const errorData = { success: false, message: 'Payment failed: ' + e.message, code: 'payment_failed', orderId };
     if (idempotencyKey) await cacheResponse(idempotencyKey, { ...errorData, _status: 402 });
@@ -738,7 +739,10 @@ router.get('/sales', auth, async (req, res) => {
   const offset = (page - 1) * limit;
 
   const { rows: countRows } = await db.query(
-    `SELECT COUNT(*) as count FROM orders o JOIN products p ON o.product_id = p.id WHERE p.farmer_id = $1`,
+    `SELECT COUNT(*) as count
+     FROM orders o
+     JOIN products p ON p.id = o.product_id
+     WHERE p.farmer_id = $1`,
     [req.user.id]
   );
   const total = parseInt(countRows[0].count, 10);
@@ -756,7 +760,8 @@ router.get('/sales', auth, async (req, res) => {
      LEFT JOIN addresses a ON o.address_id = a.id
      LEFT JOIN return_requests rr ON rr.order_id = o.id
      WHERE p.farmer_id = $1
-     ORDER BY o.created_at DESC LIMIT $2 OFFSET $3`,
+     ORDER BY o.created_at DESC
+     LIMIT $2 OFFSET $3`,
     [req.user.id, limit, offset]
   );
 

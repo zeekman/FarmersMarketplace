@@ -450,6 +450,24 @@ router.patch('/me', auth, async (req, res) => {
  *                 ok: { type: boolean }
  */
 // POST /api/auth/logout
+router.patch('/password', auth, validate.changePassword, async (req, res) => {
+  const { current_password: currentPassword, new_password: newPassword } = req.body;
+
+  const { rows } = await db.query('SELECT id, password FROM users WHERE id = $1', [req.user.id]);
+  const user = rows[0];
+  if (!user) return err(res, 404, 'User not found', 'user_not_found');
+
+  const valid = await bcrypt.compare(currentPassword, user.password);
+  if (!valid) return err(res, 401, 'Current password is incorrect', 'invalid_current_password');
+
+  const hashed = await bcrypt.hash(newPassword, 12);
+  await db.query('UPDATE users SET password = $1 WHERE id = $2', [hashed, req.user.id]);
+  await db.query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.user.id]);
+
+  res.clearCookie('refreshToken', { path: '/api/auth' });
+  res.json({ ok: true });
+});
+
 router.post('/logout', async (req, res) => {
   const rawToken = req.cookies?.refreshToken;
   if (rawToken) {

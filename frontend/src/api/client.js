@@ -220,7 +220,7 @@ export const api = {
   approveReturn: (orderId) => request(`/orders/${orderId}/return/approve`, { method: 'PATCH' }),
   rejectReturn: (orderId, reject_reason) => request(`/orders/${orderId}/return/reject`, { method: 'PATCH', body: { reject_reason } }),
 
-  submitReview: (body) => request('/reviews', { method: 'POST', body }),
+  submitReview: (body) => request("/reviews", { method: "POST", body }),
 
   getWallet: () => request('/wallet'),
   getTransactions: () => request('/wallet/transactions'),
@@ -249,6 +249,7 @@ export const api = {
   getUnreadMessageCount: () => request('/messages/unread-count'),
 
   getFarmer: (id) => request(`/farmers/${id}`),
+  updateFarmerProfile: (body) => request("/farmers/me", { method: "PATCH", body }),
   updateProfile: (body) => request('/auth/me', { method: 'PATCH', body }),
   updateFarmerProfile: (body) => request('/farmers/me', { method: 'PATCH', body }),
 

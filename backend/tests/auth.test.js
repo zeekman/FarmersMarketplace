@@ -173,6 +173,35 @@ describe('POST /api/auth/refresh', () => {
   });
 });
 
+describe('PATCH /api/auth/password', () => {
+  it('updates the current password and allows login with the new password', async () => {
+    const oldHash = await bcrypt.hash('OldPass1', 12);
+    const newHash = await bcrypt.hash('NewSecure1', 12);
+    const token = jwt.sign({ id: 1, role: 'buyer' }, SECRET, { expiresIn: '15m' });
+
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1, password: oldHash }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 1, name: 'Carol', email: 'carol@test.com', password: newHash, role: 'buyer', stellar_public_key: 'GPUB' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    const updateRes = await request(app)
+      .patch('/api/auth/password')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ current_password: 'OldPass1', new_password: 'NewSecure1' });
+
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.ok).toBe(true);
+
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'carol@test.com', password: 'NewSecure1' });
+
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body.token).toBeDefined();
+  });
+});
+
 describe('POST /api/auth/logout', () => {
   it('clears the refresh cookie on logout', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
