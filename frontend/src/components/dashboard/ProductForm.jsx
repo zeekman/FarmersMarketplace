@@ -153,7 +153,7 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
     if (imageFile) {
       setUploading(true);
       try {
-        const res = await api.uploadImage(imageFile);
+        const res = await api.uploadProductImage(imageFile);
         finalImageUrl = res.imageUrl;
       } catch (err) {
         setUploading(false);
