@@ -1,0 +1,13 @@
+{
+  "name": "farmers-marketplace-e2e",
+  "private": true,
+  "scripts": {
+    "e2e": "playwright test",
+    "e2e:report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0",
+    "@types/speakeasy": "^2.0.10",
+    "speakeasy": "^2.0.0"
+  }
+}

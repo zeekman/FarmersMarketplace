@@ -1,0 +1,3 @@
+-- 015_encrypt_cooperative_secret_keys.undo.sql
+-- Rollback: run the decrypt script to restore plaintext keys (dev/test only).
+--   node scripts/encrypt-cooperative-keys.js --decrypt

@@ -1,0 +1,11 @@
+node_modules/
+build/
+dist/
+coverage/
+temp_products.js
+migrations/
+tests/
+scripts/
+demo-*.js
+test-*.js
+verify-*.js

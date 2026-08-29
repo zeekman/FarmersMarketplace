@@ -1,133 +1,127 @@
+/**
+ * db/schema.js
+ *
+ * Dual-mode database layer:
+ *   - DATABASE_URL set → PostgreSQL (via pg pool)
+ *   - DATABASE_URL unset → SQLite (via better-sqlite3, for local dev)
+ *
+ * Schema is managed by the migration runner (backend/migrate.js).
+ * Harvest batches: 008_harvest_batches.sql. Soroban registry: 008_contracts_registry.sql.
+ * Contract upgrade audit: 009_contract_upgrades.sql.
+ * On startup this module runs all pending migrations automatically.
+ *
+ * Exports a unified db object:
+ *   db.query(sql, params) → Promise<{ rows, rowCount }>
+ *   db.exec(sql)           → Promise<void>  (DDL / multi-statement)
+ *   db.isPostgres         → boolean
+ *
+ * Boolean normalization: SQLite stores booleans as 0/1 integers, PostgreSQL as true/false.
+ * This layer normalizes both to consistent boolean values for the active column.
+ */
+
 const path = require('path');
 
-if (process.env.DATABASE_URL) {
-  module.exports = require('./postgres');
-} else {
-  const Database = require('better-sqlite3');
-  const sqlite = new Database(path.join(__dirname, '../../market.db'));
+const USE_POSTGRES = !!process.env.DATABASE_URL;
 
-  function hasColumn(tableName, columnName) {
-    const columns = sqlite.prepare(`PRAGMA table_info(${tableName})`).all();
-    return columns.some((column) => column.name === columnName);
-  }
+/**
+ * Normalize boolean values in a row for consistency across SQLite and PostgreSQL.
+ * Converts 0/1 integers and string representations to proper booleans.
+ */
+function normalizeBooleans(row) {
+  if (!row || typeof row !== 'object') return row;
 
-  function ensureSchema() {
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        role TEXT NOT NULL CHECK(role IN ('farmer', 'buyer', 'admin')),
-        stellar_public_key TEXT,
-        stellar_secret_key TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
+  const normalized = { ...row };
+  const booleanColumns = ['active', 'fee_bumped', 'is_preorder', 'low_stock_alerted', 'acknowledged', 'success'];
 
-      CREATE TABLE IF NOT EXISTS refresh_tokens (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        token_hash TEXT NOT NULL UNIQUE,
-        expires_at DATETIME NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      );
-
-      CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        farmer_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        description TEXT,
-        category TEXT DEFAULT 'other',
-        price REAL NOT NULL,
-        quantity INTEGER NOT NULL,
-        unit TEXT DEFAULT 'unit',
-        image_url TEXT,
-        is_preorder INTEGER DEFAULT 0,
-        preorder_delivery_date TEXT,
-        low_stock_threshold INTEGER DEFAULT 5,
-        low_stock_alerted INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (farmer_id) REFERENCES users(id)
-      );
-
-      CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        buyer_id INTEGER NOT NULL,
-        product_id INTEGER NOT NULL,
-        quantity INTEGER NOT NULL,
-        total_price REAL NOT NULL,
-        status TEXT DEFAULT 'pending',
-        stellar_tx_hash TEXT,
-        escrow_balance_id TEXT,
-        escrow_status TEXT DEFAULT 'none',
-        address_id INTEGER,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (buyer_id) REFERENCES users(id),
-        FOREIGN KEY (product_id) REFERENCES products(id)
-      );
-
-      CREATE TABLE IF NOT EXISTS stock_alerts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        product_id INTEGER NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, product_id),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
-      );
-    `);
-
-    const userColumnMigrations = [
-      ['active', 'INTEGER DEFAULT 1'],
-      ['bio', 'TEXT'],
-      ['location', 'TEXT'],
-      ['avatar_url', 'TEXT'],
-      ['referral_code', 'TEXT'],
-      ['federation_name', 'TEXT'],
-      ['referred_by', 'INTEGER'],
-      ['referral_bonus_sent', 'INTEGER DEFAULT 0'],
-    ];
-
-    for (const [columnName, definition] of userColumnMigrations) {
-      if (!hasColumn('users', columnName)) {
-        try {
-          sqlite.exec(`ALTER TABLE users ADD COLUMN ${columnName} ${definition}`);
-        } catch (_err) {}
+  for (const col of booleanColumns) {
+    if (col in normalized) {
+      const val = normalized[col];
+      if (val === null || val === undefined) {
+        normalized[col] = null;
+      } else if (typeof val === 'boolean') {
+        normalized[col] = val;
+      } else if (typeof val === 'number') {
+        normalized[col] = val !== 0;
+      } else if (typeof val === 'string') {
+        normalized[col] = val === 'true' || val === '1';
       }
     }
   }
 
-  ensureSchema();
+  return normalized;
+}
 
-  module.exports = {
-    isPostgres: false,
-    prepare(sql) {
-      return sqlite.prepare(sql);
-    },
-    exec(sql) {
-      return sqlite.exec(sql);
-    },
-    transaction(fn) {
-      return sqlite.transaction(fn);
-    },
-    async query(sql, params = []) {
-      const normalized = String(sql).replace(/\$\d+/g, '?');
-      const values = Array.isArray(params) ? params : [params];
-      const stmt = sqlite.prepare(normalized);
+if (USE_POSTGRES) {
+  const pg = require('./postgres');
+  const { runMigrations } = require('./migrationRunner');
 
-      if (/^\s*(SELECT|WITH)/i.test(normalized)) {
-        const rows = stmt.all(...values);
-        return { rows, rowCount: rows.length };
+  const db = {
+    query: async (text, params) => {
+      const result = await pg.query(text, params);
+      // Normalize boolean values in rows for consistency
+      if (result.rows && Array.isArray(result.rows)) {
+        result.rows = result.rows.map((row) => normalizeBooleans(row));
       }
-
-      if (/\bRETURNING\b/i.test(normalized)) {
-        const row = stmt.get(...values);
-        return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
-      }
-
-      const result = stmt.run(...values);
-      return { rows: [], rowCount: result.changes ?? 0 };
+      return result;
     },
+    async exec(sql) {
+      await pg.pool.query(sql);
+    },
+    isPostgres: true,
+    placeholder: (i) => `$${i}`,
+    pool: pg.pool,
+    getClient: pg.getClient,
   };
+
+  runMigrations(db).catch((err) => {
+    console.error('[DB] Migration failed:', err.message);
+    process.exit(1);
+  });
+
+  module.exports = db;
+} else {
+  const Database = require('better-sqlite3');
+
+  let sqlite;
+  try {
+    sqlite = new Database(path.join(__dirname, '../../market.db'), {
+      timeout: parseInt(process.env.DB_QUERY_TIMEOUT_SQLITE || '5000', 10),
+    });
+  } catch (err) {
+    console.error('[DB] Failed to open SQLite database:', err.message);
+    process.exit(1);
+  }
+
+  const db = {
+    async query(sql, params = []) {
+      let i = 0;
+      const text = sql.replace(/\$\d+/g, () => {
+        i += 1;
+        return '?';
+      });
+      if (/^\s*(SELECT|WITH)/i.test(text)) {
+        const rows = sqlite.prepare(text).all(...params);
+        return { rows: rows.map(normalizeBooleans), rowCount: rows.length };
+      }
+      if (/\bRETURNING\b/i.test(text)) {
+        const row = sqlite.prepare(text).get(...params);
+        return { rows: row ? [normalizeBooleans(row)] : [], rowCount: row ? 1 : 0 };
+      }
+      const info = sqlite.prepare(text).run(...params);
+      return { rows: [], rowCount: info.changes };
+    },
+    async exec(sql) {
+      sqlite.exec(sql);
+    },
+    isPostgres: false,
+    placeholder: () => '?',
+  };
+
+  const { runMigrations } = require('./migrationRunner');
+  runMigrations(db).catch((err) => {
+    console.error('[DB] Migration failed:', err.message);
+    process.exit(1);
+  });
+
+  module.exports = db;
 }

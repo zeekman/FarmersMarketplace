@@ -1,0 +1,150 @@
+/* ── Responsive layout helpers ── */
+
+/* Navbar */
+.nav-links { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.hamburger { display: none; background: none; border: none; cursor: pointer; padding: 8px; color: #fff; font-size: 22px; min-width: 44px; min-height: 44px; }
+
+/* Page containers */
+.page-container { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.page-container-sm { max-width: 800px; margin: 0 auto; padding: 16px; }
+.page-container-xs { max-width: 640px; margin: 0 auto; padding: 16px; }
+
+/* Dashboard two-column grid */
+.dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+
+/* Marketplace product grid */
+.product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+
+/* Filter row */
+.filter-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; align-items: center; }
+.filter-row input, .filter-row select { min-height: 44px; }
+
+/* Forms */
+.form-input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; /* 16px prevents iOS zoom */ box-sizing: border-box; min-height: 44px; }
+
+/* Buttons — ensure 44px touch targets */
+.btn-touch { min-height: 44px; min-width: 44px; padding: 10px 20px; }
+
+/* Wallet send row */
+.send-row { display: flex; gap: 12px; }
+
+@media (max-width: 600px) {
+  /* Navbar */
+  .nav-links {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    position: fixed;
+    left: 0;
+    top: 56px;
+    width: 100%;
+    max-height: calc(100vh - 56px);
+    overflow-y: auto;
+    background: #2d6a4f;
+    padding: 12px 16px;
+    gap: 8px;
+    z-index: 999;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  }
+  .nav-links.open { display: flex; }
+  .hamburger { display: flex; align-items: center; justify-content: center; }
+  .hamburger:focus { outline: 2px solid #95d5b2; outline-offset: 2px; }
+  .nav-links a:focus, .nav-links select:focus, .nav-links button:focus { outline: 2px solid #95d5b2; outline-offset: -2px; }
+
+  /* Page padding */
+  .page-container, .page-container-sm, .page-container-xs { padding: 12px; }
+
+  /* Dashboard grid → single column */
+  .dashboard-grid { grid-template-columns: 1fr; }
+
+  /* Product grid → single column */
+  .product-grid { grid-template-columns: 1fr; }
+
+  /* Auth card — full width */
+  .auth-card { width: 100% !important; padding: 24px !important; }
+
+  /* Wallet send row → stack */
+  .send-row { flex-direction: column; }
+
+  /* Product detail card padding */
+  .detail-card { padding: 16px !important; }
+
+  /* Price row in filters */
+  .price-row { width: 100%; }
+
+  /* Restock row in dashboard listings */
+  .product-actions { flex-wrap: wrap; gap: 6px !important; }
+}
+
+/* ── Print layout (Compare page) ── */
+@media print {
+  nav, .compare-actions, .btn-touch {
+    display: none !important;
+  }
+
+  .compare-table-wrapper {
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  .compare-table {
+    width: 100% !important;
+  }
+}
+
+/* ── RTL (right-to-left) layout support (#1061) ─────────────────────────────
+ *
+ * AUDIT NOTES — hardcoded physical directional properties found and addressed:
+ *
+ * Navbar (Navbar.jsx inline styles):
+ *   - `justifyContent: 'space-between'` is direction-neutral — OK.
+ *   - `padding: '12px 24px'` is shorthand (block/inline) — OK.
+ *   - The flex row reverses naturally under `dir="rtl"` for logical ordering.
+ *
+ * Marketplace grid (.product-grid):
+ *   - CSS Grid auto-fill is direction-neutral — OK.
+ *
+ * Pagination (Pagination.jsx inline styles):
+ *   - `marginLeft: 8` on the results info span is a physical property.
+ *     Override with logical equivalent below using `[dir="rtl"]`.
+ *
+ * General:
+ *   - `text-align: left` is replaced with `text-align: start` for new rules.
+ *   - Components using `margin-left`/`margin-right` directly in JSX inline
+ *     styles are overridden below. Future code should prefer logical
+ *     properties (margin-inline-start, padding-inline-end, etc.).
+ *
+ * Follow-up: Once an actual RTL locale (ar/he) is added, run a full visual
+ *   audit and replace remaining physical margin/padding/border-radius usages
+ *   in component inline styles with logical properties.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/* Flip physical margin on Pagination results info span under RTL */
+[dir="rtl"] .pagination-info {
+  margin-inline-start: 8px;
+  margin-inline-end: 0;
+}
+
+/* Ensure nav flex row respects reading direction */
+[dir="rtl"] .nav-links {
+  flex-direction: row-reverse;
+}
+
+/* Filter row — start-align items logically */
+[dir="rtl"] .filter-row {
+  flex-direction: row-reverse;
+}
+
+/* Text inputs align to reading direction */
+[dir="rtl"] .form-input {
+  text-align: right;
+}
+
+/* RTL mobile drawer — appear from the right */
+@media (max-width: 600px) {
+  [dir="rtl"] .nav-links {
+    flex-direction: column;
+    right: 0;
+    left: auto;
+  }
+}

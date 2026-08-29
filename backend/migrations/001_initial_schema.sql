@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS orders (
   product_id        INTEGER NOT NULL REFERENCES products(id),
   quantity          INTEGER NOT NULL,
   total_price       REAL NOT NULL,
-  status            TEXT DEFAULT 'pending' CHECK(status IN ('pending','paid','processing','shipped','delivered','failed')),
+  status            TEXT DEFAULT 'pending' CHECK(status IN ('pending','paid','processing','shipped','delivered','failed','refunded')),
   stellar_tx_hash   TEXT,
   escrow_balance_id TEXT,
   escrow_status     TEXT DEFAULT 'none',

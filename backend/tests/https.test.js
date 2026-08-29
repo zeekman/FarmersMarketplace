@@ -9,8 +9,12 @@ function mockReqRes(proto, host = 'example.com', url = '/api/v1/health') {
   const res = {
     redirected: null,
     headers: {},
-    redirect(code, location) { this.redirected = { code, location }; },
-    setHeader(name, value) { this.headers[name] = value; },
+    redirect(code, location) {
+      this.redirected = { code, location };
+    },
+    setHeader(name, value) {
+      this.headers[name] = value;
+    },
   };
   const next = jest.fn();
   return { req, res, next };
@@ -19,7 +23,9 @@ function mockReqRes(proto, host = 'example.com', url = '/api/v1/health') {
 describe('enforceHttps middleware', () => {
   const OLD_ENV = process.env.NODE_ENV;
 
-  afterEach(() => { process.env.NODE_ENV = OLD_ENV; });
+  afterEach(() => {
+    process.env.NODE_ENV = OLD_ENV;
+  });
 
   it('skips redirect in development', () => {
     process.env.NODE_ENV = 'development';
@@ -52,7 +58,9 @@ describe('enforceHttps middleware', () => {
 describe('hsts middleware', () => {
   const OLD_ENV = process.env.NODE_ENV;
 
-  afterEach(() => { process.env.NODE_ENV = OLD_ENV; });
+  afterEach(() => {
+    process.env.NODE_ENV = OLD_ENV;
+  });
 
   it('does not set HSTS header outside production', () => {
     process.env.NODE_ENV = 'development';

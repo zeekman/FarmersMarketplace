@@ -1,0 +1,4 @@
+-- Undo Migration: 025_users_anonymized_at
+-- SQLite does not support DROP COLUMN in older versions; handled in application code if needed.
+-- PostgreSQL:
+-- ALTER TABLE users DROP COLUMN IF EXISTS anonymized_at;

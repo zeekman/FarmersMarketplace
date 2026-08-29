@@ -59,6 +59,12 @@
     "bulkUploadDesc": "Pakia bidhaa nyingi kwa wakati mmoja ukitumia faili ya CSV. Upeo wa safu 500 kwa kila upakiaji.",
     "uploadCsv": "📁 Pakia CSV",
     "downloadTemplate": "📥 Pakua Kiolezo",
+    "csvRow": "Safu",
+    "csvStatus": "Hali",
+    "csvDetail": "Maelezo",
+    "csvCreated": "Imeundwa",
+    "csvError": "Kosa",
+    "downloadErrorReport": "⬇ Pakua ripoti ya makosa",
     "myProfile": "Wasifu Wangu wa Mkulima",
     "avatar": "Picha ya Wasifu",
     "changeAvatar": "Badilisha Picha",
@@ -91,7 +97,15 @@
     "key": "Ufunguo",
     "value": "Thamani",
     "durability": "Uimara",
-    "errorLoading": "Hitilafu wakati wa kupakia dashibodi:"
+    "errorLoading": "Hitilafu wakati wa kupakia dashibodi:",
+    "priceTiers": "💰 Viwango vya Bei",
+    "tiersHint": "Weka viwango vya bei kwa wingi. Wingi zaidi hupata bei nafuu.",
+    "noTiers": "Hakuna viwango vya bei vilivyowekwa. Wingi wote unatumia bei ya msingi.",
+    "addTier": "Ongeza Kiwango",
+    "saveTiers": "Hifadhi Viwango",
+    "minQuantity": "Kiwango cha Chini",
+    "pricePerUnit": "Bei kwa Kila Kipimo (XLM)",
+    "tiers": "💰 Viwango"
   },
   "marketplace": {
     "title": "🛒 Soko",
@@ -147,7 +161,10 @@
     "previousImage": "Picha iliyotangulia",
     "nextImage": "Picha inayofuata",
     "thumbnail": "Kijipicha {{n}}",
-    "default": "(Chaguo-msingi)"
+    "default": "(Chaguo-msingi)",
+    "flashSaleTitle": "Ofa ya Haraka",
+    "flashSaleBanner": "Tangazo la ofa ya haraka",
+    "flashSaleSavings": "Okoa {{pct}}%"
   },
   "wallet": {
     "title": "💳 Mkoba Wangu",
@@ -191,5 +208,9 @@
     "errors": "Makosa",
     "row": "Safu {{n}}",
     "andMore": "...na makosa {{n}} zaidi"
+  },
+  "pagination": {
+    "resultCount_one": "tokeo {{count}}",
+    "resultCount_other": "matokeo {{count}}"
   }
 }

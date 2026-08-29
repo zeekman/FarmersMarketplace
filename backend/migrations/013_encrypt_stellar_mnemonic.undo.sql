@@ -1,0 +1,3 @@
+-- Undo Migration: 013_encrypt_stellar_mnemonic
+-- SQLite does not support DROP COLUMN in older versions; for Postgres:
+-- ALTER TABLE users DROP COLUMN IF EXISTS stellar_mnemonic_encrypted;

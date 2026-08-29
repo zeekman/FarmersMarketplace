@@ -12,8 +12,9 @@
  *   db.placeholder(i)      → '$i' | '?'
  */
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
+const logger = require('../logger');
 
 const MIGRATIONS_DIR = path.join(__dirname, '../../migrations');
 
@@ -39,32 +40,33 @@ async function ensureMigrationsTable(db) {
 
 async function getApplied(db) {
   const { rows } = await db.query('SELECT name FROM migrations ORDER BY name ASC');
-  return new Set(rows.map(r => r.name));
+  return new Set(rows.map((r) => r.name));
 }
 
-function getPendingFiles(applied) {
-  if (!fs.existsSync(MIGRATIONS_DIR)) return [];
-  return fs.readdirSync(MIGRATIONS_DIR)
-    .filter(f => /^\d+_.+\.sql$/.test(f) && !f.endsWith('.undo.sql'))
+function getPendingFiles(applied, migrationsDir = MIGRATIONS_DIR) {
+  if (!fs.existsSync(migrationsDir)) return [];
+  return fs
+    .readdirSync(migrationsDir)
+    .filter((f) => /^\d+_.+\.sql$/.test(f) && !f.endsWith('.undo.sql'))
     .sort()
-    .filter(f => !applied.has(f));
+    .filter((f) => !applied.has(f));
 }
 
-async function runMigrations(db) {
+async function runMigrations(db, migrationsDir = MIGRATIONS_DIR) {
   await ensureMigrationsTable(db);
   const applied = await getApplied(db);
-  const pending = getPendingFiles(applied);
+  const pending = getPendingFiles(applied, migrationsDir);
 
   for (const file of pending) {
-    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
     await db.exec(sql);
     const p = db.placeholder ? db.placeholder(1) : '$1';
     await db.query(`INSERT INTO migrations (name) VALUES (${p})`, [file]);
-    console.log(`[migrate] Applied ${file}`);
+    logger.info(`[migrate] Applied ${file}`);
   }
 
   if (pending.length > 0) {
-    console.log(`[migrate] ${pending.length} migration(s) applied.`);
+    logger.info(`[migrate] ${pending.length} migration(s) applied.`);
   }
 }
 

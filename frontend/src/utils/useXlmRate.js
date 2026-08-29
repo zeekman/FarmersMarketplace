@@ -6,7 +6,11 @@ export function useXlmRate() {
   const [rate, setRate] = useState(null);
 
   useEffect(() => {
-    api.getXlmRate().then(res => setRate(res.rate)).catch(() => {});
+    const fetch = () =>
+      api.getMarketRate().then(res => setRate(res.midPrice ?? null)).catch(() => {});
+    fetch();
+    const id = setInterval(fetch, 60000);
+    return () => clearInterval(id);
   }, []);
 
   function usd(xlm) {

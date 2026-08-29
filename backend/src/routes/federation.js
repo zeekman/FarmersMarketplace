@@ -1,41 +1,42 @@
-const router = require("express").Router();
-const db = require("../db/schema");
-const { err } = require("../middleware/error");
+const router = require('express').Router();
+const db = require('../db/schema');
 
 // GET /federation?q=name*domain&type=name
 // Stellar federation protocol endpoint
-router.get("/", (req, res) => {
+router.get('/', async (req, res) => {
   const { q, type } = req.query;
 
-  if (type !== "name") {
-    return res.status(400).json({ detail: "Only type=name is supported" });
+  if (type !== 'name') {
+    return res.status(400).json({ detail: 'Only type=name is supported' });
   }
 
-  if (!q || !q.includes("*")) {
-    return res
-      .status(400)
-      .json({
-        detail: "Invalid federation address format. Expected name*domain",
-      });
+  if (!q || !q.includes('*')) {
+    return res.status(400).json({
+      detail: 'Invalid federation address format. Expected name*domain',
+    });
   }
 
-  const [username] = q.split("*");
+  const [username] = q.split('*');
   const name = username.toLowerCase();
 
-  const user = db
-    .prepare(
-      "SELECT stellar_public_key, federation_name FROM users WHERE federation_name = ?",
-    )
-    .get(name);
+  try {
+    const { rows } = await db.query(
+      'SELECT stellar_public_key, federation_name FROM users WHERE federation_name = $1',
+      [name]
+    );
+    const user = rows[0];
 
-  if (!user || !user.stellar_public_key) {
-    return res.status(404).json({ detail: "Not found" });
+    if (!user || !user.stellar_public_key) {
+      return res.status(404).json({ detail: 'Not found' });
+    }
+
+    res.json({
+      stellar_address: q,
+      account_id: user.stellar_public_key,
+    });
+  } catch (err) {
+    return res.status(500).json({ detail: err.message });
   }
-
-  res.json({
-    stellar_address: q,
-    account_id: user.stellar_public_key,
-  });
 });
 
 module.exports = router;

@@ -55,10 +55,17 @@
     "remove": "Remove",
     "photos": "📷 Photos",
     "qr": "📱 QR",
+    "tiers": "💰 Tiers",
     "bulkUpload": "📤 Bulk Upload Products",
     "bulkUploadDesc": "Upload multiple products at once using a CSV file. Maximum 500 rows per upload.",
     "uploadCsv": "📁 Upload CSV",
     "downloadTemplate": "📥 Download Template",
+    "csvRow": "Row",
+    "csvStatus": "Status",
+    "csvDetail": "Detail",
+    "csvCreated": "Created",
+    "csvError": "Error",
+    "downloadErrorReport": "⬇ Download error report",
     "myProfile": "My Farmer Profile",
     "avatar": "Avatar",
     "changeAvatar": "Change Avatar",
@@ -91,7 +98,14 @@
     "key": "Key",
     "value": "Value",
     "durability": "Durability",
-    "errorLoading": "Error loading dashboard:"
+    "errorLoading": "Error loading dashboard:",
+    "priceTiers": "💰 Price Tiers",
+    "tiersHint": "Set bulk pricing tiers. Higher quantities get lower prices.",
+    "noTiers": "No pricing tiers set. All quantities use the base price.",
+    "addTier": "Add Tier",
+    "saveTiers": "Save Tiers",
+    "minQuantity": "Min Quantity",
+    "pricePerUnit": "Price per Unit (XLM)"
   },
   "marketplace": {
     "title": "🛒 Marketplace",
@@ -147,7 +161,10 @@
     "previousImage": "Previous image",
     "nextImage": "Next image",
     "thumbnail": "Thumbnail {{n}}",
-    "default": "(Default)"
+    "default": "(Default)",
+    "flashSaleTitle": "Flash Sale",
+    "flashSaleBanner": "Flash sale promotion",
+    "flashSaleSavings": "Save {{pct}}%"
   },
   "wallet": {
     "title": "💳 My Wallet",
@@ -191,5 +208,9 @@
     "errors": "Errors",
     "row": "Row {{n}}",
     "andMore": "...and {{n}} more errors"
+  },
+  "pagination": {
+    "resultCount_one": "{{count}} result",
+    "resultCount_other": "{{count}} results"
   }
 }

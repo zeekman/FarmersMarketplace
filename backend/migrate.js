@@ -15,21 +15,27 @@
 
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 const { runMigrations, ensureMigrationsTable, getApplied } = require('./src/db/migrationRunner');
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
-const USE_POSTGRES   = !!process.env.DATABASE_URL;
+const USE_POSTGRES = !!process.env.DATABASE_URL;
 
 async function getAdapter() {
   if (USE_POSTGRES) {
     const { Pool } = require('pg');
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     return {
-      async query(sql, params = []) { return pool.query(sql, params); },
-      async exec(sql)               { return pool.query(sql); },
-      async close()                 { await pool.end(); },
+      async query(sql, params = []) {
+        return pool.query(sql, params);
+      },
+      async exec(sql) {
+        return pool.query(sql);
+      },
+      async close() {
+        await pool.end();
+      },
       placeholder: (i) => `$${i}`,
       isPostgres: true,
     };
@@ -44,8 +50,12 @@ async function getAdapter() {
         const info = db.prepare(sql).run(...params);
         return { rows: [], rowCount: info.changes };
       },
-      async exec(sql) { db.exec(sql); },
-      async close()   { db.close(); },
+      async exec(sql) {
+        db.exec(sql);
+      },
+      async close() {
+        db.close();
+      },
       placeholder: () => '?',
       isPostgres: false,
     };
@@ -63,7 +73,7 @@ async function rollback() {
     return;
   }
 
-  const last     = [...applied].sort().at(-1);
+  const last = [...applied].sort().at(-1);
   const undoName = last.replace(/\.sql$/, '.undo.sql');
   const undoPath = path.join(MIGRATIONS_DIR, undoName);
 
@@ -90,7 +100,7 @@ async function migrate() {
 }
 
 const command = process.argv[2];
-(command === 'rollback' ? rollback() : migrate()).catch(err => {
+(command === 'rollback' ? rollback() : migrate()).catch((err) => {
   console.error('[migrate] Error:', err.message);
   process.exit(1);
 });

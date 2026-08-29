@@ -14,7 +14,7 @@ async function fetchCsrfToken() {
   expect(res.status).toBe(200);
   expect(res.body.csrfToken).toBeDefined();
   const setCookie = res.headers['set-cookie'] || [];
-  const cookieStr = setCookie.find(c => c.startsWith('csrf_token=')) || '';
+  const cookieStr = setCookie.find((c) => c.startsWith('csrf_token=')) || '';
   const token = cookieStr.split(';')[0].split('=')[1];
   return { token, cookieStr };
 }
@@ -25,20 +25,20 @@ describe('GET /api/csrf-token', () => {
     expect(res.status).toBe(200);
     expect(res.body.csrfToken).toMatch(/^[a-f0-9]{64}$/);
     const cookies = res.headers['set-cookie'] || [];
-    expect(cookies.some(c => c.startsWith('csrf_token='))).toBe(true);
+    expect(cookies.some((c) => c.startsWith('csrf_token='))).toBe(true);
   });
 
   it('sets SameSite=Strict on the cookie', async () => {
     const res = await request(app).get('/api/csrf-token');
     const cookies = res.headers['set-cookie'] || [];
-    const csrfCookie = cookies.find(c => c.startsWith('csrf_token='));
+    const csrfCookie = cookies.find((c) => c.startsWith('csrf_token='));
     expect(csrfCookie).toMatch(/SameSite=Strict/i);
   });
 
   it('cookie is NOT HttpOnly (must be readable by JS)', async () => {
     const res = await request(app).get('/api/csrf-token');
     const cookies = res.headers['set-cookie'] || [];
-    const csrfCookie = cookies.find(c => c.startsWith('csrf_token='));
+    const csrfCookie = cookies.find((c) => c.startsWith('csrf_token='));
     expect(csrfCookie).not.toMatch(/HttpOnly/i);
   });
 });
@@ -49,14 +49,19 @@ describe('CSRF exempt routes', () => {
       .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 });
     const res = await request(app).post('/api/auth/register').send({
-      name: 'Test', email: 'test@test.com', password: 'Secure1pass', role: 'buyer',
+      name: 'Test',
+      email: 'test@test.com',
+      password: 'Secure1pass',
+      role: 'buyer',
     });
     expect(res.status).not.toBe(403);
   });
 
   it('POST /api/auth/login works without CSRF token', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    const res = await request(app).post('/api/auth/login').send({ email: 'x@x.com', password: 'secret1' });
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'x@x.com', password: 'secret1' });
     expect(res.status).not.toBe(403);
   });
 });
@@ -74,7 +79,9 @@ describe('CSRF protection — missing token', () => {
   });
 
   it('DELETE /api/products/:id returns 403 without CSRF token', async () => {
-    const res = await request(app).delete('/api/products/1').set('Authorization', `Bearer ${jwt_token}`);
+    const res = await request(app)
+      .delete('/api/products/1')
+      .set('Authorization', `Bearer ${jwt_token}`);
     expect(res.status).toBe(403);
   });
 
@@ -87,7 +94,9 @@ describe('CSRF protection — missing token', () => {
   });
 
   it('POST /api/wallet/fund returns 403 without CSRF token', async () => {
-    const res = await request(app).post('/api/wallet/fund').set('Authorization', `Bearer ${jwt_token}`);
+    const res = await request(app)
+      .post('/api/wallet/fund')
+      .set('Authorization', `Bearer ${jwt_token}`);
     expect(res.status).toBe(403);
   });
 });

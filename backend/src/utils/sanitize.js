@@ -1,7 +1,12 @@
 const sanitizeHtml = require('sanitize-html');
 
-// Strip all HTML tags — returns plain text only.
-// Use this before storing any user-generated text in the DB.
+/**
+ * Strip all HTML tags — returns plain text only.
+ * Use this before storing any user-generated text in the DB.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
 function sanitizeText(value) {
   if (typeof value !== 'string') return value;
   return sanitizeHtml(value, { allowedTags: [], allowedAttributes: {} }).trim();

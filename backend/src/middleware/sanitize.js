@@ -3,7 +3,12 @@
  * This is a safety net to ensure stellar_secret_key and password are never exposed
  */
 
-const SENSITIVE_FIELDS = ['stellar_secret_key', 'password'];
+const SENSITIVE_FIELDS = [
+  'stellar_secret_key',
+  'stellar_mnemonic',
+  'webhook_secret',
+  'password',
+];
 
 /**
  * Recursively strip sensitive fields from an object
@@ -14,7 +19,7 @@ function stripSensitiveFields(obj) {
   }
 
   if (Array.isArray(obj)) {
-    return obj.map(item => stripSensitiveFields(item));
+    return obj.map((item) => stripSensitiveFields(item));
   }
 
   const sanitized = {};
@@ -32,7 +37,7 @@ function stripSensitiveFields(obj) {
 function sanitizeResponse(req, res, next) {
   const originalJson = res.json;
 
-  res.json = function(data) {
+  res.json = function (data) {
     const sanitized = stripSensitiveFields(data);
     return originalJson.call(this, sanitized);
   };

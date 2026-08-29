@@ -1,0 +1,3 @@
+ALTER TABLE products
+ADD COLUMN IF NOT EXISTS flash_sale_price REAL,
+ADD COLUMN IF NOT EXISTS flash_sale_ends_at TIMESTAMP;
