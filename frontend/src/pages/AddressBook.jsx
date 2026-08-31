@@ -56,8 +56,9 @@ function AddressFormModal({ initial, onSave, onCancel, loading }) {
       <div style={s.modal}>
         <div id="addr-modal-title" style={s.modalTitle}>{isEdit ? 'Edit Address' : 'Add New Address'}</div>
         <form onSubmit={handleSubmit}>
-          <label style={s.label}>Label (e.g., Home, Work)</label>
+          <label style={s.label} htmlFor="addr-label">Label (e.g., Home, Work)</label>
           <input
+            id="addr-label"
             style={s.input}
             value={form.label}
             onChange={e => setForm({ ...form, label: e.target.value })}
@@ -66,8 +67,9 @@ function AddressFormModal({ initial, onSave, onCancel, loading }) {
             autoFocus
           />
 
-          <label style={s.label}>Street Address</label>
+          <label style={s.label} htmlFor="addr-street">Street Address</label>
           <input
+            id="addr-street"
             style={s.input}
             value={form.street}
             onChange={e => setForm({ ...form, street: e.target.value })}
@@ -75,8 +77,9 @@ function AddressFormModal({ initial, onSave, onCancel, loading }) {
             maxLength={200}
           />
 
-          <label style={s.label}>City</label>
+          <label style={s.label} htmlFor="addr-city">City</label>
           <input
+            id="addr-city"
             style={s.input}
             value={form.city}
             onChange={e => setForm({ ...form, city: e.target.value })}
@@ -97,8 +100,9 @@ function AddressFormModal({ initial, onSave, onCancel, loading }) {
             ))}
           </select>
 
-          <label style={s.label}>Postal Code (optional)</label>
+          <label style={s.label} htmlFor="addr-postal">Postal Code (optional)</label>
           <input
+            id="addr-postal"
             style={s.input}
             value={form.postal_code}
             onChange={e => setForm({ ...form, postal_code: e.target.value })}
@@ -160,6 +164,7 @@ function DeleteConfirmDialog({ onConfirm, onCancel }) {
 export default function AddressBook() {
   const { user } = useAuth();
   const [addresses, setAddresses] = useState([]);
+  const [addressLimit, setAddressLimit] = useState(10);
   const [msg, setMsg] = useState(null);
   const [loading, setLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -170,10 +175,13 @@ export default function AddressBook() {
     try {
       const res = await api.getAddresses();
       setAddresses(res.data ?? []);
+      if (res.limit != null) setAddressLimit(res.limit);
     } catch { /* ignore */ }
   }
 
   useEffect(() => { load(); }, []);
+
+  const atLimit = addresses.length >= addressLimit;
 
   function openAdd() {
     setEditingAddress(null);
@@ -204,7 +212,14 @@ export default function AddressBook() {
       closeModal();
       load();
     } catch (err) {
-      setMsg({ type: 'err', text: err.message });
+      if (err.code === 'address_limit_reached') {
+        setMsg({
+          type: 'err',
+          text: `You've reached the ${addressLimit}-address limit. Delete an address you no longer need to add a new one.`,
+        });
+      } else {
+        setMsg({ type: 'err', text: err.message });
+      }
     } finally {
       setLoading(false);
     }
@@ -246,9 +261,37 @@ export default function AddressBook() {
 
   return (
     <div style={s.page}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div style={s.title}>📍 Address Book</div>
-        <button style={s.btn} onClick={openAdd}>+ Add Address</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span
+            style={{
+              fontSize: 13,
+              color: atLimit ? '#b42318' : '#666',
+              fontWeight: atLimit ? 700 : 400,
+              background: atLimit ? '#fee2e2' : '#f0f0f0',
+              borderRadius: 12,
+              padding: '4px 10px',
+              whiteSpace: 'nowrap',
+            }}
+            aria-live="polite"
+          >
+            {addresses.length} of {addressLimit} addresses used
+          </span>
+          <button
+            style={{
+              ...s.btn,
+              opacity: atLimit ? 0.5 : 1,
+              cursor: atLimit ? 'not-allowed' : 'pointer',
+            }}
+            onClick={atLimit ? undefined : openAdd}
+            disabled={atLimit}
+            title={atLimit ? `Address limit of ${addressLimit} reached. Delete an address to add a new one.` : undefined}
+            aria-disabled={atLimit}
+          >
+            + Add Address
+          </button>
+        </div>
       </div>
 
       {msg && (
