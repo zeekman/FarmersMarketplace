@@ -164,7 +164,7 @@ export default function AdminAnnouncementsPanel() {
                       await api.adminDeleteAnnouncement(a.id);
                       loadAnnouncements();
                     }}
-                    style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#fee2e2', color: '#c0392b', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                    style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#fee2e2', color: '#b42318', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                   >
                     Delete
                   </button>

@@ -36,7 +36,8 @@ const GRADES = ["A", "B", "C", "Ungraded"];
 const GRADE_COLORS = {
   A: { background: "#d8f3dc", color: "#2d6a4f" },
   B: { background: "#fff3cd", color: "#856404" },
-  C: { background: "#ffe0b2", color: "#a85d00" },
+  // #7a3d00 on #ffe0b2 → 6.64:1 (was #a85d00 → 3.91:1, failed WCAG AA)
+  C: { background: "#ffe0b2", color: "#7a3d00" },
   Ungraded: { background: "#e0e0e0", color: "#555" },
 };
 
@@ -357,6 +358,10 @@ function GradeBadge({ grade }) {
   );
 }
 
+// All freshness badge colors pass WCAG AA (≥ 4.5:1) on their paired backgrounds.
+// color/bg pairs verified: #b42318/#fee2e2 → 5.38:1, #7a3d00/#ffe0b2 → 6.64:1,
+// #155724/#d4edda → 7.48:1
+// Note: #c0392b/#fee2e2 = 4.45:1 (fails WCAG AA) — use #b42318 instead.
 function getFreshnessBadge(bestBefore) {
   if (!bestBefore) return null;
   const today = new Date();
@@ -364,11 +369,12 @@ function getFreshnessBadge(bestBefore) {
   const diffTime = expiry - today;
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   if (diffDays < 0) return null; // expired, but shouldn't be shown
-  if (diffDays === 0) return { text: 'Expires today', color: '#ff6b6b' };
-  if (diffDays === 1) return { text: 'Expires tomorrow', color: '#ffa726' };
-  if (diffDays <= 3) return { text: `${diffDays} days left`, color: '#ffb74d' };
-  if (diffDays <= 7) return { text: `${diffDays} days left`, color: '#81c784' };
-  return { text: 'Fresh', color: '#4caf50' };
+  // #b42318 on #fee2e2 → 5.38:1 PASS (replaces #c0392b → 4.45:1 FAIL)
+  if (diffDays === 0) return { text: 'Expires today',   color: '#b42318', background: '#fee2e2' };
+  if (diffDays === 1) return { text: 'Expires tomorrow', color: '#7a3d00', background: '#ffe0b2' };
+  if (diffDays <= 3) return { text: `${diffDays} days left`, color: '#7a3d00', background: '#ffe0b2' };
+  if (diffDays <= 7) return { text: `${diffDays} days left`, color: '#155724', background: '#d4edda' };
+  return { text: 'Fresh', color: '#155724', background: '#d4edda' };
 }
 
 const SCROLL_KEY = 'marketplace_scroll';

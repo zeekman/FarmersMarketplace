@@ -158,7 +158,8 @@ const s = {
   badge: (role) => ({
     display: 'inline-block', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600,
     background: role === 'admin' ? '#ffeaa7' : role === 'farmer' ? '#d8f3dc' : '#dfe6e9',
-    color: role === 'admin' ? '#b8860b' : role === 'farmer' ? '#2d6a4f' : '#555',
+    // #7a5800 on #ffeaa7 → 5.45:1 (was #b8860b → 2.72:1, failed WCAG AA)
+    color: role === 'admin' ? '#7a5800' : role === 'farmer' ? '#2d6a4f' : '#555',
   }),
   deactivate: { background: '#fee', color: '#c0392b', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 },
   inactive: { color: '#aaa', fontSize: 12, fontStyle: 'italic' },
@@ -1274,7 +1275,7 @@ export default function AdminDashboard() {
                 )}
                 {cmpResult.changed.length > 0 && (
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontWeight: 600, color: '#b8860b', marginBottom: 6 }}>✏️ Changed ({cmpResult.changed.length})</div>
+                    <div style={{ fontWeight: 600, color: '#7a5800', marginBottom: 6 }}>✏️ Changed ({cmpResult.changed.length})</div>
                     {cmpResult.changed.map((fn) => (
                       <div key={fn.name} style={{ background: '#ffeaa7', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
                         <strong>{fn.name}</strong><br />
@@ -1324,7 +1325,7 @@ export default function AdminDashboard() {
                 <tr key={a.id} style={{ borderBottom: '1px solid #f0f0f0', background: a.acknowledged ? '#fafafa' : '#fffbf0' }}>
                   <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12 }}>{a.contract_id}</td>
                   <td style={{ padding: '8px 10px' }}>
-                    <span style={{ background: a.alert_type === 'large_transfer' ? '#ffeaa7' : '#fde8e8', color: a.alert_type === 'large_transfer' ? '#b8860b' : '#c0392b', borderRadius: 4, padding: '2px 8px', fontWeight: 600, fontSize: 12 }}>
+                    <span style={{ background: a.alert_type === 'large_transfer' ? '#ffeaa7' : '#fde8e8', color: a.alert_type === 'large_transfer' ? '#7a5800' : '#c0392b', borderRadius: 4, padding: '2px 8px', fontWeight: 600, fontSize: 12 }}>
                       {a.alert_type}
                     </span>
                   </td>
