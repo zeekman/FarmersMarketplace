@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../api/client', () => ({ api: { placeBid: vi.fn(), getAuction: vi.fn() } }));
@@ -56,8 +56,10 @@ describe('AuctionCard countdown timer (#440)', () => {
     );
     const cardNode = container.firstChild;
 
-    // Still active: bid input present, button enabled
-    expect(container.querySelector('input[type="number"]')).not.toBeNull();
+    // Still active: bid input present and button re-enables once a valid amount is entered
+    const input = container.querySelector('input[type="number"]');
+    expect(input).not.toBeNull();
+    fireEvent.change(input, { target: { value: '7' } });
     expect(screen.getByRole('button', { name: /place bid/i })).not.toBeDisabled();
 
     act(() => { vi.advanceTimersByTime(4000); });
