@@ -1,0 +1,1 @@
+import React from'react';export default(({users=[],onBan=()=>{},onUnban=()=>{}})=><div>{users.map(u=>u.isBanned?<button onClick={()=>onUnban(u)}>Unban</button>:<button onClick={()=>{if(confirm('Ban '+u.name+'?'))onBan(u)}}>Ban</button>)}</div>;
