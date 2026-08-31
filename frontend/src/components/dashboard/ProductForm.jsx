@@ -68,6 +68,10 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [cropSrc, setCropSrc] = useState(null);
+  // Mirror of cropSrc kept in a ref so callbacks (handleCropConfirm /
+  // handleCropCancel) always read the live URL even when they close over a
+  // stale state value.  The ref is updated every time cropSrc changes.
+  const cropSrcRef = useRef(null);
   const fileInputRef = useRef(null);
 
   function validateAndSetImage(file) {
@@ -80,12 +84,24 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
       setImageErr(`Image must be ${MAX_SIZE_MB} MB or smaller.`);
       return false;
     }
-    setCropSrc(URL.createObjectURL(file));
+    // Revoke the previous crop URL before replacing it so the browser can
+    // release the backing image buffer immediately.
+    if (cropSrcRef.current) {
+      URL.revokeObjectURL(cropSrcRef.current);
+    }
+    const newUrl = URL.createObjectURL(file);
+    cropSrcRef.current = newUrl;
+    setCropSrc(newUrl);
     setImageUrl(null);
     return true;
   }
 
   function handleCropConfirm(blob) {
+    // Revoke the crop-preview URL — it is no longer needed once the crop is done.
+    if (cropSrcRef.current) {
+      URL.revokeObjectURL(cropSrcRef.current);
+      cropSrcRef.current = null;
+    }
     const croppedFile = new File([blob], 'product-image.jpg', { type: 'image/jpeg' });
     setImageFile(croppedFile);
     setPreviewUrl(URL.createObjectURL(croppedFile));
@@ -93,6 +109,11 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
   }
 
   function handleCropCancel() {
+    // Revoke the crop-preview URL — the farmer abandoned this image.
+    if (cropSrcRef.current) {
+      URL.revokeObjectURL(cropSrcRef.current);
+      cropSrcRef.current = null;
+    }
     setCropSrc(null);
   }
 
