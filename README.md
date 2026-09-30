@@ -506,3 +506,8 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for full guidance on:
 - Issue workflow and label guide
 
 For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md) instead of opening a public issue.
+
+## Handsoff notes
+
+<!-- handsoff-issue-1377 -->
+- #1377: `Wallet.jsx` doesn't compile: `await` inside the non-async `connectStream` callback (L168–195)
