@@ -33,6 +33,7 @@ import {
   setAccessToken,
   clearAccessToken,
   setLogoutCallback,
+  _resetLogoutTriggered,
   api,
 } from '../api/client.js';
 
@@ -58,6 +59,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   clearAccessToken();
   setLogoutCallback(null);
+  _resetLogoutTriggered();
   // Clear CSRF cookie so tests that don't need CSRF don't accidentally get one
   document.cookie = 'csrf_token=; Max-Age=0; path=/';
 });
@@ -219,3 +221,74 @@ describe('Refresh token call', () => {
     expect(refreshOpts.credentials).toBe('include');
   });
 });
+
+// ── concurrent 401s ────────────────────────────────────────────────────────────
+
+describe('Concurrent 401 handling', () => {
+  it('performs a single refresh for 5 concurrent 401s and retries all 5', async () => {
+    setAccessToken('expired-token');
+
+    mockFetch
+      // 5 original requests all return 401
+      .mockResolvedValueOnce(errResponse(401))
+      .mockResolvedValueOnce(errResponse(401))
+      .mockResolvedValueOnce(errResponse(401))
+      .mockResolvedValueOnce(errResponse(401))
+      .mockResolvedValueOnce(errResponse(401))
+      // Only 1 refresh call
+      .mockResolvedValueOnce(okResponse({ token: 'fresh-token' }))
+      // 5 retries succeed
+      .mockResolvedValueOnce(okResponse({ id: 1 }))
+      .mockResolvedValueOnce(okResponse({ id: 2 }))
+      .mockResolvedValueOnce(okResponse({ id: 3 }))
+      .mockResolvedValueOnce(okResponse({ id: 4 }))
+      .mockResolvedValueOnce(okResponse({ id: 5 }));
+
+    const [r1, r2, r3, r4, r5] = await Promise.all([
+      api.getWallet(),
+      api.getProducts(),
+      api.getNetwork(),
+      api.getCategories(),
+      api.getCurrentUser(),
+    ]);
+
+    expect(r1).toEqual({ id: 1 });
+    expect(r2).toEqual({ id: 2 });
+    expect(r3).toEqual({ id: 3 });
+    expect(r4).toEqual({ id: 4 });
+    expect(r5).toEqual({ id: 5 });
+
+    // Total fetch calls: 5 originals + 1 refresh + 5 retries = 11
+    expect(mockFetch).toHaveBeenCalledTimes(11);
+    // The refresh call is the 6th call (index 5)
+    const refreshCalls = mockFetch.mock.calls.filter(
+      (c) => c[1]?.method === 'POST' && String(c[0]).includes('/auth/refresh'),
+    );
+    expect(refreshCalls).toHaveLength(1);
+  });
+
+  it('calls logoutCallback exactly once when refresh fails for concurrent 401s', async () => {
+    const logoutSpy = vi.fn();
+    setLogoutCallback(logoutSpy);
+    setAccessToken('expired-token');
+
+    mockFetch
+      .mockResolvedValueOnce(errResponse(401))
+      .mockResolvedValueOnce(errResponse(401))
+      .mockResolvedValueOnce(errResponse(401))
+      .mockResolvedValueOnce(errResponse(401))
+      .mockResolvedValueOnce(errResponse(401))
+      .mockRejectedValueOnce(new Error('Network error'));
+
+    await Promise.allSettled([
+      api.getWallet(),
+      api.getProducts(),
+      api.getNetwork(),
+      api.getCategories(),
+      api.getCurrentUser(),
+    ]);
+
+    expect(logoutSpy).toHaveBeenCalledTimes(1);
+  });
+});
+

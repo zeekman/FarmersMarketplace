@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { api, setAccessToken, clearAccessToken, setLogoutCallback, setLoadingCallback } from '../api/client';
 
-const BASE = '/api';
+const BASE = '/api/v1';
 
 describe('api/client.js (#442)', () => {
   let logoutCallback;
@@ -18,7 +18,7 @@ describe('api/client.js (#442)', () => {
     const callLog = [];
     global.fetch = vi.fn().mockImplementation((url) => {
       callLog.push(url);
-      // 1st call: /api/products → 401
+      // 1st call: /api/v1/products → 401
       if (callLog.length === 1) {
         return Promise.resolve({
           status: 401,
@@ -33,7 +33,7 @@ describe('api/client.js (#442)', () => {
           json: () => Promise.resolve({ token: 'new-token' }),
         });
       }
-      // 3rd call: /api/products (retry) → 200
+      // 3rd call: /api/v1/products (retry) → 200
       return Promise.resolve({
         status: 200,
         ok: true,
@@ -44,9 +44,9 @@ describe('api/client.js (#442)', () => {
     const result = await api.getProducts();
     expect(result).toEqual({ success: true, data: 'test' });
     expect(callLog).toEqual([
-      '/api/products',
-      '/api/auth/refresh',
-      '/api/products',
+      '/api/v1/products',
+      '/api/v1/auth/refresh',
+      '/api/v1/products',
     ]);
     expect(logoutCallback).not.toHaveBeenCalled();
   });

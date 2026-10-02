@@ -3,6 +3,7 @@ const BASE = '/api/v1';
 let accessToken = null;
 let loadingCallback = null;
 let logoutCallback = null;
+let logoutTriggered = false;
 
 export function setAccessToken(token) {
   accessToken = token;
@@ -18,6 +19,10 @@ export function setLoadingCallback(fn) {
 
 export function setLogoutCallback(fn) {
   logoutCallback = typeof fn === 'function' ? fn : null;
+}
+
+export function _resetLogoutTriggered() {
+  logoutTriggered = false;
 }
 
 function getCsrfToken() {
@@ -43,19 +48,37 @@ function ensureCsrfToken() {
   return csrfReady;
 }
 
+let refreshPromise = null;
+
 async function refreshAccessToken() {
-  const res = await fetch(`${BASE}/auth/refresh`, {
-    method: 'POST',
-    credentials: 'include',
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  accessToken = data.token;
-  return accessToken;
+  if (refreshPromise) return refreshPromise;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+  refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${BASE}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        signal: controller ? controller.signal : undefined,
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      accessToken = data.token;
+      return accessToken;
+    } catch {
+      return null;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
 }
 
 const MUTATING = ['POST', 'PUT', 'PATCH', 'DELETE'];
-const CSRF_EXEMPT = ['/auth/login', '/auth/register', '/auth/refresh'];
+// CSRF exempt paths (must match backend EXEMPT_SUFFIXES in src/middleware/csrf.js)
+export const CSRF_EXEMPT_PATHS = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/recover'];
+export const CSRF_EXEMPT = CSRF_EXEMPT_PATHS;
 
 async function request(path, options = {}, retry = true) {
   const method = (options.method || 'GET').toUpperCase();
@@ -82,7 +105,7 @@ async function request(path, options = {}, retry = true) {
     });
 
     if (res.status === 401 && retry) {
-      let token;
+      let token = null;
       try {
         token = await refreshAccessToken();
       } catch {
@@ -90,7 +113,16 @@ async function request(path, options = {}, retry = true) {
       }
       if (token) return request(path, options, false);
       clearAccessToken();
-      if (logoutCallback) logoutCallback();
+      if (!logoutTriggered && logoutCallback) {
+        try {
+          logoutTriggered = true;
+          logoutCallback();
+        } catch {
+          // ignore
+        }
+      } else if (!logoutTriggered) {
+        logoutTriggered = true;
+      }
       throw new Error('Session expired');
     }
 

@@ -6,7 +6,7 @@ const CSRF_HEADER = 'x-csrf-token';
 // Routes that are exempt from CSRF validation (pre-auth endpoints).
 // Expressed as path suffixes (i.e. with the /api or /api/v1 prefix
 // stripped) so the same list covers every registered API version (#990).
-const EXEMPT_SUFFIXES = ['/auth/login', '/auth/register', '/auth/recover'];
+const EXEMPT_SUFFIXES = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/recover'];
 
 /**
  * Strips a leading /api/v1 or /api prefix so exemption checks are
@@ -90,4 +90,4 @@ function parseCookie(cookieStr, name) {
   return null;
 }
 
-module.exports = { csrfProtect, csrfTokenHandler, generateCsrfToken };
+module.exports = { csrfProtect, csrfTokenHandler, generateCsrfToken, EXEMPT_SUFFIXES };
