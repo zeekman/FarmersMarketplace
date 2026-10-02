@@ -1,11 +1,17 @@
+import { showToast } from '../utils/toast.js';
+
 const BASE = '/api/v1';
+const REFRESH_TIMEOUT_MS = 10_000;
 
 let accessToken = null;
 let loadingCallback = null;
 let logoutCallback = null;
+let refreshPromise = null;
+let sessionExpiryHandled = false;
 
 export function setAccessToken(token) {
   accessToken = token;
+  if (token) sessionExpiryHandled = false;
 }
 
 export function clearAccessToken() {
@@ -44,18 +50,45 @@ function ensureCsrfToken() {
 }
 
 async function refreshAccessToken() {
-  const res = await fetch(`${BASE}/auth/refresh`, {
-    method: 'POST',
-    credentials: 'include',
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  accessToken = data.token;
-  return accessToken;
+  if (!refreshPromise) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REFRESH_TIMEOUT_MS);
+    refreshPromise = fetch(`${BASE}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const data = await res.json();
+        accessToken = data.token;
+        sessionExpiryHandled = false;
+        return accessToken;
+      })
+      .finally(() => {
+        clearTimeout(timeoutId);
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
 }
 
 const MUTATING = ['POST', 'PUT', 'PATCH', 'DELETE'];
-const CSRF_EXEMPT = ['/auth/login', '/auth/register', '/auth/refresh'];
+// Keep this list aligned with backend/src/middleware/csrf.js EXEMPT_SUFFIXES.
+const CSRF_EXEMPT = ['/auth/login', '/auth/register', '/auth/recover'];
+
+function handleSessionExpired() {
+  if (sessionExpiryHandled) return;
+  sessionExpiryHandled = true;
+  clearAccessToken();
+  try {
+    const result = logoutCallback?.();
+    result?.catch?.(() => {});
+  } catch {
+    // A logout handler must not prevent the session-expired notification.
+  }
+  showToast('Session expired', 'error');
+}
 
 async function request(path, options = {}, retry = true) {
   const method = (options.method || 'GET').toUpperCase();
@@ -68,8 +101,9 @@ async function request(path, options = {}, retry = true) {
   if (loadingCallback) loadingCallback(true);
   try {
     const headers = {};
+    const requestToken = accessToken;
     if (!isFormData) headers['Content-Type'] = 'application/json';
-    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+    if (requestToken) headers.Authorization = `Bearer ${requestToken}`;
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
     Object.assign(headers, options.headers || {});
 
@@ -82,6 +116,14 @@ async function request(path, options = {}, retry = true) {
     });
 
     if (res.status === 401 && retry) {
+      // Another request may already have refreshed (or failed to refresh) the
+      // token while this response was in flight.
+      if (requestToken !== accessToken) {
+        if (accessToken) return request(path, options, false);
+        throw new Error('Session expired');
+      }
+      if (sessionExpiryHandled) throw new Error('Session expired');
+
       let token;
       try {
         token = await refreshAccessToken();
@@ -89,8 +131,7 @@ async function request(path, options = {}, retry = true) {
         token = null;
       }
       if (token) return request(path, options, false);
-      clearAccessToken();
-      if (logoutCallback) logoutCallback();
+      handleSessionExpired();
       throw new Error('Session expired');
     }
 

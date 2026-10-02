@@ -23,6 +23,9 @@
  */
 
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { showToast } from '../utils/toast.js';
+
+vi.mock('../utils/toast.js', () => ({ showToast: vi.fn() }));
 
 // Set up fetch stub before importing the module so the module-level fetch call
 // inside refreshAccessToken() is captured by the stub.
@@ -58,6 +61,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   clearAccessToken();
   setLogoutCallback(null);
+  showToast.mockClear();
   // Clear CSRF cookie so tests that don't need CSRF don't accidentally get one
   document.cookie = 'csrf_token=; Max-Age=0; path=/';
 });
@@ -105,6 +109,68 @@ describe('Successful request', () => {
 // ── 401 auto-refresh and retry ────────────────────────────────────────────────
 
 describe('401 auto-refresh and retry', () => {
+  it('shares one refresh across five concurrent 401s and retries all five requests', async () => {
+    setAccessToken('expired-token');
+    let resolveRefresh;
+    let resourceCalls = 0;
+    let refreshCalls = 0;
+    const refreshResponse = new Promise((resolve) => {
+      resolveRefresh = resolve;
+    });
+
+    mockFetch.mockImplementation((url) => {
+      if (url.includes('/auth/refresh')) {
+        refreshCalls += 1;
+        return refreshResponse;
+      }
+      resourceCalls += 1;
+      return resourceCalls <= 5
+        ? errResponse(401)
+        : okResponse({ retried: true });
+    });
+
+    const requests = Array.from({ length: 5 }, () => api.getWallet());
+    await vi.waitFor(() => expect(refreshCalls).toBe(1));
+    resolveRefresh({ ok: true, status: 200, json: () => Promise.resolve({ token: 'fresh-token' }) });
+
+    const results = await Promise.all(requests);
+    expect(results).toEqual(Array.from({ length: 5 }, () => ({ retried: true })));
+    expect(refreshCalls).toBe(1);
+    expect(resourceCalls).toBe(10);
+    expect(mockFetch).toHaveBeenCalledTimes(11);
+    for (const [url, opts] of mockFetch.mock.calls.filter(([url]) => !url.includes('/auth/refresh')).slice(5)) {
+      expect(url).toContain('/wallet');
+      expect(opts.headers.Authorization).toBe('Bearer fresh-token');
+    }
+  });
+
+  it('logs out and shows one session-expired toast for concurrent refresh failure', async () => {
+    const logoutSpy = vi.fn();
+    setLogoutCallback(logoutSpy);
+    setAccessToken('expired-token');
+    let resourceCalls = 0;
+    let refreshCalls = 0;
+    mockFetch.mockImplementation((url) => {
+      if (url.includes('/auth/refresh')) {
+        refreshCalls += 1;
+        return errResponse(401);
+      }
+      resourceCalls += 1;
+      return errResponse(401);
+    });
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 5 }, () => api.getWallet()),
+    );
+
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    expect(refreshCalls).toBe(1);
+    expect(logoutSpy).toHaveBeenCalledOnce();
+    expect(showToast).toHaveBeenCalledOnce();
+    expect(showToast).toHaveBeenCalledWith('Session expired', 'error');
+    expect(resourceCalls).toBe(5);
+  });
+
   it('retries the original request after a successful token refresh', async () => {
     setAccessToken('expired-token');
 
