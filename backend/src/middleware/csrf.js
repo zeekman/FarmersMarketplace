@@ -12,6 +12,10 @@ const CSRF_HEADER = 'x-csrf-token';
 // They are instead protected by the SameSite=Strict refresh-token cookie
 // (which browsers refuse to attach to cross-site requests) plus an Origin
 // check in the auth routes, so CSRF validation here would be redundant (#1363).
+//
+// Keep in sync with CSRF_EXEMPT in frontend/src/api/client.js. The frontend
+// build context is ./frontend, so it cannot import this file; the parity is
+// asserted by frontend/src/test/csrfBootstrap.test.js.
 const EXEMPT_SUFFIXES = [
   '/auth/login',
   '/auth/register',

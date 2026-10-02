@@ -8,6 +8,8 @@
  */
 
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -131,9 +133,33 @@ describe('403 CSRF retry', () => {
   });
 });
 
+/**
+ * The frontend build context is ./frontend, so CSRF_EXEMPT cannot be imported
+ * from the backend — it is duplicated. Read the backend list so the two can't
+ * silently drift apart (#1363).
+ */
+function backendExemptSuffixes() {
+  let dir = process.cwd();
+  for (let depth = 0; depth < 5; depth += 1) {
+    const file = path.join(dir, 'backend', 'src', 'middleware', 'csrf.js');
+    if (existsSync(file)) {
+      const block = readFileSync(file, 'utf8').match(/EXEMPT_SUFFIXES\s*=\s*\[([\s\S]*?)\]/);
+      if (block) return [...block[1].matchAll(/'([^']+)'/g)].map((match) => match[1]);
+    }
+    dir = path.dirname(dir);
+  }
+  throw new Error('Could not read EXEMPT_SUFFIXES from backend/src/middleware/csrf.js');
+}
+
 describe('CSRF-exempt paths', () => {
   it('matches the backend exemption list', () => {
-    expect(CSRF_EXEMPT).toEqual(['/auth/login', '/auth/register', '/auth/recover']);
+    // /auth/refresh never goes through request() (see refreshAccessToken) and
+    // /auth/logout still sends the header, which the backend accepts; every
+    // other backend exemption must be listed here too.
+    const sessionRoutes = ['/auth/refresh', '/auth/logout'];
+    expect(CSRF_EXEMPT).toEqual(
+      backendExemptSuffixes().filter((route) => !sessionRoutes.includes(route))
+    );
   });
 
   it.each([
