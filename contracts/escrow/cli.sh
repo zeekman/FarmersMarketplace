@@ -91,23 +91,45 @@ case "${1:-help}" in
       --source "$SOURCE"
     ;;
 
-  deposit)
-    # ./cli.sh deposit <xlm_token> <order_id> <buyer> <farmer> <amount> <timeout_unix>
+  initialize)
+    # ./cli.sh initialize <admin> <fee_bps> <fee_destination>
+    # Must be called once after deploy. `release` / `release_to_stream` /
+    # `batch_release` / `auto_release` / `resolve_dispute` all read the platform fee
+    # from what this stores and fail with NotInitialized until it has been called.
     CONTRACT_ID="${CONTRACT_ID:?Set CONTRACT_ID}"
-    invoke deposit --xlm_token "$2" --order_id "$3" --buyer "$4" \
-      --farmer "$5" --amount "$6" --timeout_unix "$7"
+    invoke initialize --admin "$2" --fee_bps "$3" --fee_destination "$4"
+    ;;
+
+  deposit)
+    # ./cli.sh deposit <token> <order_id> <buyer> <farmer> <amount> <timeout_unix>
+    # (no cooperative royalty, no pre-order lock)
+    CONTRACT_ID="${CONTRACT_ID:?Set CONTRACT_ID}"
+    invoke deposit --token "$2" --order_id "$3" --buyer "$4" \
+      --farmer "$5" --amount "$6" --timeout_unix "$7" \
+      --cooperative_royalty_bps 0 --release_after_unix 0
     ;;
 
   release)
-    # ./cli.sh release <xlm_token> <order_id>
+    # ./cli.sh release <order_id> <caller>
+    # <caller> must be the escrow buyer or the platform admin. The platform fee is
+    # never a CLI/caller input: it comes from the value stored by `initialize`.
     CONTRACT_ID="${CONTRACT_ID:?Set CONTRACT_ID}"
-    invoke release --xlm_token "$2" --order_id "$3"
+    invoke release --order_id "$2" --caller "$3"
     ;;
 
   refund)
-    # ./cli.sh refund <xlm_token> <order_id>
+    # ./cli.sh refund <order_id>
     CONTRACT_ID="${CONTRACT_ID:?Set CONTRACT_ID}"
-    invoke refund --xlm_token "$2" --order_id "$3"
+    invoke refund --order_id "$2"
+    ;;
+
+  resolve-dispute)
+    # ./cli.sh resolve-dispute <order_id> <buyer_bps>
+    # Admin-only. <buyer_bps> is the buyer's share of the escrow in basis points
+    # (0..=10000): 0 = all to the farmer, 10000 = full refund, 6000 = 60/40 split.
+    # The farmer's share has the platform fee and cooperative royalty deducted.
+    CONTRACT_ID="${CONTRACT_ID:?Set CONTRACT_ID}"
+    invoke resolve_dispute --order_id "$2" --buyer_bps "$3"
     ;;
 
   dispute)
@@ -144,10 +166,14 @@ case "${1:-help}" in
     START_LEDGER="$(curl -sf https://horizon-testnet.stellar.org/ | \
       python3 -c 'import sys,json; print(json.load(sys.stdin)["history_latest_ledger"])')"
 
-    invoke deposit --xlm_token "$XLM_TOKEN" --order_id "$ORDER_ID" \
+    # A freshly deployed instance must be initialized before it can settle anything
+    # (the fee is read from storage only). Admin and fee destination are the CI key.
+    invoke initialize --admin "$ADDRESS" --fee_bps 250 --fee_destination "$ADDRESS"
+    invoke deposit --token "$XLM_TOKEN" --order_id "$ORDER_ID" \
       --buyer "$ADDRESS" --farmer "$ADDRESS" --amount "$AMOUNT" \
-      --timeout_unix "$TIMEOUT_UNIX"
-    invoke release --xlm_token "$XLM_TOKEN" --order_id "$ORDER_ID"
+      --timeout_unix "$TIMEOUT_UNIX" \
+      --cooperative_royalty_bps 0 --release_after_unix 0
+    invoke release --order_id "$ORDER_ID" --caller "$ADDRESS"
 
     wait_for_release_event "$START_LEDGER" "$ORDER_ID"
     ;;
@@ -158,10 +184,12 @@ case "${1:-help}" in
     echo "Subcommands:"
     echo "  build                                                — compile the wasm"
     echo "  deploy                                                — build + deploy to \$NETWORK"
-    echo "  deposit <xlm_token> <order_id> <buyer> <farmer> <amount> <timeout_unix>"
-    echo "  release <xlm_token> <order_id>"
-    echo "  refund  <xlm_token> <order_id>"
+    echo "  initialize <admin> <fee_bps> <fee_destination>        — call once after deploy (required before any release)"
+    echo "  deposit <token> <order_id> <buyer> <farmer> <amount> <timeout_unix>"
+    echo "  release <order_id> <caller>                           — caller = buyer or admin; fee comes from storage"
+    echo "  refund  <order_id>"
     echo "  dispute <order_id> <caller>"
+    echo "  resolve-dispute <order_id> <buyer_bps>                — admin; buyer_bps 0..10000 (fee+royalty on farmer share)"
     echo "  get     <order_id>                                    — print full Escrow"
     echo "  smoke-test                                            — deploy+deposit+release+verify (see header docs)"
     ;;

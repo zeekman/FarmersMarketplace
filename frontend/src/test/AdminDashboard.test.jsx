@@ -24,6 +24,7 @@ vi.mock('react-router-dom', () => ({
 
 import AdminDashboard from '../pages/AdminDashboard';
 import { api } from '../api/client';
+import { expectNoA11yViolations } from './a11y';
 
 const VALID_HASH = 'a'.repeat(64);
 
@@ -107,4 +108,11 @@ describe('AdminDashboard WASM hash validation (#457)', () => {
     const saveBtn = screen.getByRole('button', { name: /save upgrade record/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
   });
+});
+
+describe('accessibility (#1397)', () => {
+  it('has no detectable axe violations', async () => {
+    const { container } = render(<AdminDashboard />);
+    await expectNoA11yViolations(container);
+  }, 15000);
 });

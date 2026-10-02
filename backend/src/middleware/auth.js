@@ -13,6 +13,9 @@ module.exports = async (req, res, next) => {
     if (!rows[0] || rows[0].active !== 1) {
       return err(res, 401, 'Account deactivated', 'deactivated');
     }
+    // Defence in depth: authenticated responses must never be stored by
+    // shared caches (service worker, proxies, browsers).
+    res.set('Cache-Control', 'private, no-store');
     next();
   } catch (e) {
     if (e instanceof jwt.TokenExpiredError)

@@ -64,3 +64,42 @@ describe('ImageGalleryManager', () => {
     expect(api.reorderProductImages).toHaveBeenCalledWith(7, GALLERY);
   });
 });
+
+describe('ImageGalleryManager stable keys (#1401)', () => {
+  const IMAGES = [
+    { id: 11, url: 'https://img.test/a.png' },
+    { id: 22, url: 'https://img.test/b.png' },
+    { id: 33, url: 'https://img.test/c.png' },
+  ];
+
+  it('reorders then deletes and sends the correct remaining images to the API', async () => {
+    api.reorderProductImages.mockResolvedValue({});
+    const onUpdate = vi.fn();
+    const { container } = render(<ImageGalleryManager productId={5} images={IMAGES} onUpdate={onUpdate} />);
+
+    // Move a.png (id 11) to the end → [22, 33, 11]
+    let items = container.querySelectorAll('[draggable="true"]');
+    fireEvent.dragStart(items[0]);
+    fireEvent.drop(items[2]);
+    expect(srcs(container)).toEqual([IMAGES[1].url, IMAGES[2].url, IMAGES[0].url]);
+
+    // Delete the image now shown first (id 22), not the one originally at index 0
+    items = container.querySelectorAll('[draggable="true"]');
+    fireEvent.click(items[0].querySelector('button'));
+    expect(srcs(container)).toEqual([IMAGES[2].url, IMAGES[0].url]);
+
+    fireEvent.click(screen.getByRole('button', { name: /save gallery order/i }));
+    await screen.findByText(/gallery order saved/i);
+    expect(api.reorderProductImages).toHaveBeenCalledWith(5, [IMAGES[2].url, IMAGES[0].url]);
+    expect(onUpdate.mock.calls[0][0].map((img) => img.id)).toEqual([33, 11]);
+  });
+
+  it('keeps the same DOM node attached to an image across a reorder', () => {
+    const { container } = render(<ImageGalleryManager productId={5} images={IMAGES} />);
+    const nodeFor11 = container.querySelector(`img[src="${IMAGES[0].url}"]`);
+    const items = container.querySelectorAll('[draggable="true"]');
+    fireEvent.dragStart(items[0]);
+    fireEvent.drop(items[2]);
+    expect(container.querySelector(`img[src="${IMAGES[0].url}"]`)).toBe(nodeFor11);
+  });
+});

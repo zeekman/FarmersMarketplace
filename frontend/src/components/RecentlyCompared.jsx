@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCompare } from '../context/CompareContext';
+import { api } from '../api/client';
 
 export const MAX_RECENTLY_COMPARED = 10;
 const SESSION_KEY = 'rc_strip_dismissed';
@@ -60,39 +61,60 @@ const s = {
 
 export default function RecentlyCompared() {
   const navigate = useNavigate();
-  const { history, products: compareProducts, addProduct } = useCompare();
+  const { history, removeProductsFromHistory } = useCompare();
   const [dismissed, setDismissed] = useState(
     () => !!sessionStorage.getItem(SESSION_KEY)
   );
   const [productNames, setProductNames] = useState({});
+  const [displayEntry, setDisplayEntry] = useState(null);
+  const skipHistorySync = useRef(false);
 
   const latest = history[0];
 
   useEffect(() => {
-    if (!latest) return;
-    const missing = latest.productIds.filter(id => !productNames[id]);
+    if (skipHistorySync.current) {
+      skipHistorySync.current = false;
+      return;
+    }
+    setDisplayEntry(latest || null);
+  }, [latest]);
+
+  useEffect(() => {
+    if (!displayEntry) return;
+    const controller = new AbortController();
+    const missing = displayEntry.productIds.filter(id => !productNames[id]);
     if (!missing.length) return;
     Promise.all(
       missing.map(id =>
-        fetch(`/api/products/${id}`)
-          .then(r => r.ok ? r.json() : null)
+        api.getProduct(id, { signal: controller.signal })
           .then(data => ({ id, name: data?.data?.name || `Product ${id}` }))
-          .catch(() => ({ id, name: `Product ${id}` }))
+          .catch(error => ({
+            id,
+            name: error.status === 404 ? 'No longer available' : `Product ${id}`,
+            unavailable: error.status === 404,
+          }))
       )
     ).then(results => {
+      if (controller.signal.aborted) return;
       const names = {};
       results.forEach(({ id, name }) => { names[id] = name; });
       setProductNames(prev => ({ ...prev, ...names }));
+      const unavailableIds = results.filter(result => result.unavailable).map(result => result.id);
+      if (unavailableIds.length) {
+        skipHistorySync.current = true;
+        removeProductsFromHistory(unavailableIds);
+      }
     });
-  }, [latest]);
+    return () => controller.abort();
+  }, [displayEntry, productNames, removeProductsFromHistory]);
 
-  if (!latest || dismissed) return null;
+  if (!displayEntry || dismissed) return null;
 
-  const visible = latest.productIds.slice(0, MAX_VISIBLE);
+  const visible = displayEntry.productIds.slice(0, MAX_VISIBLE);
 
   function handleCompareNow() {
-    const ids = latest.productIds.join(',');
-    navigate(`/compare?products=${ids}`);
+    const ids = displayEntry.productIds.filter(id => productNames[id] !== 'No longer available').join(',');
+    if (ids) navigate(`/compare?products=${ids}`);
   }
 
   function handleDismiss() {
@@ -110,9 +132,9 @@ export default function RecentlyCompared() {
             <span style={{ marginTop: 4 }}>{productNames[id] || `#${id}`}</span>
           </div>
         ))}
-        {latest.productIds.length > MAX_VISIBLE && (
+        {displayEntry.productIds.length > MAX_VISIBLE && (
           <div style={{ ...s.thumb, justifyContent: 'center' }}>
-            +{latest.productIds.length - MAX_VISIBLE} more
+            +{displayEntry.productIds.length - MAX_VISIBLE} more
           </div>
         )}
       </div>

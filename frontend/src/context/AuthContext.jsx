@@ -3,6 +3,19 @@ import { api, setAccessToken, clearAccessToken } from '../api/client';
 
 const AuthContext = createContext(null);
 
+// Ask the service worker to drop every cached API response so a previous
+// user's authenticated data can never be served to the next person on a
+// shared device (see issue #1403).
+function clearUserCache() {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.ready
+    .then((reg) => {
+      const target = reg.active || navigator.serviceWorker.controller;
+      if (target) target.postMessage({ type: 'CLEAR_USER_CACHE' });
+    })
+    .catch(() => {});
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true); // wait for silent refresh on mount
@@ -62,6 +75,9 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   function login(token, userData) {
+    // A different user may be signing in on this device; purge any API
+    // responses cached for the previous session before we start fetching.
+    clearUserCache();
     setAccessToken(token);
     localStorage.setItem('user', JSON.stringify(userData)); // store user profile only, NOT the token
     setUser(userData);
@@ -77,6 +93,9 @@ export function AuthProvider({ children }) {
     clearAccessToken();
     localStorage.removeItem('user');
     setUser(null);
+    // Drop cached authenticated API responses so they can't leak to the
+    // next person who uses this device.
+    clearUserCache();
   }
 
   return (

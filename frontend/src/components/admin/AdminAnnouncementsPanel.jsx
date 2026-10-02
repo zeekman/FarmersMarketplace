@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../../api/client';
+import { useConfirm } from '../../hooks/useConfirm';
 
 /**
  * AdminAnnouncementsPanel — create, edit, and delete platform announcements.
@@ -10,6 +11,7 @@ export default function AdminAnnouncementsPanel() {
   const [annForm, setAnnForm] = useState({ message: '', type: 'info', expires_at: '' });
   const [editingAnn, setEditingAnn] = useState(null);
   const [annMsg, setAnnMsg] = useState('');
+  const { confirm, confirmDialog } = useConfirm();
 
   const s = {
     card: { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginTop: 32 },
@@ -160,7 +162,13 @@ export default function AdminAnnouncementsPanel() {
                   </button>
                   <button
                     onClick={async () => {
-                      if (!window.confirm('Delete?')) return;
+                      const ok = await confirm({
+                        title: 'Delete announcement?',
+                        description: 'It will be removed for all users immediately.',
+                        confirmLabel: 'Delete',
+                        destructive: true,
+                      });
+                      if (!ok) return;
                       await api.adminDeleteAnnouncement(a.id);
                       loadAnnouncements();
                     }}
@@ -174,6 +182,7 @@ export default function AdminAnnouncementsPanel() {
           </tbody>
         </table>
       )}
+      {confirmDialog}
     </div>
   );
 }

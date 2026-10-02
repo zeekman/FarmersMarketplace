@@ -62,6 +62,11 @@ function groupByFarmer(products) {
   return Array.from(map.values());
 }
 
+// Farm location groups are keyed by coordinates, which are unique per group.
+function clusterItemKey(group) {
+  return `${group.lat},${group.lng}`;
+}
+
 /**
  * Groups farm location pins into spatial clusters at the given zoom level.
  * Returns an array of items, each either a single group ({ type: 'pin', ...group })
@@ -132,11 +137,11 @@ function ClusterLayer({ groups, onFarmerClick }) {
   return (
     <>
       <ZoomTracker onZoom={setZoom} />
-      {clusters.map((item, i) => {
+      {clusters.map((item) => {
         if (item.type === 'cluster') {
           return (
             <Marker
-              key={`cluster-${i}`}
+              key={`cluster-${item.groups.map(clusterItemKey).join('|')}`}
               position={[item.lat, item.lng]}
               icon={clusterIcon(item.count)}
               eventHandlers={{
@@ -158,7 +163,7 @@ function ClusterLayer({ groups, onFarmerClick }) {
 
         const group = item;
         return (
-          <React.Fragment key={`pin-${i}`}>
+          <React.Fragment key={`pin-${clusterItemKey(group)}`}>
             <Marker
               position={[group.lat, group.lng]}
               eventHandlers={onFarmerClick ? {

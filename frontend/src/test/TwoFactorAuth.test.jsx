@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 vi.mock('../api/client', async (importOriginal) => {
@@ -66,21 +66,35 @@ describe('TwoFactorAuth', () => {
     });
   });
 
-  it('requires confirmation before disabling 2FA', async () => {
+  it('requires confirmation through the dialog before disabling 2FA', async () => {
     api.get2FAStatus.mockResolvedValue({ enabled: true });
     api.disable2FA.mockResolvedValue({});
-    const confirm = vi.spyOn(window, 'confirm');
+    const nativeConfirm = vi.spyOn(window, 'confirm');
     render(<TwoFactorAuth />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /disable 2fa/i })).toBeInTheDocument());
+    const disableBtn = await screen.findByRole('button', { name: /disable 2fa/i });
 
-    confirm.mockReturnValue(false);
-    fireEvent.click(screen.getByRole('button', { name: /disable 2fa/i }));
+    // Cancel keeps 2FA enabled
+    fireEvent.click(disableBtn);
+    let dialog = await screen.findByRole('alertdialog', { name: /disable two-factor authentication/i });
+    expect(dialog).toHaveAccessibleDescription(/less secure/i);
+    fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
     expect(api.disable2FA).not.toHaveBeenCalled();
 
-    confirm.mockReturnValue(true);
-    fireEvent.click(screen.getByRole('button', { name: /disable 2fa/i }));
+    // Escape also cancels
+    fireEvent.click(disableBtn);
+    await screen.findByRole('alertdialog');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(api.disable2FA).not.toHaveBeenCalled();
+
+    // Confirm disables
+    fireEvent.click(disableBtn);
+    dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /disable 2fa/i }));
     await waitFor(() => expect(api.disable2FA).toHaveBeenCalledTimes(1));
     expect(screen.getByText(/2fa disabled/i)).toBeInTheDocument();
-    confirm.mockRestore();
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    nativeConfirm.mockRestore();
   });
 });

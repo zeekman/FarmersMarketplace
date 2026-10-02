@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/client';
+import { useConfirm } from '../hooks/useConfirm';
 
 const s = {
   card: { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 },
@@ -28,6 +29,7 @@ export default function TwoFactorAuth() {
   const [backupCodes, setBackupCodes] = useState([]);
   const [verificationCode, setVerificationCode] = useState('');
   const [msg, setMsg] = useState(null);
+  const { confirm, confirmDialog } = useConfirm();
   const [saving, setSaving] = useState(false);
 
   // Load 2FA status on mount
@@ -93,9 +95,13 @@ export default function TwoFactorAuth() {
   }
 
   async function handleDisable() {
-    if (!window.confirm('Are you sure you want to disable 2FA? Your account will be less secure.')) {
-      return;
-    }
+    const ok = await confirm({
+      title: 'Disable two-factor authentication?',
+      description: 'Your account will be less secure. You can turn 2FA back on at any time.',
+      confirmLabel: 'Disable 2FA',
+      destructive: true,
+    });
+    if (!ok) return;
 
     setSaving(true);
     setMsg(null);
@@ -176,8 +182,8 @@ export default function TwoFactorAuth() {
             💾 Save these backup codes in a safe place. You can use them to access your account if you lose your authenticator app.
           </div>
           <div style={s.backupCodes}>
-            {backupCodes.map((code, i) => (
-              <div key={i}>{code}</div>
+            {backupCodes.map((code) => (
+              <div key={code}>{code}</div>
             ))}
           </div>
           <label style={{ ...s.label, marginTop: 16 }}>Enter 6-digit code from your app</label>
@@ -199,6 +205,7 @@ export default function TwoFactorAuth() {
           </div>
         </>
       )}
+      {confirmDialog}
     </div>
   );
 }

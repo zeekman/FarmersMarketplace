@@ -86,7 +86,6 @@ function addr(pk)     { return StellarSdk.nativeToScVal(pk,    { type: 'address'
 function u64(n)       { return StellarSdk.nativeToScVal(n,     { type: 'u64'     }); }
 function i128(n)      { return StellarSdk.nativeToScVal(n,     { type: 'i128'    }); }
 function u32(n)       { return StellarSdk.nativeToScVal(n,     { type: 'u32'     }); }
-function bool(b)      { return StellarSdk.nativeToScVal(b,     { type: 'bool'    }); }
 function optAddr(pk)  {
   return pk
     ? StellarSdk.nativeToScVal(pk, { type: 'address' })
@@ -107,8 +106,9 @@ function depositArgs({ orderId, buyerPk, farmerPk, amountStroops, timeoutUnix,
   ];
 }
 
-function releaseArgs({ orderId, platformFeeBps = 0 }) {
-  return [u64(orderId), u32(platformFeeBps)];
+// release(order_id, caller) — no fee argument; the fee is stored on-chain (#1301).
+function releaseArgs({ orderId, callerPk }) {
+  return [u64(orderId), addr(callerPk)];
 }
 
 function refundArgs({ orderId }) {
@@ -123,8 +123,9 @@ function disputeArgs({ orderId, callerPk }) {
   return [u64(orderId), addr(callerPk)];
 }
 
-function resolveDisputeArgs({ orderId, releaseToFarmer }) {
-  return [u64(orderId), bool(!releaseToFarmer)];
+// resolve_dispute(order_id, buyer_bps): buyer_bps is the buyer's share, 0..=10000 (#1299).
+function resolveDisputeArgs({ orderId, releaseToFarmer, buyerBps }) {
+  return [u64(orderId), u32(buyerBps ?? (releaseToFarmer ? 0 : 10_000))];
 }
 
 function initializeArgs({ adminPk, feeBps, feeDestPk }) {
@@ -374,7 +375,7 @@ describeOrSkip('Escrow contract — full lifecycle (local Soroban sandbox)', () 
         invokeContract(
           contractId,
           'release',
-          releaseArgs({ orderId: ORDER_ID }),
+          releaseArgs({ orderId: ORDER_ID, callerPk: buyerKeypair.publicKey() }),
           buyerKeypair
         )
       ).rejects.toThrow();
@@ -523,7 +524,7 @@ describeOrSkip('Escrow contract — full lifecycle (local Soroban sandbox)', () 
         invokeContract(
           contractId,
           'release',
-          releaseArgs({ orderId: ORDER_ID }),
+          releaseArgs({ orderId: ORDER_ID, callerPk: buyerKeypair.publicKey() }),
           buyerKeypair
         )
       ).rejects.toThrow();

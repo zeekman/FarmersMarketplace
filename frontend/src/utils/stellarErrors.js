@@ -20,6 +20,14 @@ const STELLAR_ERROR_CODE_MAP = {
   op_no_trust: 'The account does not have a trustline for this asset. Please add the trustline first.',
   op_low_reserve: 'The account does not have enough balance to maintain the minimum reserve. Please fund your account.',
   op_line_full: 'The trustline limit has been reached.',
+  // Escrow contract errors surfaced by the backend (#1291, #1293).
+  escrow_in_dispute: 'This order is in dispute and can only be settled by an arbitrator.',
+  escrow_invalid_timeout: 'The escrow timeout is too short.',
+  escrow_invalid_order_id: 'The order ID is out of range for the escrow contract.',
+  escrow_invalid_royalty: 'The cooperative royalty cannot exceed 100%.',
+  escrow_evidence_limit_reached: 'You have already submitted the maximum amount of evidence.',
+  escrow_not_disputed: 'This order is not in dispute.',
+  escrow_not_initialized: 'The escrow contract has not been initialized. Please contact support.',
 };
 
 export function getStellarErrorMessage(err) {

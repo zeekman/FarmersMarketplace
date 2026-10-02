@@ -325,7 +325,7 @@ function SettingsAccountBody() {
         </div>
       )}
 
-      {showModal &&
+      {showModal && (
         <div style={s.overlay} onClick={closeModal} role="dialog" aria-modal="true" aria-labelledby="modal-title">
           <div style={s.modal} onClick={e => e.stopPropagation()}>
 
@@ -481,8 +481,11 @@ function SeedPhraseBackup() {
           </div>
 
           <div style={s.wordGrid} aria-label="Seed phrase words">
+            {/* Seed words can repeat, and the list is static and never reordered,
+                so the position is the identity here. */}
             {words.map((word, i) => (
-              <div key={i} style={s.wordChip}>
+              // eslint-disable-next-line react/no-array-index-key
+              <div key={`${i}-${word}`} style={s.wordChip}>
                 <span style={s.wordNum}>{i + 1}.</span>
                 <span>{word}</span>
               </div>

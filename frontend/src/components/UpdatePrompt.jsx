@@ -39,6 +39,40 @@ export default function UpdatePrompt() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return undefined;
+
+    // A new sw.js (with a fresh build hash in its cache name) is byte-different
+    // after every deploy, so the browser installs it and fires updatefound.
+    // Surface the prompt as soon as the new worker is installed and waiting.
+    function handleControllerChange() {
+      setShow(true);
+    }
+
+    function watchRegistration(registration) {
+      if (!registration) return;
+      if (registration.waiting && navigator.serviceWorker.controller) {
+        setShow(true);
+      }
+      registration.addEventListener('updatefound', () => {
+        const installing = registration.installing;
+        if (!installing) return;
+        installing.addEventListener('statechange', () => {
+          if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+            setShow(true);
+          }
+        });
+      });
+    }
+
+    navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+    navigator.serviceWorker.ready.then(watchRegistration).catch(() => {});
+
+    return () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+    };
+  }, []);
+
   function handleRefresh() {
     // Tell the waiting service worker to skip waiting, then reload.
     if (navigator.serviceWorker?.controller) {

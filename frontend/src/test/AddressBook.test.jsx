@@ -18,6 +18,7 @@ vi.mock('../context/AuthContext', () => ({
 
 import { api } from '../api/client';
 import AddressBook from '../pages/AddressBook';
+import { expectNoA11yViolations } from './a11y';
 
 const mockAddress = {
   id: 1,
@@ -210,4 +211,12 @@ describe('AddressBook — address limit indicator and error handling', () => {
       expect(screen.getByText('Validation failed')).toBeInTheDocument(),
     );
   });
+});
+
+describe('accessibility (#1397)', () => {
+  it('has no detectable axe violations', async () => {
+    api.getAddresses.mockResolvedValue({ data: [mockAddress] });
+    const { container } = render(<AddressBook />);
+    await expectNoA11yViolations(container);
+  }, 15000);
 });

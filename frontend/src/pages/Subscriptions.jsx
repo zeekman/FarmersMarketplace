@@ -1,6 +1,13 @@
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { add, mul, formatXlm } from '../utils/money';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import Spinner from '../components/Spinner';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const FREQUENCIES = ['weekly', 'biweekly', 'monthly'];
 const FREQ_LABEL = { weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Every month' };
@@ -23,7 +30,6 @@ const s = {
   picker:    { position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #ddd', borderRadius: 8, boxShadow: '0 4px 12px #0002', maxHeight: 220, overflowY: 'auto', zIndex: 10, marginTop: -8, marginBottom: 12 },
   pickerRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer', fontSize: 14 },
   pickerImg: { width: 32, height: 32, borderRadius: 6, objectFit: 'cover', flexShrink: 0, background: '#d8f3dc', fontSize: 16 },
-  overlay: { position: 'fixed', inset: 0, background: '#0005', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
 };
 
 const STATUS_STYLE = {
@@ -33,119 +39,105 @@ const STATUS_STYLE = {
 };
 
 function CancelConfirmDialog({ sub, onConfirm, onCancel }) {
-  const cancelRef = React.useRef(null);
-
-  React.useEffect(() => {
-    cancelRef.current?.focus();
-    function onKey(e) { if (e.key === 'Escape') onCancel(); }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
-
   const nextAmount = sub.product_price && sub.quantity
     ? `${(sub.product_price * sub.quantity).toFixed(2)} XLM`
     : null;
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="cancel-dialog-title" style={s.overlay}>
-      <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 400, width: '90%', boxShadow: '0 4px 24px #0003' }}>
-        <div id="cancel-dialog-title" style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>Cancel Subscription</div>
-        <p style={{ fontSize: 14, color: '#555', marginBottom: 8 }}>
-          Are you sure you want to cancel your subscription for <strong>{sub.product_name}</strong>?
-        </p>
-        <div style={{ background: '#f8fdf9', border: '1px solid #b7e4c7', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
-          <div><span style={{ color: '#888' }}>Frequency:</span> {FREQ_LABEL[sub.frequency]}</div>
-          <div><span style={{ color: '#888' }}>Quantity:</span> {sub.quantity} {sub.unit}</div>
-          {nextAmount && <div><span style={{ color: '#888' }}>Next renewal amount:</span> {nextAmount}</div>}
-          {sub.next_order_at && (
-            <div>
-              <span style={{ color: '#888' }}>Next renewal date:</span>{' '}
-              {new Date(sub.next_order_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-            </div>
-          )}
-        </div>
-        <p style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>This action cannot be undone.</p>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button ref={cancelRef} style={{ ...s.smBtn, background: '#f0f0f0', color: '#333', padding: '8px 16px' }} onClick={onCancel}>Keep Subscription</button>
-          <button style={{ ...s.smBtn, background: '#fee', color: '#c0392b', padding: '8px 16px' }} onClick={onConfirm}>Cancel Subscription</button>
-        </div>
+    <ConfirmDialog
+      title="Cancel Subscription"
+      confirmLabel="Cancel Subscription"
+      cancelLabel="Keep Subscription"
+      destructive
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    >
+      <p style={{ margin: '0 0 8px' }}>
+        Are you sure you want to cancel your subscription for <strong>{sub.product_name}</strong>?
+      </p>
+      <div style={{ background: '#f8fdf9', border: '1px solid #b7e4c7', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
+        <div><span style={{ color: '#666' }}>Frequency:</span> {FREQ_LABEL[sub.frequency]}</div>
+        <div><span style={{ color: '#666' }}>Quantity:</span> {sub.quantity} {sub.unit}</div>
+        {nextAmount && <div><span style={{ color: '#666' }}>Next renewal amount:</span> {nextAmount}</div>}
+        {sub.next_order_at && (
+          <div>
+            <span style={{ color: '#666' }}>Next renewal date:</span>{' '}
+            {new Date(sub.next_order_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+          </div>
+        )}
       </div>
-    </div>
+      <p style={{ margin: 0, fontSize: 13 }}>This action cannot be undone.</p>
+    </ConfirmDialog>
   );
 }
 
 export default function Subscriptions() {
-  const [subs, setSubs]       = useState([]);
+  const { user } = useAuth();
+  const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm]       = useState({ product_id: '', quantity: 1, frequency: 'weekly' });
-  const [msg, setMsg]         = useState(null);
-  const [productQuery, setProductQuery] = useState('');
-  const [productResults, setProductResults] = useState([]);
-  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    const q = productQuery.trim();
-    if (!q || selectedProduct) { setProductResults([]); return; }
-    let active = true;
-    api.searchProducts(q).then(res => { if (active) setProductResults(res.data ?? []); }).catch(() => {});
-    return () => { active = false; };
-  }, [productQuery, selectedProduct]);
+    let cancelled = false;
 
-  function pickProduct(p) {
-    setSelectedProduct(p);
-    setProductQuery(p.name);
-    setProductResults([]);
-    setForm(f => ({ ...f, product_id: p.id }));
-  }
-  const [cancelTarget, setCancelTarget] = useState(null); // sub object pending cancellation
-
-  async function load() {
-    setLoading(true);
-    try {
-      const res = await api.getSubscriptions();
-      setSubs(res.data ?? []);
-    } catch { setSubs([]); }
-    setLoading(false);
-  }
-
-  useEffect(() => { load(); }, []);
-
-  async function handleCreate(e) {
-    e.preventDefault();
-    setMsg(null);
-    if (!form.product_id) {
-      setMsg({ type: 'err', text: 'Please select a product from the search results' });
-      return;
+    async function load() {
+      try {
+        setLoading(true);
+        const res = await fetch(`${API_URL}/api/subscriptions`, {
+          headers: { Authorization: `Bearer ${user?.token}` },
+        });
+        if (!res.ok) throw new Error('Failed to load subscriptions');
+        const data = await res.json();
+        if (!cancelled) setSubscriptions(data.subscriptions || []);
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
-    try {
-      await api.createSubscription({ ...form, quantity: parseInt(form.quantity) });
-      setMsg({ type: 'ok', text: 'Subscription created!' });
-      setForm({ product_id: '', quantity: 1, frequency: 'weekly' });
-      setSelectedProduct(null);
-      setProductQuery('');
-      load();
-    } catch (err) { setMsg({ type: 'err', text: err.message }); }
-  }
 
-  async function handleAction(id, action) {
-    try {
-      if (action === 'pause')   await api.pauseSubscription(id);
-      if (action === 'resume')  await api.resumeSubscription(id);
-      load();
-    } catch (err) { setMsg({ type: 'err', text: err.message }); }
-  }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.token]);
 
-  async function confirmCancel() {
-    const id = cancelTarget.id;
-    setCancelTarget(null);
-    try {
-      await api.cancelSubscription(id);
-      setMsg({ type: 'ok', text: 'Subscription cancelled.' });
-      load();
-    } catch (err) { setMsg({ type: 'err', text: err.message }); }
-  }
+  if (loading) return <div className="p-6">Loading subscriptions…</div>;
+  if (error) return <div className="p-6 text-red-600">{error}</div>;
 
   return (
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Subscriptions</h1>
+      {subscriptions.length === 0 ? (
+        <p className="text-gray-500">You have no active subscriptions.</p>
+      ) : (
+        <ul className="space-y-4">
+          {subscriptions.map((sub) => {
+            const total = mul(sub.product_price, sub.quantity);
+            return (
+              <li
+                key={sub.id}
+                className="border rounded-lg p-4 flex items-center justify-between"
+              >
+                <div>
+                  <p className="font-semibold">{sub.product_name}</p>
+                  <p className="text-sm text-gray-500">
+                    {formatXlm(sub.product_price)} XLM × {sub.quantity}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-mono">{formatXlm(total)} XLM</p>
+                  <Link
+                    to={`/subscriptions/${sub.id}`}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    Manage
+                  </Link>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
     <div style={s.page}>
       <div style={s.title}>🔄 Subscriptions</div>
       <div style={s.sub}>Set up recurring orders for your favourite products</div>
@@ -202,26 +194,6 @@ export default function Subscriptions() {
         <h3 style={{ marginBottom: 16, color: '#333' }}>My Subscriptions ({subs.length})</h3>
         {loading ? <Spinner /> : subs.length === 0 ? (
           <p style={{ color: '#888', fontSize: 14 }}>No active subscriptions.</p>
-        ) : subs.map(sub => (
-          <div key={sub.id} style={s.row}>
-            <div>
-              <div style={s.name}>{sub.product_name}</div>
-              <div style={s.meta}>{sub.quantity} {sub.unit} · {FREQ_LABEL[sub.frequency]} · {sub.product_price} XLM/unit</div>
-              <div style={s.meta}>
-                Next order: {sub.next_order_at && !isNaN(new Date(sub.next_order_at))
-                  ? new Date(sub.next_order_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-                  : 'Not scheduled'}
-              </div>
-            </div>
-            <div style={s.actions}>
-              <span style={{ ...s.badge, ...STATUS_STYLE[sub.status] }}>{sub.status}</span>
-              {sub.status === 'active' && (
-                <button style={{ ...s.smBtn, background: '#fff3cd', color: '#856404' }} onClick={() => handleAction(sub.id, 'pause')}>Pause</button>
-              )}
-              {sub.status === 'paused' && (
-                <button style={{ ...s.smBtn, background: '#d8f3dc', color: '#2d6a4f' }} onClick={() => handleAction(sub.id, 'resume')}>Resume</button>
-              )}
-              <button style={{ ...s.smBtn, background: '#fee', color: '#c0392b' }} onClick={() => { if (confirm('Cancel this subscription?')) handleAction(sub.id, 'cancel'); }}>Cancel</button>
         ) : subs.map(sub => {
           const nextAmount = sub.product_price && sub.quantity
             ? `${(sub.product_price * sub.quantity).toFixed(2)} XLM`
@@ -232,7 +204,11 @@ export default function Subscriptions() {
                 <div style={s.name}>{sub.product_name}</div>
                 <div style={s.meta}>{sub.quantity} {sub.unit} · {FREQ_LABEL[sub.frequency]}</div>
                 {nextAmount && <div style={s.meta}>Next renewal amount: <strong>{nextAmount}</strong></div>}
-                <div style={s.meta}>Next renewal date: {new Date(sub.next_order_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                <div style={s.meta}>
+                  Next renewal date: {sub.next_order_at && !isNaN(new Date(sub.next_order_at))
+                    ? new Date(sub.next_order_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                    : 'Not scheduled'}
+                </div>
                 {sub.next_billing_at ? (
                   <div style={s.meta}>Next billing: {new Date(sub.next_billing_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</div>
                 ) : (

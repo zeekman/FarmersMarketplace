@@ -16,6 +16,7 @@ vi.mock('../components/StarRating', () => ({
 
 import { useCompare } from '../context/CompareContext';
 import Compare from '../pages/Compare';
+import { expectNoA11yViolations } from './a11y';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -208,4 +209,12 @@ describe('Compare export (#782)', () => {
 
     document.createElement.mockRestore();
   });
+});
+
+describe('accessibility (#1397)', () => {
+  it('has no detectable axe violations', async () => {
+    useCompare.mockReturnValue({ products: [fullProduct, minimalProduct] });
+    const { container } = render(<Compare />);
+    await expectNoA11yViolations(container);
+  }, 15000);
 });

@@ -15,6 +15,7 @@
 ///            + (t - last_checkpoint_at) * rate_per_second
 /// ```
 /// where `t` is the current ledger timestamp.
+
 use soroban_sdk::{contracttype, token, Address, Env};
 
 // ---------------------------------------------------------------------------
@@ -656,7 +657,35 @@ mod tests {
     #[test]
     fn on_chain_decrease_rate_returns_correct_surplus() {
         let env = Env::default();
+        let contract_id = env.register(crate::EscrowContract, ());
         env.mock_all_auths();
+        env.clone().as_contract(&contract_id, || {
+        env.ledger().set_timestamp(30);
+
+        let sender = Address::generate(&env);
+        let stream = PaymentStream {
+            sender: sender.clone(),
+            recipient: Address::generate(&env),
+            rate_per_second: 10,
+            deposit: 1000,
+            accrued_at_checkpoint: 0,
+            last_checkpoint_at: 0,
+            end_time: 100,
+            cancelled: false,
+            withdrawn_amount: 0,
+        };
+        let key = StreamKey::Stream(1);
+        env.storage().persistent().set(&key, &stream);
+
+        // At t=30: accrued=300, remaining=700, remaining_time=70, new_rate=5
+        // consumable=350, surplus=350
+        let surplus = decrease_rate_per_second(&env, 1, &sender, 5);
+        assert_eq!(surplus, 350);
+
+        let updated: PaymentStream = env.storage().persistent().get(&key).unwrap();
+        assert_eq!(updated.rate_per_second, 5);
+        assert_eq!(updated.accrued_at_checkpoint, 300);
+        assert_eq!(updated.deposit, 650); // 1000 - 350
         let contract_id = env.register(crate::EscrowContract, ());
         env.clone().as_contract(&contract_id, || {
             env.ledger().set_timestamp(30);
@@ -691,7 +720,33 @@ mod tests {
     #[test]
     fn on_chain_get_accrued_returns_live_value_before_and_after_rate_change() {
         let env = Env::default();
+        let contract_id = env.register(crate::EscrowContract, ());
         env.mock_all_auths();
+        env.clone().as_contract(&contract_id, || {
+        env.ledger().set_timestamp(20);
+
+        let sender = Address::generate(&env);
+        let stream = PaymentStream {
+            sender: sender.clone(),
+            recipient: Address::generate(&env),
+            rate_per_second: 10,
+            deposit: 1000,
+            accrued_at_checkpoint: 0,
+            last_checkpoint_at: 0,
+            end_time: 100,
+            cancelled: false,
+            withdrawn_amount: 0,
+        };
+        env.storage().persistent().set(&StreamKey::Stream(2), &stream);
+
+        // Before rate change: t=20 → accrued = 20*10 = 200
+        assert_eq!(get_accrued_amount_on_chain(&env, 2), 200);
+
+        // Decrease rate
+        decrease_rate_per_second(&env, 2, &sender, 5);
+
+        // After checkpoint at t=20 with new rate=5, get_accrued at t=20 = 200
+        assert_eq!(get_accrued_amount_on_chain(&env, 2), 200);
         let contract_id = env.register(crate::EscrowContract, ());
         env.clone().as_contract(&contract_id, || {
             env.ledger().set_timestamp(20);
@@ -728,7 +783,10 @@ mod tests {
     #[test]
     fn create_stream_allocates_id_and_persists() {
         let env = Env::default();
+        let contract_id = env.register(crate::EscrowContract, ());
         env.mock_all_auths();
+        env.clone().as_contract(&contract_id, || {
+        env.ledger().set_timestamp(100);
         let contract_id = env.register(crate::EscrowContract, ());
         env.clone().as_contract(&contract_id, || {
             env.ledger().set_timestamp(100);
@@ -740,6 +798,9 @@ mod tests {
             let stream_id = allocate_stream_id(&env);
             assert_eq!(stream_id, 1);
 
+        // Second allocation should return 2.
+        let stream_id2 = allocate_stream_id(&env);
+        assert_eq!(stream_id2, 2);
             // Second allocation should return 2.
             let stream_id2 = allocate_stream_id(&env);
             assert_eq!(stream_id2, 2);
@@ -824,7 +885,33 @@ mod tests {
     #[test]
     fn withdraw_computes_delta_correctly() {
         let env = Env::default();
+        let contract_id = env.register(crate::EscrowContract, ());
         env.mock_all_auths();
+        env.clone().as_contract(&contract_id, || {
+        env.ledger().set_timestamp(0);
+
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let token = Address::generate(&env);
+        let stream = PaymentStream {
+            sender: sender.clone(),
+            recipient: recipient.clone(),
+            rate_per_second: 10,
+            deposit: 1000,
+            accrued_at_checkpoint: 0,
+            last_checkpoint_at: 0,
+            end_time: 100,
+            cancelled: false,
+            withdrawn_amount: 0,
+        };
+        env.storage().persistent().set(&StreamKey::Stream(10), &stream);
+
+        // At t=30: accrued = 30*10 = 300, withdrawn = 0 → delta = 300
+        env.ledger().set_timestamp(30);
+        // Can't call withdraw without a real token contract, but we can
+        // verify the math in the stream state.
+        let retrieved: PaymentStream = env.storage().persistent().get(&StreamKey::Stream(10)).unwrap();
+        assert_eq!(get_accrued_amount(&retrieved, 30), 300);
         let contract_id = env.register(crate::EscrowContract, ());
         env.clone().as_contract(&contract_id, || {
             env.ledger().set_timestamp(0);

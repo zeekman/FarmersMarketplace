@@ -64,6 +64,8 @@ export default function Pagination({ page, totalPages, total, limit, onChange })
 
         {pages.map((p, i) =>
           p === '…' ? (
+            // Ellipsis spacers are stateless and there are at most two per render.
+            // eslint-disable-next-line react/no-array-index-key
             <span key={`ellipsis-${i}`} style={{ ...s.btn, cursor: 'default', border: 'none' }} aria-hidden="true">…</span>
           ) : (
             <button

@@ -114,6 +114,25 @@ export function CompareProvider({ children }) {
     }
   }, []);
 
+  const removeProductsFromHistory = useCallback((productIds) => {
+    const unavailableIds = new Set(productIds);
+    setHistory((prev) => {
+      const updated = prev
+        .map((entry) => ({
+          ...entry,
+          productIds: entry.productIds.filter((id) => !unavailableIds.has(id)),
+        }))
+        .filter((entry) => entry.productIds.length > 0);
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to update comparison history:', e);
+      }
+      return updated;
+    });
+  }, []);
+
   const isCompared = useCallback(
     (productId) => {
       return products.some((p) => p.id === productId);
@@ -134,6 +153,7 @@ export function CompareProvider({ children }) {
         saveToHistory,
         restoreComparison,
         clearHistory,
+        removeProductsFromHistory,
         isCompared,
       }}
     >

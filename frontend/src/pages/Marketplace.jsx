@@ -8,6 +8,7 @@ import { useCompare } from "../context/CompareContext";
 import { useXlmRate } from "../utils/useXlmRate";
 import { useDebounce } from "../utils/useDebounce";
 import { getRecentlyViewed } from "../utils/recentlyViewed";
+import { saveSnapshot, saveScrollPosition, readSnapshot, clearSnapshot } from "../utils/marketplaceSnapshot";
 import StarRating from "../components/StarRating";
 import SkeletonProductCard from "../components/SkeletonProductCard";
 import Spinner from "../components/Spinner";
@@ -30,6 +31,7 @@ const CATEGORIES = [
   "other",
 ];
 const PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_MS = 300;
 const MAX_PRICE = 500;
 const ALL_ALLERGENS = ["gluten", "nuts", "dairy", "eggs", "soy", "shellfish"];
 const GRADES = ["A", "B", "C", "Ungraded"];
@@ -377,7 +379,16 @@ function getFreshnessBadge(bestBefore) {
   return { text: 'Fresh', color: '#155724', background: '#d4edda' };
 }
 
-const SCROLL_KEY = 'marketplace_scroll';
+const SCROLL_SAVE_THROTTLE_MS = 250;
+
+// Stable key for the filters that affect the fetched product list.
+function filtersKey(f) {
+  return JSON.stringify([
+    f.search || '', f.seller || '', f.category || '', f.minPrice || '', f.maxPrice || '',
+    f.available || '', f.excludeAllergens || [], f.sort || '', f.grade || '',
+    f.lat || '', f.lng || '', f.radius || '',
+  ]);
+}
 
 export default function Marketplace() {
   const { t, i18n } = useTranslation();
@@ -412,21 +423,36 @@ export default function Marketplace() {
     return date.toLocaleDateString(i18n.language, { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
-  const debouncedSearch = useDebounce(filters.search, 300);
-  const debouncedSeller = useDebounce(filters.seller, 300);
+  const debouncedSearch = useDebounce(filters.search, SEARCH_DEBOUNCE_MS);
+  const debouncedSeller = useDebounce(filters.seller, SEARCH_DEBOUNCE_MS);
   const debouncedRadius = useDebounce(filters.radius, 400);
-  const debouncedSearch = useDebounce(filters.search, 400);
-  const debouncedSeller = useDebounce(filters.seller, 400);
 
   const abortRef = useRef(null);
   const sentinelRef = useRef(null);
   const observerRef = useRef(null);
   const pageRef = useRef(1);
+  const startPageRef = useRef(1);
   const hasMoreRef = useRef(true);
   const filtersRef = useRef(filters);
+  const loadedIdsRef = useRef([]);
+  // Key of the effective filters the current list was loaded with. Used to
+  // skip redundant reloads (e.g. while a restored snapshot's filters settle).
+  const lastLoadedKeyRef = useRef(null);
+  // Set while restoring a snapshot so the filter effect doesn't clobber it.
+  const restoringKeyRef = useRef(null);
+  const filterEffectMountedRef = useRef(false);
 
   // Keep filtersRef in sync
   useEffect(() => { filtersRef.current = filters; }, [filters]);
+
+  function persistSnapshot(f) {
+    saveSnapshot({
+      ids: loadedIdsRef.current,
+      startPage: startPageRef.current,
+      page: pageRef.current,
+      filters: f,
+    });
+  }
 
   async function fetchPage(f, p) {
     let data, totalPages = 1, res;
@@ -444,7 +470,7 @@ export default function Marketplace() {
       if (f.grade) params.grade = f.grade;
       if (f.sort && f.sort !== "newest") params.sort = f.sort;
       if (f.lat && f.lng && f.radius) { params.lat = f.lat; params.lng = f.lng; params.radius = f.radius; }
-      const res = await api.getProducts(params);
+      res = await api.getProducts(params);
       data = res.data ?? [];
       totalPages = res.totalPages ?? 1;
     }
@@ -469,24 +495,28 @@ export default function Marketplace() {
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    restoringKeyRef.current = null;
+    lastLoadedKeyRef.current = filtersKey(f);
     setLoading(true);
     setHasMore(true);
     pageRef.current = pageNum;
+    startPageRef.current = pageNum;
     hasMoreRef.current = true;
     try {
       const { data, totalPages, total } = await fetchPage(f, pageNum);
       if (controller.signal.aborted) return;
       setProducts(data);
+      loadedIdsRef.current = data.map((p) => p.id);
       setTotalPages(totalPages);
       setTotalCount(total);
       pageRef.current = pageNum;
-      const more = totalPages > 1;
+      const more = pageNum < totalPages;
       setHasMore(more);
       hasMoreRef.current = more;
       const aucs = await api.getAuctions().catch(() => ({ data: [] }));
       setAuctions(aucs.data || []);
-      // Save to sessionStorage for back-navigation restore
-      sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ products: data, page: pageNum, hasMore: more, totalPages, total, filters: f }));
+      // Save a lightweight snapshot (ids + view state only) for back-navigation
+      persistSnapshot(f);
     } catch (err) {
       if (err?.name !== 'AbortError') setProducts([]);
     }
@@ -500,40 +530,63 @@ export default function Marketplace() {
     const nextPage = pageRef.current + 1;
     try {
       const { data, totalPages } = await fetchPage(filtersRef.current, nextPage);
-      setProducts(prev => {
-        const merged = [...prev, ...data];
-        sessionStorage.setItem(SCROLL_KEY, JSON.stringify({
-          products: merged, page: nextPage, hasMore: nextPage < totalPages, filters: filtersRef.current,
-        }));
-        return merged;
-      });
+      setProducts(prev => [...prev, ...data]);
+      loadedIdsRef.current = [...loadedIdsRef.current, ...data.map((p) => p.id)];
       pageRef.current = nextPage;
       const more = nextPage < totalPages;
       setHasMore(more);
       hasMoreRef.current = more;
+      persistSnapshot(filtersRef.current);
     } catch { /* ignore */ }
     setLoadingMore(false);
   }, [loadingMore]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Restore scroll position on back-navigation
+  // Restore a snapshot by refetching pages startPage..page so prices, stock
+  // and flash-sale state are always fresh, then restore the scroll position.
+  async function restoreSnapshot(snap) {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const f = { ...EMPTY_FILTERS, ...snap.filters };
+    restoringKeyRef.current = filtersKey(f);
+    lastLoadedKeyRef.current = restoringKeyRef.current;
+    setFilters(f);
+    setLoading(true);
+    try {
+      const pages = [];
+      for (let p = snap.startPage; p <= snap.page; p++) pages.push(p);
+      const results = await Promise.all(pages.map((p) => fetchPage(f, p)));
+      if (controller.signal.aborted) return;
+      const data = results.flatMap((r) => r.data);
+      const last = results[results.length - 1] ?? { totalPages: 1, total: 0 };
+      setProducts(data);
+      loadedIdsRef.current = data.map((p) => p.id);
+      setTotalPages(last.totalPages);
+      setTotalCount(last.total);
+      startPageRef.current = snap.startPage;
+      pageRef.current = snap.page;
+      const more = snap.page < last.totalPages;
+      setHasMore(more);
+      hasMoreRef.current = more;
+      setLoading(false);
+      persistSnapshot(f);
+      api.getAuctions()
+        .then((aucs) => { if (!controller.signal.aborted) setAuctions(aucs.data || []); })
+        .catch(() => {});
+      requestAnimationFrame(() => window.scrollTo(0, snap.scrollY));
+    } catch {
+      if (controller.signal.aborted) return;
+      clearSnapshot();
+      load(f);
+    }
+  }
+
+  // Restore listing on back-navigation (only if the snapshot is still fresh)
   useEffect(() => {
-    const saved = sessionStorage.getItem(SCROLL_KEY);
-    if (saved) {
-      try {
-        const { products: savedProducts, page: savedPage, hasMore: savedHasMore, filters: savedFilters } = JSON.parse(saved);
-        setProducts(savedProducts);
-        setFilters(savedFilters);
-        pageRef.current = savedPage;
-        hasMoreRef.current = savedHasMore;
-        setHasMore(savedHasMore);
-        setLoading(false);
-        // Restore scroll after render
-        requestAnimationFrame(() => {
-          const scrollY = sessionStorage.getItem(SCROLL_KEY + '_y');
-          if (scrollY) window.scrollTo(0, parseInt(scrollY, 10));
-        });
-        return;
-      } catch { /* fall through to normal load */ }
+    const snap = readSnapshot();
+    if (snap) {
+      restoreSnapshot(snap);
+      return;
     }
     load(EMPTY_FILTERS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -545,11 +598,30 @@ export default function Marketplace() {
       pageRef.current = totalPages;
     }
   }, [totalPages]);
-  // Save scroll position continuously for SPA back-navigation
+
+  // Save scroll position for SPA back-navigation: throttled while scrolling,
+  // and on pagehide / route change (unmount) so the final position is kept.
   useEffect(() => {
-    const saveScroll = () => sessionStorage.setItem(SCROLL_KEY + '_y', String(window.scrollY));
-    window.addEventListener('scroll', saveScroll, { passive: true });
-    return () => window.removeEventListener('scroll', saveScroll);
+    let lastSaved = 0;
+    let trailing = null;
+    const save = () => {
+      lastSaved = Date.now();
+      trailing = null;
+      saveScrollPosition(window.scrollY);
+    };
+    const onScroll = () => {
+      const elapsed = Date.now() - lastSaved;
+      if (elapsed >= SCROLL_SAVE_THROTTLE_MS) save();
+      else if (!trailing) trailing = setTimeout(save, SCROLL_SAVE_THROTTLE_MS - elapsed);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('pagehide', save);
+    return () => {
+      if (trailing) clearTimeout(trailing);
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('pagehide', save);
+      save();
+    };
   }, []);
 
   // IntersectionObserver for infinite scroll
@@ -573,9 +645,26 @@ export default function Marketplace() {
 
   // Filter changes → reset and reload
   useEffect(() => {
-    sessionStorage.removeItem(SCROLL_KEY);
-    sessionStorage.removeItem(SCROLL_KEY + '_y');
     const f = { ...filters, search: debouncedSearch, seller: debouncedSeller, radius: debouncedRadius };
+    // The mount effect above already performed the initial load / restore.
+    if (!filterEffectMountedRef.current) {
+      filterEffectMountedRef.current = true;
+      return;
+    }
+    const key = filtersKey(f);
+    if (restoringKeyRef.current) {
+      const restoringKey = restoringKeyRef.current;
+      if (key === restoringKey) {
+        restoringKeyRef.current = null;
+        return;
+      }
+      // Restored filters are still propagating through the debounced values;
+      // the list was already fetched for them, so don't reload.
+      if (filtersKey(filters) === restoringKey) return;
+      restoringKeyRef.current = null;
+    }
+    if (key === lastLoadedKeyRef.current) return;
+    clearSnapshot();
     load(f);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -652,8 +741,7 @@ export default function Marketplace() {
   function reset() {
     setFilters(EMPTY_FILTERS);
     setGeoError('');
-    sessionStorage.removeItem(SCROLL_KEY);
-    sessionStorage.removeItem(SCROLL_KEY + '_y');
+    clearSnapshot();
     load(EMPTY_FILTERS);
   }
 
@@ -1059,7 +1147,9 @@ export default function Marketplace() {
 
       {loading ? (
         <div style={s.grid}>
+          {/* Static loading placeholders — never reordered, so index keys are fine. */}
           {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+            // eslint-disable-next-line react/no-array-index-key
             <SkeletonProductCard key={i} />
           ))}
         </div>
@@ -1301,7 +1391,9 @@ export default function Marketplace() {
           <div ref={sentinelRef} style={{ height: 1 }} aria-hidden="true" />
           {loadingMore && (
             <div style={{ ...s.grid, marginTop: 16 }}>
+              {/* Static loading placeholders — never reordered, so index keys are fine. */}
               {Array.from({ length: 4 }).map((_, i) => (
+                // eslint-disable-next-line react/no-array-index-key
                 <SkeletonProductCard key={i} />
               ))}
             </div>

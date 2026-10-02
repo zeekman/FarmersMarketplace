@@ -6,6 +6,7 @@
     "e2e:report": "playwright show-report"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.44.0",
     "@types/speakeasy": "^2.0.10",
     "speakeasy": "^2.0.0"

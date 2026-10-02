@@ -113,6 +113,8 @@ describe('POST /api/auth/login', () => {
       ],
       rowCount: 1,
     });
+    // SELECT user_2fa_settings (2FA disabled)
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
     // INSERT refresh_token
     mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 1 });
 
@@ -149,6 +151,98 @@ describe('POST /api/auth/login', () => {
       .send({ email: 'nobody@test.com', password: VALID_PASSWORD });
     expect(res.status).toBe(401);
   });
+
+  it('returns mfa_required and no session tokens when 2FA is enabled', async () => {
+    const hashed = await bcrypt.hash(VALID_PASSWORD, 12);
+    // SELECT user
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 1,
+          name: 'Carol',
+          email: 'carol@test.com',
+          password: hashed,
+          role: 'buyer',
+          stellar_public_key: 'GPUB',
+        },
+      ],
+      rowCount: 1,
+    });
+    // SELECT user_2fa_settings (2FA enabled)
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ user_id: 1, enabled: 1, secret: 'JBSWY3DPEHPK3PXP' }],
+      rowCount: 1,
+    });
+
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'carol@test.com', password: VALID_PASSWORD });
+    expect(res.status).toBe(200);
+    expect(res.body.mfa_required).toBe(true);
+    expect(res.body.mfa_token).toBeDefined();
+    expect(res.body.token).toBeUndefined();
+    const cookie = res.headers['set-cookie']?.[0] || '';
+    expect(cookie).not.toMatch(/refreshToken=/);
+
+    const decoded = jwt.verify(res.body.mfa_token, SECRET);
+    expect(decoded.scope).toBe('mfa');
+    expect(decoded.id).toBe(1);
+  });
+});
+
+describe('POST /api/auth/2fa/login', () => {
+  it('issues session tokens for a valid TOTP code', async () => {
+    const mfaToken = jwt.sign({ id: 1, scope: 'mfa' }, SECRET, { expiresIn: '5m' });
+    // SELECT user_2fa_settings
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ user_id: 1, enabled: 1, secret: 'JBSWY3DPEHPK3PXP' }],
+      rowCount: 1,
+    });
+    // SELECT user
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 1, name: 'Carol', email: 'carol@test.com', role: 'buyer', stellar_public_key: 'GPUB' }],
+      rowCount: 1,
+    });
+    // INSERT refresh_token
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    const res = await request(app)
+      .post('/api/auth/2fa/login')
+      .send({ mfa_token: mfaToken, code: '123456' });
+    expect(res.status).toBe(200);
+    expect(res.body.token).toBeDefined();
+    const cookie = res.headers['set-cookie']?.[0] || '';
+    expect(cookie).toMatch(/refreshToken=/);
+  });
+
+  it('rejects a reused backup code', async () => {
+    const mfaToken = jwt.sign({ id: 1, scope: 'mfa' }, SECRET, { expiresIn: '5m' });
+    // SELECT user_2fa_settings
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ user_id: 1, enabled: 1, secret: 'JBSWY3DPEHPK3PXP' }],
+      rowCount: 1,
+    });
+    // SELECT backup codes — none unused match
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const res = await request(app)
+      .post('/api/auth/2fa/login')
+      .send({ mfa_token: mfaToken, code: 'BACKUP-CODE' });
+    expect(res.status).toBe(401);
+    expect(res.body.token).toBeUndefined();
+  });
+});
+
+describe('POST /api/auth/2fa/disable', () => {
+  it('rejects disabling 2FA without a code', async () => {
+    const token = jwt.sign({ id: 1, role: 'buyer' }, SECRET, { expiresIn: '15m' });
+
+    const res = await request(app)
+      .post('/api/auth/2fa/disable')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ password: VALID_PASSWORD });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('POST /api/auth/refresh', () => {
@@ -183,6 +277,7 @@ describe('PATCH /api/auth/password', () => {
       .mockResolvedValueOnce({ rows: [{ id: 1, password: oldHash }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 1, name: 'Carol', email: 'carol@test.com', password: newHash, role: 'buyer', stellar_public_key: 'GPUB' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 });
 
     const updateRes = await request(app)

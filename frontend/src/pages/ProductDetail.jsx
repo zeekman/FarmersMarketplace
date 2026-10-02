@@ -46,6 +46,7 @@ import QRCode from 'qrcode.react';
 import { useReviewForm } from '../hooks/useReviewForm';
 import { usePaymentLink } from '../hooks/usePaymentLink';
 import { addRecentlyViewed } from '../utils/recentlyViewed';
+import { useNetwork } from '../context/NetworkContext';
 
 const s = {
   page: { maxWidth: 640, margin: "40px auto", padding: 16 },
@@ -116,6 +117,7 @@ function CopyButton({ url }) {
 }
 
 export default function ProductDetail() {
+  const { explorerUrl } = useNetwork();
   const { t } = useTranslation();
   const { id } = useParams();
   const { user } = useAuth();
@@ -444,16 +446,39 @@ export default function ProductDetail() {
   }, []);
 
   useEffect(() => {
-    if (!id) return;
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-    const es = new EventSource(`${apiBase}/api/products/${id}/stock-stream`);
-    es.onmessage = (e) => {
-      try {
-        const { quantity } = JSON.parse(e.data);
-        setLiveStock(quantity);
-      } catch { /* ignore malformed events */ }
+    if (!id || typeof EventSource === 'undefined' || typeof api.getStockStreamUrl !== 'function') return;
+    let eventSource;
+    let reconnectTimer;
+    let reconnectDelay = 1000;
+    let closed = false;
+
+    const connect = () => {
+      if (closed) return;
+      eventSource = new EventSource(api.getStockStreamUrl(id));
+      eventSource.onmessage = (event) => {
+        try {
+          const { quantity } = JSON.parse(event.data);
+          setLiveStock(quantity);
+        } catch { /* ignore malformed events */ }
+      };
+      eventSource.onopen = () => { reconnectDelay = 1000; };
+      eventSource.onerror = () => {
+        eventSource.close();
+        if (closed || reconnectTimer) return;
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          connect();
+        }, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+      };
     };
-    return () => es.close();
+
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (eventSource) eventSource.close();
+    };
   }, [id]);
 
   // Load auction details if product is auction
@@ -643,12 +668,17 @@ export default function ProductDetail() {
 
     setWalletLoading(true);
     try {
+      const idempotencyKey = globalThis.crypto?.randomUUID?.() || 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+        const value = Math.floor(Math.random() * 16);
+        return (character === 'x' ? value : (value & 0x3) | 0x8).toString(16);
+      });
       const orderRes = await api.placeOrder({
         product_id: product.id,
         quantity: qty,
         address_id: selectedAddressId || undefined,
         coupon_code: couponResult ? couponCode.trim() : undefined,
-      });
+        payment_method: 'sep7',
+      }, idempotencyKey);
       const linkRes = await api.getOrderPaymentLink(orderRes.orderId);
       setWalletOrderId(orderRes.orderId);
       setPaymentLink(linkRes.paymentLink);
@@ -657,9 +687,8 @@ export default function ProductDetail() {
 
       const interval = setInterval(async () => {
         try {
-          const ordersRes = await api.getOrders({ product_id: product.id });
-          const order = ordersRes.data.find(o => o.id === orderRes.orderId);
-          if (order && order.status === 'paid') {
+          const order = await api.getOrderStatus(orderRes.orderId);
+          if (order.status === 'paid') {
             if (mountedRef.current) setWalletStatus('paid');
             if (walletPollingIntervalRef.current) {
               clearInterval(walletPollingIntervalRef.current);
@@ -669,7 +698,7 @@ export default function ProductDetail() {
               clearTimeout(walletPollingTimeoutRef.current);
               walletPollingTimeoutRef.current = null;
             }
-          } else if (order && order.status === 'failed') {
+          } else if (order.status === 'failed') {
             if (mountedRef.current) setWalletStatus('failed');
             if (walletPollingIntervalRef.current) {
               clearInterval(walletPollingIntervalRef.current);
@@ -737,7 +766,7 @@ export default function ProductDetail() {
                   <p style={{ marginTop: 4, fontSize: 12, color: '#555' }}>
                     {result.sorobanEscrow ? 'Escrow' : 'Balance'}:{' '}
                     <a
-                      href={`https://stellar.expert/explorer/testnet/claimable-balance/${result.claimableBalanceId || result.balanceId}`}
+                      href={explorerUrl('claimable-balance', result.claimableBalanceId || result.balanceId)}
                       target="_blank"
                       rel="noreferrer"
                       style={{ color: '#2d6a4f', wordBreak: 'break-all' }}
@@ -751,7 +780,7 @@ export default function ProductDetail() {
                 </p>
                 {result.balanceId ? (
                   <p style={{ marginTop: 4, fontSize: 12, color: '#555' }}>
-                    Balance ID: <a href={`https://stellar.expert/explorer/testnet/claimable-balance/${result.balanceId}`}
+                    Balance ID: <a href={explorerUrl('claimable-balance', result.balanceId)}
                       target="_blank" rel="noreferrer" style={{ color: '#2d6a4f', wordBreak: 'break-all' }}>{result.balanceId}</a>
                   </p>
                 ) : null}
@@ -869,9 +898,9 @@ export default function ProductDetail() {
                   ))}
                 </div>
                 <div style={s.dotRow} aria-hidden="true">
-                  {images.map((_, i) => (
+                  {images.map((img, i) => (
                     <button
-                      key={i}
+                      key={img.id}
                       style={{ ...s.dot, ...(i === safeActiveImg ? s.dotActive : {}) }}
                       onClick={() => setActiveImg(i)}
                       tabIndex={-1}
@@ -1385,6 +1414,8 @@ export default function ProductDetail() {
                   <div key={d} style={{ textAlign: 'center', fontSize: 11, color: '#888', fontWeight: 600, padding: '2px 0' }}>{d}</div>
                 ))}
                 {cells.map((day, i) => {
+                  // Leading blank cells are static spacers for a fixed calendar grid.
+                  // eslint-disable-next-line react/no-array-index-key
                   if (!day) return <div key={`blank-${i}`} />;
                   const weekKey = getMondayOf(year, month, day);
                   const isAvail = availableWeeks.has(weekKey);

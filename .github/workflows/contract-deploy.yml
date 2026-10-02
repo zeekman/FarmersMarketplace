@@ -110,10 +110,13 @@ jobs:
             --buyer "$ACCOUNT_PK" \
             --farmer "$ACCOUNT_PK" \
             --amount 10000000 \
-            --timeout_unix "$TIMEOUT"
+            --timeout_unix "$TIMEOUT" \
+            --cooperative_royalty_bps 0 \
+            --release_after_unix 0
 
-          # Release the escrow to the farmer.
-          invoke release --order_id "$ORDER_ID" --platform_fee_bps 0
+          # Release the escrow to the farmer. The fee is read from the value stored
+          # by `initialize` above; `release` takes no fee argument.
+          invoke release --order_id "$ORDER_ID" --caller "$ACCOUNT_PK"
 
           # On-chain assertion: escrow is now settled.
           SETTLED="$(invoke is_settled --order_id "$ORDER_ID")"

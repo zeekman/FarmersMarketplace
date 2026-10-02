@@ -26,10 +26,9 @@ A new public function alongside `release()`:
 pub fn release_to_stream(
     env: Env,
     order_id: u64,
-    platform_fee_bps: u32,
     stream_rate_per_second: i128,  // stroops/sec
     stream_end_time: u64,            // ledger timestamp
-) -> Result<(), EscrowError>
+) -> Result<u64, EscrowError>     // stream id
 ```
 
 **Behavior:**
@@ -44,7 +43,14 @@ pub fn release_to_stream(
    - end_time: caller-provided timestamp
 5. Mark escrow as Released (identical to `release()`)
 6. Emit release event (identical to `release()`)
-7. Do NOT call reward token mint (streamed payouts complicate per-second reward timing)
+7. Attempt the reward token mint once, at settlement time, like every other release path
+   (#1300: the reward is computed from `farmer_amount`, which is fixed when the escrow is
+   released, so streaming does not complicate it)
+
+> **Update (#1300 / #1301).** `release_to_stream` no longer takes a `platform_fee_bps`
+> argument — the fee is read from storage only — and it now shares the single
+> `settle` routine used by `release`, `batch_release`, `auto_release` and
+> `multisig_release`, so the pre-order lock, royalty and reward mint behave identically.
 
 **Why this approach:**
 - Mirrors the contract's existing cross-contract call pattern (`try_invoke_contract` in current `release()`)

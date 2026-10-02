@@ -36,6 +36,7 @@ vi.mock('react-helmet-async', () => ({
 
 import Dashboard from '../pages/Dashboard';
 import { api } from '../api/client';
+import { expectNoA11yViolations } from './a11y';
 
 describe('Dashboard delete confirmation (#455)', () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -75,4 +76,11 @@ describe('Dashboard delete confirmation (#455)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(api.deleteProduct).not.toHaveBeenCalled();
   });
+});
+
+describe('accessibility (#1397)', () => {
+  it('has no detectable axe violations', async () => {
+    const { container } = render(<Dashboard />);
+    await expectNoA11yViolations(container);
+  }, 15000);
 });

@@ -127,7 +127,7 @@ describe('PATCH /api/disputes/:id/resolve — admin resolves a dispute', () => {
     product_id: 7,
   };
 
-  it('resolves in favour of buyer — triggers escrow refund and updates DB status', async () => {
+  it('resolves in favour of buyer — resolve_dispute with 100% to buyer and updates DB status', async () => {
     mockDb.query
       .mockResolvedValueOnce({ rows: [openDispute], rowCount: 1 })          // dispute lookup
       .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 })                 // buyer lookup
@@ -144,14 +144,14 @@ describe('PATCH /api/disputes/:id/resolve — admin resolves a dispute', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ id: 1, status: 'resolved', resolution: 'buyer' });
 
-    // Escrow refund should be invoked for a buyer-win resolution
+    // A buyer-win resolves the whole escrow to the buyer (10 000 bps)
     await new Promise((r) => setTimeout(r, 20));
     expect(stellar.invokeEscrowContract).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'refund', orderId: ORDER_ID })
+      expect.objectContaining({ action: 'resolve_dispute', orderId: ORDER_ID, buyerBps: 10000 })
     );
   });
 
-  it('resolves in favour of farmer — triggers escrow release', async () => {
+  it('resolves in favour of farmer — resolve_dispute with 0% to buyer', async () => {
     mockDb.query
       .mockResolvedValueOnce({ rows: [openDispute], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 })
@@ -170,11 +170,11 @@ describe('PATCH /api/disputes/:id/resolve — admin resolves a dispute', () => {
 
     await new Promise((r) => setTimeout(r, 20));
     expect(stellar.invokeEscrowContract).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'release' })
+      expect.objectContaining({ action: 'resolve_dispute', orderId: ORDER_ID, buyerBps: 0 })
     );
   });
 
-  it('resolves with split — passes splitPercentBuyer to escrow contract', async () => {
+  it('resolves with split — passes the buyer share in basis points to the escrow contract', async () => {
     mockDb.query
       .mockResolvedValueOnce({ rows: [openDispute], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 })
@@ -193,7 +193,7 @@ describe('PATCH /api/disputes/:id/resolve — admin resolves a dispute', () => {
 
     await new Promise((r) => setTimeout(r, 20));
     expect(stellar.invokeEscrowContract).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'refund', splitPercentBuyer: 60 })
+      expect.objectContaining({ action: 'resolve_dispute', orderId: ORDER_ID, buyerBps: 6000 })
     );
   });
 
@@ -217,6 +217,43 @@ describe('PATCH /api/disputes/:id/resolve — admin resolves a dispute', () => {
       .send({ resolution: 'split' });
 
     expect(res.status).toBe(400);
+  });
+
+  it.each([[-1], [101], ['abc'], ['60'], [null], [Number.NaN]])(
+    'returns 400 and never calls the contract when split_percent_buyer is %p',
+    async (bad) => {
+      stellar.invokeEscrowContract.mockClear();
+      mockDb.query.mockResolvedValueOnce({ rows: [openDispute], rowCount: 1 });
+
+      const res = await request(app)
+        .patch('/api/disputes/1/resolve')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ resolution: 'split', split_percent_buyer: bad });
+
+      expect(res.status).toBe(400);
+      expect(stellar.invokeEscrowContract).not.toHaveBeenCalled();
+    }
+  );
+
+  it('converts a fractional split percentage to whole basis points', async () => {
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [openDispute], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [buyer], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [farmer], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ stellar_secret_key: 'SADMIN' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 7, name: 'Tomatoes' }], rowCount: 1 });
+
+    const res = await request(app)
+      .patch('/api/disputes/1/resolve')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ resolution: 'split', split_percent_buyer: 33.33 });
+
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stellar.invokeEscrowContract).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'resolve_dispute', buyerBps: 3333 })
+    );
   });
 
   it('returns 400 when dispute is already resolved', async () => {

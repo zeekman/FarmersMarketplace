@@ -285,11 +285,11 @@ async function simulateContractCall(contractId, method, args = []) {
 /**
  * Invokes a lifecycle action on the Soroban escrow contract and polls until confirmed.
  * Logs every attempt to `contract_invocations`.
- * @param {{ action: 'deposit'|'release'|'refund'|'dispute', senderSecret: string, orderId: number, buyerPublicKey: string, farmerPublicKey: string, amount: number, timeoutUnix: number, userId: number|null, cooperativeAddress?: string|null, cooperativeRoyaltyBps?: number, requestId?: string }} params
+ * @param {{ action: 'deposit'|'release'|'refund'|'dispute'|'resolve_dispute', buyerBps?: number, senderSecret: string, orderId: number, buyerPublicKey: string, farmerPublicKey: string, amount: number, timeoutUnix: number, userId: number|null, cooperativeAddress?: string|null, cooperativeRoyaltyBps?: number, requestId?: string }} params
  * @returns {Promise<{ txHash: string, contractId: string }>}
  * @throws if the contract IDs are unconfigured, submission fails, or confirmation times out after 15 s
  */
-async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublicKey, farmerPublicKey, amount, timeoutUnix, userId, cooperativeAddress, cooperativeRoyaltyBps, releaseAfterUnix, requestId }) {
+async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublicKey, farmerPublicKey, amount, timeoutUnix, userId, cooperativeAddress, cooperativeRoyaltyBps, releaseAfterUnix, buyerBps, requestId }) {
   const contractId = config.sorobanEscrowContractId;
   const xlmTokenContractId = config.sorobanXlmTokenContractId;
   if (!contractId) throw new Error('SOROBAN_ESCROW_CONTRACT_ID is not configured');
@@ -321,10 +321,26 @@ async function invokeEscrowContract({ action, senderSecret, orderId, buyerPublic
       StellarSdk.nativeToScVal(Number(releaseAfterUnix || 0), { type: 'u64' })
     );
   } else if (action === 'release') {
+    // release(order_id, caller). There is deliberately no fee argument: the platform
+    // fee is read from the contract's own storage (set by `initialize`), never from
+    // the caller (#1301). The signer must be the escrow buyer or the platform admin.
     operation = contract.call(
       'release',
-      StellarSdk.nativeToScVal(xlmTokenContractId, { type: 'address' }),
-      StellarSdk.nativeToScVal(Number(orderId), { type: 'u64' })
+      StellarSdk.nativeToScVal(Number(orderId), { type: 'u64' }),
+      StellarSdk.nativeToScVal(keypair.publicKey(), { type: 'address' })
+    );
+  } else if (action === 'resolve_dispute') {
+    // resolve_dispute(order_id, buyer_bps): admin-only; buyer_bps is the buyer's share
+    // in basis points (0 = all to farmer, 10000 = full refund). The contract deducts
+    // the platform fee and cooperative royalty from the farmer's share (#1299).
+    const bps = Number(buyerBps);
+    if (!Number.isInteger(bps) || bps < 0 || bps > 10000) {
+      throw new Error('buyerBps must be an integer between 0 and 10000');
+    }
+    operation = contract.call(
+      'resolve_dispute',
+      StellarSdk.nativeToScVal(Number(orderId), { type: 'u64' }),
+      StellarSdk.nativeToScVal(bps, { type: 'u32' })
     );
   } else if (action === 'refund') {
     operation = contract.call(

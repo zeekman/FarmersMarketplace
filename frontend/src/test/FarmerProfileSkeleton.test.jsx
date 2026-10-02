@@ -6,7 +6,11 @@ import { vi } from 'vitest';
 const mockGetFarmer = vi.fn();
 
 vi.mock('../api/client', () => ({
-  api: { getFarmer: (...args) => mockGetFarmer(...args) },
+  api: {
+    getFarmer: (...args) => mockGetFarmer(...args),
+    getBatchesByFarmer: () => Promise.resolve({ data: [] }),
+    getFarmerCooperatives: () => Promise.resolve({ data: [] }),
+  },
 }));
 
 // Import after mock is set up

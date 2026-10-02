@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
+const { invalidateProductCache } = require('../cache');
 
 router.patch('/:id/flash-sale', auth, async (req, res) => {
   if (req.user.role !== 'farmer')
@@ -61,6 +62,8 @@ router.patch('/:id/flash-sale', auth, async (req, res) => {
     [flashSalePrice, flashSaleEndsAt ? flashSaleEndsAt.toISOString() : null, flashSaleStartsAt ? flashSaleStartsAt.toISOString() : null, id]
   );
 
+  await invalidateProductCache(id);
+
   const { rows: updatedRows } = await db.query(
     'SELECT id, price, flash_sale_price, flash_sale_starts_at, flash_sale_ends_at FROM products WHERE id = $1',
     [id]
@@ -84,6 +87,9 @@ router.delete('/:id/flash-sale', auth, async (req, res) => {
     'UPDATE products SET flash_sale_price = NULL, flash_sale_ends_at = NULL, flash_sale_starts_at = NULL WHERE id = $1',
     [id]
   );
+
+  await invalidateProductCache(id);
+
   res.json({ success: true });
 });
 

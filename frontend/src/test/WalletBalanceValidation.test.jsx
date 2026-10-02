@@ -33,6 +33,7 @@ vi.mock('react-helmet-async', () => ({
 
 import Wallet from '../pages/Wallet';
 import { api } from '../api/client';
+import { expectNoA11yViolations } from './a11y';
 
 function renderWallet() {
   return render(
@@ -184,4 +185,14 @@ describe('#778 Wallet claimable balances section', () => {
     expect(screen.queryByText(longId)).toBeNull();
     expect(screen.getByText(/00000000…/)).toBeTruthy();
   });
+});
+
+describe('accessibility (#1397)', () => {
+  it('has no detectable axe violations', async () => {
+    api.getWallet.mockResolvedValue({ balance: 5, publicKey: 'GABC123', balances: [] });
+    api.getTransactions.mockResolvedValue([]);
+    api.getClaimableBalances.mockResolvedValue({ data: [] });
+    const { container } = renderWallet();
+    await expectNoA11yViolations(container);
+  }, 15000);
 });

@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import { getErrorMessage } from '../utils/errorMessages';
 import { showToast } from '../utils/toast';
+import { useConfirm } from '../hooks/useConfirm';
 import ProductForm from '../components/dashboard/ProductForm';
 import InlineEditField from '../components/dashboard/InlineEditField';
 import FlashSaleManager from '../components/dashboard/FlashSaleManager';
@@ -226,8 +227,16 @@ const STATUS_ICON = {
 const FARMER_STATUSES = ['processing', 'shipped', 'delivered', 'cancelled'];
 const LOW_STOCK_THRESHOLD = Number(import.meta.env.VITE_LOW_STOCK_THRESHOLD || 5);
 
+// Price tiers are an editable list (add/remove), so each row needs a stable
+// React key. Server tiers use their id; new rows get a client-only key.
+let tierKeySeq = 0;
+function withTierKey(tier) {
+  return { ...tier, _key: tier.id != null ? `tier-${tier.id}` : `new-tier-${++tierKeySeq}` };
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
+  const { confirm, confirmDialog } = useConfirm();
   const { t } = useTranslation();
   const { rate } = useXlmRate();
   const [products, setProducts] = useState([]);
@@ -308,7 +317,7 @@ export default function Dashboard() {
     setTiersMsg(null);
     try {
       const res = await api.getProductTiers(productId);
-      setTiers(res.data ?? []);
+      setTiers((res.data ?? []).map(withTierKey));
     } catch {
       setTiers([]);
     }
@@ -324,7 +333,8 @@ export default function Dashboard() {
     if (!tiersProductId) return;
     setTiersMsg({ type: 'info', text: 'Saving...' });
     try {
-      await api.updateProductTiers(tiersProductId, tiers);
+      // Strip the client-only React key before sending to the API
+      await api.updateProductTiers(tiersProductId, tiers.map(({ _key, ...tier }) => tier));
       setTiersMsg({ type: 'ok', text: 'Tiers updated successfully' });
     } catch (e) {
       setTiersMsg({ type: 'error', text: e.message || 'Failed to update tiers' });
@@ -334,21 +344,21 @@ export default function Dashboard() {
   function addTier() {
     setTiers([
       ...tiers,
-      {
+      withTierKey({
         min_quantity: tiers.length > 0 ? tiers[tiers.length - 1].min_quantity + 1 : 2,
         price_per_unit: 0,
-      },
+      }),
     ]);
   }
 
-  function updateTier(index, field, value) {
-    const newTiers = [...tiers];
-    newTiers[index] = { ...newTiers[index], [field]: parseFloat(value) || 0 };
-    setTiers(newTiers);
+  function updateTier(key, field, value) {
+    setTiers(tiers.map((tier) =>
+      tier._key === key ? { ...tier, [field]: parseFloat(value) || 0 } : tier
+    ));
   }
 
-  function removeTier(index) {
-    setTiers(tiers.filter((_, i) => i !== index));
+  function removeTier(key) {
+    setTiers(tiers.filter((tier) => tier._key !== key));
   }
   // Calendar editor state
   const [calendarProductId, setCalendarProductId] = useState(null);
@@ -380,11 +390,11 @@ export default function Dashboard() {
   async function handleVideoUpload(productId, file) {
     if (!file) return;
     if (file.type !== 'video/mp4') {
-      alert('Only MP4 videos are allowed.');
+      showToast('Only MP4 videos are allowed.', 'error');
       return;
     }
     if (file.size > 50 * 1024 * 1024) {
-      alert('Video must be 50 MB or smaller.');
+      showToast('Video must be 50 MB or smaller.', 'error');
       return;
     }
 
@@ -393,7 +403,7 @@ export default function Dashboard() {
       await api.uploadProductVideo(productId, file);
       await load();
     } catch (e) {
-      alert(getErrorMessage(e));
+      showToast(getErrorMessage(e), 'error');
     } finally {
       setVideoUploadingByProduct((prev) => ({ ...prev, [productId]: false }));
     }
@@ -778,7 +788,7 @@ export default function Dashboard() {
       setRestockVals((prev) => ({ ...prev, [productId]: '' }));
       load();
     } catch (e) {
-      alert(getErrorMessage(e));
+      showToast(getErrorMessage(e), 'error');
     }
   }
 
@@ -844,7 +854,13 @@ export default function Dashboard() {
   }
 
   async function handleBundleDiscountDelete(id) {
-    if (!confirm('Delete this discount tier?')) return;
+    const ok = await confirm({
+      title: 'Delete this discount tier?',
+      description: 'Buyers will no longer receive this bundle discount.',
+      confirmLabel: 'Delete tier',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await api.deleteBundleDiscount(id);
       const res = await api.getBundleDiscounts();
@@ -858,11 +874,11 @@ export default function Dashboard() {
     setSigningTxId(txId);
     try {
       const res = await api.signPendingTx(txId);
-      if (res.submitted) alert(`✅ Transaction submitted! TX: ${res.txHash}`);
-      else alert(`Signature added (${res.signaturesCollected}/${res.required} required)`);
+      if (res.submitted) showToast(`✅ Transaction submitted! TX: ${res.txHash}`, 'success');
+      else showToast(`Signature added (${res.signaturesCollected}/${res.required} required)`, 'info');
       load();
     } catch (e) {
-      alert(`Error: ${e.message}`);
+      showToast(`Error: ${e.message}`, 'error');
     } finally {
       setSigningTxId(null);
     }
@@ -1495,15 +1511,15 @@ export default function Dashboard() {
                           </tr>
                         </thead>
                         <tbody>
-                          {tiers.map((tier, index) => (
-                            <tr key={index} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                          {tiers.map((tier) => (
+                            <tr key={tier._key} style={{ borderBottom: '1px solid #f0f0f0' }}>
                               <td style={{ padding: '4px 0' }}>
                                 <input
                                   type="number"
                                   min="1"
                                   value={tier.min_quantity}
                                   onChange={(e) =>
-                                    updateTier(index, 'min_quantity', e.target.value)
+                                    updateTier(tier._key, 'min_quantity', e.target.value)
                                   }
                                   style={{
                                     ...s.input,
@@ -1521,7 +1537,7 @@ export default function Dashboard() {
                                   step="0.01"
                                   value={tier.price_per_unit}
                                   onChange={(e) =>
-                                    updateTier(index, 'price_per_unit', e.target.value)
+                                    updateTier(tier._key, 'price_per_unit', e.target.value)
                                   }
                                   style={{
                                     ...s.input,
@@ -1534,7 +1550,7 @@ export default function Dashboard() {
                                 XLM
                               </td>
                               <td style={{ padding: '4px 0' }}>
-                                <button style={s.imgDelBtn} onClick={() => removeTier(index)}>
+                                <button style={s.imgDelBtn} onClick={() => removeTier(tier._key)}>
                                   ✕
                                 </button>
                               </td>
@@ -1634,8 +1650,8 @@ export default function Dashboard() {
                       <td style={s.csvTableCell}>{r.name}</td>
                     </tr>
                   ))}
-                  {csvResult.errors.map((err, i) => (
-                    <tr key={`err-${i}`}>
+                  {csvResult.errors.map((err) => (
+                    <tr key={`err-${err.row}-${err.error || err.message}`}>
                       <td style={s.csvTableCell}>{err.row}</td>
                       <td style={{ ...s.csvTableCell, ...s.csvRowErr }}>{t('dashboard.csvError')}</td>
                       <td style={s.csvTableCell}>{err.error || err.message}</td>
@@ -1652,8 +1668,8 @@ export default function Dashboard() {
               <div style={{ marginTop: 8, fontSize: 12 }}>
                 <strong>{t('common.errors')}:</strong>
                 <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                  {csvResult.details.slice(0, 10).map((err, i) => (
-                    <li key={i}>
+                  {csvResult.details.slice(0, 10).map((err) => (
+                    <li key={`${err.row}-${err.error}`}>
                       {t('common.row', { n: err.row })}: {err.error}
                     </li>
                   ))}
@@ -2013,6 +2029,7 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+      {confirmDialog}
     </div>
   );
 }

@@ -123,9 +123,20 @@ router.patch('/:id/resolve', auth, async (req, res, next) => {
     if (!['buyer', 'farmer', 'split'].includes(resolution))
       return res.status(400).json({ error: "resolution must be 'buyer', 'farmer', or 'split'" });
     if (resolution === 'split') {
-      if (split_percent_buyer == null || split_percent_buyer < 0 || split_percent_buyer > 100)
+      // Must be a real number: `"abc" < 0` and `NaN > 100` are both false, so the range
+      // check alone would let garbage through to the contract call.
+      if (
+        typeof split_percent_buyer !== 'number' ||
+        !Number.isFinite(split_percent_buyer) ||
+        split_percent_buyer < 0 ||
+        split_percent_buyer > 100
+      )
         return res.status(400).json({ error: 'split_percent_buyer must be 0-100' });
     }
+    // Buyer's share of the escrow in basis points (contract `resolve_dispute` arg):
+    // 'buyer' = full refund, 'farmer' = full release, 'split' = the given percentage.
+    const buyerBps =
+      resolution === 'buyer' ? 10000 : resolution === 'farmer' ? 0 : Math.round(split_percent_buyer * 100);
 
     // Fetch parties
     const [{ rows: buyerRows }, { rows: farmerRows }] = await Promise.all([
@@ -135,30 +146,24 @@ router.patch('/:id/resolve', auth, async (req, res, next) => {
     const buyer = buyerRows[0];
     const farmer = farmerRows[0];
 
-    // Invoke escrow resolve_dispute (non-fatal)
+    // Invoke escrow resolve_dispute (non-fatal). One contract call covers all three
+    // outcomes: the contract refunds the buyer's share and pays the farmer's share
+    // through the platform-fee / cooperative-royalty deduction (#1299).
     const adminRows = await db.query('SELECT stellar_secret_key FROM users WHERE id = $1', [req.user.id]);
     const adminSecret = adminRows.rows[0]?.stellar_secret_key;
     if (adminSecret) {
+      invokeEscrowContract({
+        action: 'resolve_dispute',
+        senderSecret: adminSecret,
       const escrowPayload = {
         action: 'dispute',
         senderSecret: await decryptUserSecretKey(adminSecret),
         orderId: dispute.order_id,
         buyerPublicKey: buyer?.stellar_public_key,
         farmerPublicKey: farmer?.stellar_public_key,
+        buyerBps,
         userId: req.user.id,
-      };
-      if (resolution === 'buyer') {
-        invokeEscrowContract({ ...escrowPayload, action: 'refund' })
-          .catch((e) => logger.warn('[disputes] escrow refund failed (non-fatal):', e.message));
-      } else if (resolution === 'farmer') {
-        invokeEscrowContract({ ...escrowPayload, action: 'release' })
-          .catch((e) => logger.warn('[disputes] escrow release failed (non-fatal):', e.message));
-      }
-      // split: partial refund — call refund (best-effort, contract handles split_percent_buyer as hint)
-      if (resolution === 'split') {
-        invokeEscrowContract({ ...escrowPayload, action: 'refund', splitPercentBuyer: split_percent_buyer })
-          .catch((e) => logger.warn('[disputes] escrow split refund failed (non-fatal):', e.message));
-      }
+      }).catch((e) => logger.warn('[disputes] escrow resolve_dispute failed (non-fatal):', e.message));
     }
 
     await db.query(

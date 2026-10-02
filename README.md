@@ -405,6 +405,51 @@ DEPOSIT_XLM=2 FEE_BPS=500 SKIP_BUILD=1 ./contract/test-futurenet.sh
 
 ---
 
+## Workspace Escrow Settlement (`contracts/escrow/`)
+
+Every path that pays a farmer goes through one private routine,
+`settle_to_farmer`, so they all produce identical balances:
+
+| Entry point | Who may call | Notes |
+|-------------|--------------|-------|
+| `release(order_id, caller)` | escrow buyer or platform admin | |
+| `release_to_stream(order_id, rate, end_time)` | escrow buyer | farmer's net amount is booked as a payment stream instead of transferred |
+| `batch_release(order_ids)` | platform address | per-item failures are reported, not fatal |
+| `auto_release(order_id)` | anyone, after `auto_release_unix` | |
+| `multisig_release(order_id, signatures)` | cooperative M-of-N signers | |
+
+`settle_to_farmer` checks the escrow is `Active`, enforces the pre-order lock
+(`release_after_unix`), checks the token recorded at deposit, deducts the platform fee and the
+cooperative royalty, transfers, marks the escrow `Released`, emits the release event and
+attempts the best-effort reward mint.
+
+**The platform fee is never a caller input.** It is read from the value stored by
+`initialize(admin, fee_bps, fee_destination)`. On a deployment where `initialize` was never
+called every settlement path fails with `NotInitialized` (see the legacy-deployment note in
+[`docs/escrow-migration-runbook.md`](docs/escrow-migration-runbook.md)).
+
+### Dispute resolution
+
+`resolve_dispute(order_id, buyer_bps)` (admin only) splits a disputed escrow. `buyer_bps` is
+the buyer's share in basis points, `0..=10_000` (`0` = all to the farmer, `10_000` = full
+refund, `6_000` = 60/40).
+
+- `buyer_amount = amount * buyer_bps / 10_000`, **rounded down**.
+- The rounding remainder therefore always stays with the farmer side
+  (`farmer_gross = amount - buyer_amount`), so the two shares sum to `amount` exactly.
+- The buyer share is refunded untouched. The farmer share has the platform fee and cooperative
+  royalty deducted, exactly as in `release`.
+- Final status is `Refunded` for `buyer_bps = 10_000`, otherwise `Released`.
+- Emits `("escrow", "resolved")` with `(order_id, buyer_amount, farmer_amount, fee_amount)`,
+  where `farmer_amount` is the farmer's net payout.
+- All failures are typed `EscrowError`s (`InvalidAmount`, `NotFound`, `NotInDispute`,
+  `InvalidToken`, `NotInitialized`); the function does not panic.
+
+The backend maps `PATCH /api/disputes/:id/resolve` (`buyer` / `farmer` / `split` with
+`split_percent_buyer`) onto `buyer_bps` (`percent * 100`, rounded to a whole basis point).
+
+---
+
 ## Legacy Soroban Escrow Contract (`contract/`)
 
 The `contract/` directory contains the legacy Soroban escrow contract that
@@ -443,14 +488,24 @@ These codes are stable on-chain ABI values. Never reuse a code, even after remov
 | 14 | `AlreadyInitialized` | `initialize` called more than once |
 | 15 | `NotAdmin` | Caller does not hold the admin role |
 | 16 | `BelowMinDeposit` | Deposit amount is below the configured minimum (dust guard) |
-| 17 | `BatchTooLarge` | `batch_release` called with more than `MAX_BATCH_RELEASE` IDs |
+| 17 | `BatchTooLarge` | `batch_release` / `batch_deposit` called with more than 20 entries |
 | 18 | `SnapshotNotFound` | No snapshot exists for the requested (order_id, ledger_sequence) |
 | 19 | `NotYetReleasable` | Release called before the pre-order unlock date |
 | 20 | `SubmissionWindowClosed` | Evidence submission window (48 h) has closed |
 | 21 | `AutoReleaseNotReached` | Auto-release timestamp has not yet been reached |
 | 22 | `TooManyCoopSigners` | Cooperative signer count exceeds `MAX_COOP_SIGNERS` |
+| 23 | `InvalidTimeout` | Deposit timeout is shorter than `MIN_TIMEOUT_SECS` from now |
+| 24 | `InvalidOrderId` | `order_id` is at or above `MAX_ORDER_ID` |
+| 25 | `InvalidRoyalty` | Cooperative royalty exceeds 10 000 bps (100%) |
+| 26 | `EvidenceLimitReached` | Party already submitted the maximum number of evidence hashes |
+| 27 | `NotDisputed` | Operation requires the escrow to be disputed |
+| 28 | `NotInitialized` | Admin not configured; `initialize` has not been called |
 
-Next available code: **23**. See the `NEXT_CODE` comment in `contracts/escrow/src/lib.rs` for the authoritative value.
+Next available code: **29**. See the `NEXT_CODE` comment in `contracts/escrow/src/lib.rs` for the authoritative value.
+| 23 | `NotInitialized` | A stored value settlement depends on (platform fee, fee destination, admin) is missing because `initialize` was never called |
+| 24 | `NotInDispute` | `resolve_dispute` called on an escrow that is not in the `Disputed` state |
+
+Next available code: **25**. See the `NEXT_CODE` comment in `contracts/escrow/src/lib.rs` for the authoritative value.
 
 ### Build & Test
 
@@ -510,6 +565,13 @@ For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md)
 
 ## Handsoff notes
 
+<!-- handsoff-issue-1370 -->
+- #1370: The frontend production build is broken: 7 source files fail to parse
+
+<!-- handsoff-issue-1372 -->
+- #1372: `Dashboard.jsx` doesn't parse: the style object isn't closed properly (L202)
+<!-- handsoff-issue-1383 -->
+- #1383: Dashboard CSV/JSON export sends no auth token, uses the deprecated prefix, and saves error bodies as files
 <!-- handsoff-issue-1302 -->
 - #1302: `set_auto_release_days` has no bounds, so an admin can set `0` and allow instant permissionless release
 

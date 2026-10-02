@@ -22,6 +22,7 @@ vi.mock('../context/AuthContext', () => ({
 
 import Settings from '../pages/Settings';
 import { api } from '../api/client';
+import { expectNoA11yViolations } from './a11y';
 
 function renderSettings() {
   return render(
@@ -67,4 +68,11 @@ describe('#454 Settings – save confirmation toast', () => {
       expect(toast).toHaveAttribute('aria-live', 'polite');
     });
   });
+});
+
+describe('accessibility (#1397)', () => {
+  it('has no detectable axe violations', async () => {
+    const { container } = renderSettings();
+    await expectNoA11yViolations(container);
+  }, 15000);
 });

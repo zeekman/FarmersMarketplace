@@ -106,6 +106,10 @@ router.post('/', auth, async (req, res) => {
     return err(res, 400, 'product_id and available_from are required', 'validation_error');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(available_from))
     return err(res, 400, 'available_from must be YYYY-MM-DD', 'validation_error');
+  for (const [name, value] of [['available_until', available_until], ['recurrence_end', recurrence_end]]) {
+    if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value))
+      return err(res, 400, `${name} must be YYYY-MM-DD`, 'validation_error');
+  }
   if (!['none', 'weekly', 'biweekly', 'monthly'].includes(recurrence))
     return err(res, 400, "recurrence must be 'none','weekly','biweekly','monthly'", 'validation_error');
 

@@ -8,12 +8,6 @@ import "./responsive.css";
 import "./accessibility.css";
 import "./i18n";
 
-if (import.meta.env.DEV) {
-  import('@axe-core/react').then(({ default: axe }) => {
-    axe(React, ReactDOM, 1000);
-  }).catch(() => {});
-}
-
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});

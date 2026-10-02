@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AdminAnalyticsSummary from '../components/admin/AdminAnalyticsSummary';
 import AdminAnnouncementsPanel from '../components/admin/AdminAnnouncementsPanel';
@@ -28,12 +28,15 @@ describe('admin panels', () => {
   });
 
   it('deletes an announcement only after confirmation', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<AdminAnnouncementsPanel />);
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    let dialog = await screen.findByRole('alertdialog', { name: /delete announcement/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(api.adminDeleteAnnouncement).not.toHaveBeenCalled();
-    confirm.mockReturnValue(true);
+
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    dialog = await screen.findByRole('alertdialog', { name: /delete announcement/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(api.adminDeleteAnnouncement).toHaveBeenCalledWith(7));
   });
 

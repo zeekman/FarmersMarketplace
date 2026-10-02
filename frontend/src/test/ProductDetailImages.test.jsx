@@ -43,6 +43,7 @@ vi.mock('../utils/errorMessages', () => ({ getErrorMessage: (e) => e?.message ||
 global.EventSource = class { constructor() {} close() {} set onmessage(_) {} };
 
 import ProductDetail from '../pages/ProductDetail';
+import { expectNoA11yViolations } from './a11y';
 
 function renderProductDetail() {
   return render(
@@ -145,4 +146,11 @@ describe('#420 ProductDetail image gallery', () => {
     const dots = dotRow.querySelectorAll('button');
     expect(dots.length).toBe(3);
   });
+});
+
+describe('accessibility (#1397)', () => {
+  it('has no detectable axe violations', async () => {
+    const { container } = renderProductDetail();
+    await expectNoA11yViolations(container);
+  }, 15000);
 });

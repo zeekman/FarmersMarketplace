@@ -489,6 +489,46 @@ describe('stellar-contracts', () => {
       expect(result.txHash).toBe('release_tx_hash');
     });
 
+    // Returns the [method, ...args] of the first contract.call() made by the last
+    // `new Contract(...)` — i.e. exactly what would be signed and submitted.
+    function lastContractCall() {
+      const instance = mockStellarSdk.Contract.mock.results.at(-1).value;
+      return instance.call.mock.calls[0];
+    }
+
+    it('release() sends only (order_id, caller) — the fee is never a caller input (#1301)', async () => {
+      mockSuccessfulSubmit('release_args_hash');
+
+      await sc.invokeEscrowContract({ ...BASE_PARAMS, action: 'release' });
+
+      const [method, ...args] = lastContractCall();
+      expect(method).toBe('release');
+      // order_id and the signer (buyer/admin) as `caller`; no token, no fee bps.
+      expect(args).toEqual([{ scVal: 101 }, { scVal: 'GPUBKEY' }]);
+    });
+
+    it('resolve_dispute sends (order_id, buyer_bps) as u64/u32 (#1299)', async () => {
+      mockSuccessfulSubmit('resolve_hash');
+
+      await sc.invokeEscrowContract({ ...BASE_PARAMS, action: 'resolve_dispute', buyerBps: 6000 });
+
+      const [method, ...args] = lastContractCall();
+      expect(method).toBe('resolve_dispute');
+      expect(args).toEqual([{ scVal: 101 }, { scVal: 6000 }]);
+      expect(mockStellarSdk.nativeToScVal).toHaveBeenCalledWith(6000, { type: 'u32' });
+    });
+
+    it.each([[-1], [10001], [12.5], [NaN], [undefined], ['abc']])(
+      'resolve_dispute rejects buyerBps=%p before anything is signed or submitted',
+      async (bad) => {
+        mockSorobanServer.sendTransaction.mockClear();
+        await expect(
+          sc.invokeEscrowContract({ ...BASE_PARAMS, action: 'resolve_dispute', buyerBps: bad })
+        ).rejects.toThrow('buyerBps must be an integer between 0 and 10000');
+        expect(mockSorobanServer.sendTransaction).not.toHaveBeenCalled();
+      }
+    );
+
     it('resolves with txHash on refund success', async () => {
       mockSuccessfulSubmit('refund_tx_hash');
 

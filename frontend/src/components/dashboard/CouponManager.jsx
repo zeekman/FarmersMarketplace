@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../../api/client';
+import { useConfirm } from '../../hooks/useConfirm';
 
 /**
  * CouponManager — create, list, and delete promotional coupon codes for a farmer.
@@ -16,6 +17,7 @@ export default function CouponManager() {
   });
   const [couponMsg, setCouponMsg] = useState(null);
   const [loading, setLoading] = useState(false);
+  const { confirm, confirmDialog } = useConfirm();
 
   const s = {
     card: {
@@ -102,8 +104,15 @@ export default function CouponManager() {
     }
   }
 
-  async function handleDelete(id) {
-    if (!window.confirm('Delete this coupon?')) return;
+  async function handleDelete(coupon) {
+    const ok = await confirm({
+      title: 'Delete coupon?',
+      description: `The coupon "${coupon.code}" will stop working immediately. This cannot be undone.`,
+      confirmLabel: 'Delete coupon',
+      destructive: true,
+    });
+    if (!ok) return;
+    const id = coupon.id;
     try {
       await api.deleteCoupon(id);
       loadCoupons();
@@ -230,7 +239,7 @@ export default function CouponManager() {
                   {c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '—'}
                 </td>
                 <td style={{ padding: '6px 8px', textAlign: 'right' }}>
-                  <button style={s.del} onClick={() => handleDelete(c.id)}>
+                  <button style={s.del} onClick={() => handleDelete(c)}>
                     Delete
                   </button>
                 </td>
@@ -239,6 +248,7 @@ export default function CouponManager() {
           </tbody>
         </table>
       )}
+      {confirmDialog}
     </div>
   );
 }

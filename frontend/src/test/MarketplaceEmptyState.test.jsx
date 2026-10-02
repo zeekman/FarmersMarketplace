@@ -21,6 +21,7 @@ vi.mock('../utils/useXlmRate', () => ({ useXlmRate: () => ({ usd: () => null }) 
 vi.mock('../components/RecentlyCompared', () => ({ default: () => null }));
 
 import Marketplace from '../pages/Marketplace';
+import { expectNoA11yViolations } from './a11y';
 
 describe('#419 Marketplace empty state', () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -54,4 +55,17 @@ describe('#419 Marketplace empty state', () => {
     const statusEl = screen.getByRole('status');
     expect(statusEl.querySelector('button')).not.toBeNull();
   });
+});
+
+describe('accessibility (#1397)', () => {
+  it('has no detectable axe violations', async () => {
+    const { container } = render(
+      <HelmetProvider>
+        <MemoryRouter>
+          <Marketplace />
+        </MemoryRouter>
+      </HelmetProvider>
+    );
+    await expectNoA11yViolations(container);
+  }, 15000);
 });

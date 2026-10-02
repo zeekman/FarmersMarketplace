@@ -1,9 +1,10 @@
 import React from 'react';
-import { renderHook, act } from '@testing-library/react';
+import { render, renderHook, act, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CompareProvider, useCompare } from '../context/CompareContext';
-import { MAX_RECENTLY_COMPARED } from '../components/RecentlyCompared';
+import RecentlyCompared, { MAX_RECENTLY_COMPARED } from '../components/RecentlyCompared';
+import { api } from '../api/client';
 
 const HISTORY_KEY = 'comparison_history';
 
@@ -18,6 +19,11 @@ function wrapper({ children }) {
 describe('RecentlyCompared / CompareContext MAX_RECENTLY_COMPARED eviction (#1202)', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('evicts exactly the oldest entry once MAX_RECENTLY_COMPARED + 1 comparisons are saved', () => {
@@ -52,5 +58,32 @@ describe('RecentlyCompared / CompareContext MAX_RECENTLY_COMPARED eviction (#120
 
     expect(result.current.history).toHaveLength(MAX_RECENTLY_COMPARED);
     expect(result.current.history.some(e => e.productIds[0] === 1)).toBe(true);
+  });
+
+  it('aborts product lookups when the component unmounts', async () => {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify([
+      { id: 1, productIds: [42], timestamp: new Date().toISOString() },
+    ]));
+    vi.spyOn(api, 'getProduct').mockImplementation(() => new Promise(() => {}));
+
+    const { unmount } = render(<RecentlyCompared />, { wrapper });
+    await waitFor(() => expect(api.getProduct).toHaveBeenCalled());
+    const signal = api.getProduct.mock.calls[0][1].signal;
+
+    unmount();
+
+    expect(signal.aborted).toBe(true);
+  });
+
+  it('labels a 404 product unavailable and removes it from comparison history', async () => {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify([
+      { id: 1, productIds: [42], timestamp: new Date().toISOString() },
+    ]));
+    vi.spyOn(api, 'getProduct').mockRejectedValue(Object.assign(new Error('Not found'), { status: 404 }));
+
+    render(<RecentlyCompared />, { wrapper });
+
+    expect(await screen.findByText('No longer available')).toBeInTheDocument();
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(HISTORY_KEY))).toEqual([]));
   });
 });

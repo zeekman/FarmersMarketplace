@@ -6,18 +6,24 @@ export default function LoadingSpinner() {
   if (!loading) return null;
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0, 0, 0, 0.3)',
-      zIndex: 9999,
-    }}>
+    <div
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      aria-label="Loading"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+        zIndex: 9999,
+      }}
+    >
       <div style={{
         border: '4px solid #f3f3f3',
         borderTop: '4px solid #3498db',

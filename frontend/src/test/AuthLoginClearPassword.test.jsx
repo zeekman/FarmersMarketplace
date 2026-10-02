@@ -16,6 +16,7 @@ vi.mock('../context/AuthContext', () => ({
 
 import { api } from '../api/client';
 import { LoginPage } from '../pages/Auth';
+import { expectNoA11yViolations } from './a11y';
 
 function renderLogin() {
   return render(
@@ -94,4 +95,11 @@ describe('Auth login failed behaviour (#784)', () => {
     // Success path navigates away rather than clearing the password field.
     expect(password.value).toBe('Correct1');
   });
+});
+
+describe('accessibility (#1397)', () => {
+  it('has no detectable axe violations', async () => {
+    const { container } = renderLogin();
+    await expectNoA11yViolations(container);
+  }, 15000);
 });

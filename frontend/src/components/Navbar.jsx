@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
+import { useNetwork } from '../context/NetworkContext';
 
 const s = {
   nav: { background: '#2d6a4f', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
@@ -23,17 +24,13 @@ export default function Navbar() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme, useSystemTheme, isUsingSystemTheme } = useTheme();
   const { i18n } = useTranslation();
+  const { network } = useNetwork();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [network, setNetwork] = useState(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const navRef = useRef(null);
   const hamburgerRef = useRef(null);
   const drawerRef = useRef(null);
-
-  useEffect(() => {
-    api.getNetwork().then(res => setNetwork(res.network)).catch(() => {});
-  }, []);
 
   // Initial unread-message count
   useEffect(() => {
@@ -139,9 +136,9 @@ export default function Navbar() {
       >
         🌿 FarmersMarket
       </NavLink>
-      {network && (
+      {network && network !== 'mainnet' && (
         <span style={{
-          background: network === 'mainnet' ? '#c0392b' : '#2d6a4f',
+          background: '#2d6a4f',
           color: '#fff',
           borderRadius: 4,
           padding: '2px 8px',
@@ -150,7 +147,7 @@ export default function Navbar() {
           letterSpacing: 0.5,
           textTransform: 'uppercase',
         }}>
-          {network}
+          TESTNET
         </span>
       )}
       <button
@@ -201,25 +198,30 @@ export default function Navbar() {
             )}
             <button style={s.toggleBtn} onClick={toggleTheme} aria-label="Toggle dark mode">{theme === 'light' ? '🌙' : '☀️'}</button>
             <button style={{ ...s.toggleBtn, fontSize: 12, minWidth: 120, color: '#fff' }} onClick={useSystemTheme} aria-label="Use system theme">
-              {isUsingSystemTheme ? 'System' : 'Use system'}
+              {isUsingSystemTheme ? 'System ✓' : 'Use system'}
             </button>
             <button style={s.btn} onClick={handleLogout}>Logout</button>
           </>
         ) : (
           <>
+            <NavLink to="/marketplace" style={navLinkStyle} onClick={closeDrawer}>Browse</NavLink>
             <NavLink to="/login" style={navLinkStyle} onClick={closeDrawer}>Login</NavLink>
             <NavLink to="/register" style={navLinkStyle} onClick={closeDrawer}>Register</NavLink>
+            <button style={s.toggleBtn} onClick={toggleTheme} aria-label="Toggle dark mode">{theme === 'light' ? '🌙' : '☀️'}</button>
+            <button style={{ ...s.toggleBtn, fontSize: 12, minWidth: 120, color: '#fff' }} onClick={useSystemTheme} aria-label="Use system theme">
+              {isUsingSystemTheme ? 'System ✓' : 'Use system'}
+            </button>
           </>
         )}
         <select
           style={s.langSelect}
           value={i18n.language}
-          onChange={e => i18n.changeLanguage(e.target.value)}
+          onChange={(e) => i18n.changeLanguage(e.target.value)}
           aria-label="Select language"
         >
-          <option value="en">EN</option>
-          <option value="sw">SW</option>
-          <option value="ar">AR</option>
+          <option value="en">English</option>
+          <option value="es">Español</option>
+          <option value="fr">Français</option>
         </select>
       </div>
     </nav>

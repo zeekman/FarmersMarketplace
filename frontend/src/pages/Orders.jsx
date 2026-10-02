@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import Spinner from '../components/Spinner';
+import { useNetwork } from '../context/NetworkContext';
 
 const ALL_STATUSES = [
   'pending',
@@ -170,6 +171,7 @@ function StatusTimeline({ status }) {
 }
 
 export default function Orders() {
+  const { explorerUrl } = useNetwork();
   const [allOrders, setAllOrders] = useState([]);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = FILTER_TABS.includes(searchParams.get('status'))
@@ -653,7 +655,7 @@ export default function Orders() {
                         <div style={s.hash}>
                           TX:{' '}
                           <a
-                            href={`https://stellar.expert/explorer/testnet/tx/${o.stellar_tx_hash}`}
+                            href={explorerUrl('tx', o.stellar_tx_hash)}
                             target="_blank"
                             rel="noreferrer"
                             style={{ color: '#2d6a4f' }}
@@ -710,7 +712,7 @@ export default function Orders() {
                             >
                               Refund TX:{' '}
                               <a
-                                href={`https://stellar.expert/explorer/testnet/tx/${o.refund_tx_hash}`}
+                                href={explorerUrl('tx', o.refund_tx_hash)}
                                 target="_blank"
                                 rel="noreferrer"
                                 style={{ color: '#2d6a4f' }}
@@ -788,7 +790,7 @@ export default function Orders() {
                             <div style={{ ...s.hash, marginTop: 4 }}>
                               Balance:{' '}
                               <a
-                                href={`https://stellar.expert/explorer/testnet/claimable-balance/${o.escrow_balance_id}`}
+                                href={explorerUrl('claimable-balance', o.escrow_balance_id)}
                                 target="_blank"
                                 rel="noreferrer"
                                 style={{ color: '#2d6a4f' }}
@@ -897,7 +899,7 @@ export default function Orders() {
                     <div style={s.hash}>
                       TX:{' '}
                       <a
-                        href={`https://stellar.expert/explorer/testnet/tx/${o.stellar_tx_hash}`}
+                        href={explorerUrl('tx', o.stellar_tx_hash)}
                         target="_blank"
                         rel="noreferrer"
                         style={{ color: '#2d6a4f' }}

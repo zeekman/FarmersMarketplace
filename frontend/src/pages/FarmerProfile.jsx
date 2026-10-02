@@ -207,6 +207,11 @@ function StreamModal({ farmerId, onClose }) {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
 /** Modal that shows cooperative detail (name, description, member count) */
 function CoopDetailModal({ coop, onClose }) {
   // Close on backdrop click

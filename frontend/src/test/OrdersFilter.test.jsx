@@ -18,6 +18,7 @@ vi.mock('../api/client', () => ({
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { role: 'buyer' } }) }));
 
 import Orders from '../pages/Orders';
+import { expectNoA11yViolations } from './a11y';
 
 function renderOrders(initialUrl = '/orders') {
   return render(
@@ -60,4 +61,11 @@ describe('#428 Orders status filter', () => {
       expect(screen.getByRole('button', { name: new RegExp(status, 'i') })).toBeInTheDocument();
     }
   });
+});
+
+describe('accessibility (#1397)', () => {
+  it('has no detectable axe violations', async () => {
+    const { container } = renderOrders();
+    await expectNoA11yViolations(container);
+  }, 15000);
 });

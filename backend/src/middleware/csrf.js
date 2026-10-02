@@ -6,7 +6,19 @@ const CSRF_HEADER = 'x-csrf-token';
 // Routes that are exempt from CSRF validation (pre-auth endpoints).
 // Expressed as path suffixes (i.e. with the /api or /api/v1 prefix
 // stripped) so the same list covers every registered API version (#990).
-const EXEMPT_SUFFIXES = ['/auth/login', '/auth/register', '/auth/recover'];
+//
+// /auth/refresh and /auth/logout are exempt because the SPA's
+// refreshAccessToken()/logout() calls do not send an X-CSRF-Token header.
+// They are instead protected by the SameSite=Strict refresh-token cookie
+// (which browsers refuse to attach to cross-site requests) plus an Origin
+// check in the auth routes, so CSRF validation here would be redundant (#1363).
+const EXEMPT_SUFFIXES = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/recover',
+  '/auth/refresh',
+  '/auth/logout',
+];
 
 /**
  * Strips a leading /api/v1 or /api prefix so exemption checks are

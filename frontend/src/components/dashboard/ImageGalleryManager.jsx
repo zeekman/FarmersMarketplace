@@ -46,6 +46,14 @@ const s = {
   err: { background: '#fee', color: '#c0392b' },
 };
 
+// Stable identity for a gallery entry: prefer the server id, fall back to the
+// URL (entries may be plain URL strings). Never the array index, since the list
+// is reordered and items are deleted.
+function imageKey(img) {
+  if (typeof img === 'string') return img;
+  return img.id ?? img.url;
+}
+
 export default function ImageGalleryManager({ productId, images = [], onUpdate }) {
   const [galleries, setGalleries] = useState(images);
   const [draggedIdx, setDraggedIdx] = useState(null);
@@ -70,8 +78,8 @@ export default function ImageGalleryManager({ productId, images = [], onUpdate }
     setDraggedIdx(null);
   }
 
-  function handleDelete(idx) {
-    const newGalleries = galleries.filter((_, i) => i !== idx);
+  function handleDelete(key) {
+    const newGalleries = galleries.filter((img) => imageKey(img) !== key);
     setGalleries(newGalleries);
   }
 
@@ -106,7 +114,7 @@ export default function ImageGalleryManager({ productId, images = [], onUpdate }
           const imgUrl = typeof img === 'string' ? img : img.url;
           return (
             <div
-              key={idx}
+              key={imageKey(img)}
               style={{ ...s.thumb, ...(draggedIdx === idx ? s.thumbDrag : {}) }}
               draggable
               onDragStart={() => handleDragStart(idx)}
@@ -115,7 +123,12 @@ export default function ImageGalleryManager({ productId, images = [], onUpdate }
             >
               <img src={imgUrl} alt={`Gallery ${idx}`} style={s.img} />
               {idx === 0 && <div style={s.coverBadge}>Cover</div>}
-              <button style={s.deleteBtn} onClick={() => handleDelete(idx)}>
+              <button
+                type="button"
+                style={s.deleteBtn}
+                aria-label={`Remove gallery image ${idx + 1}`}
+                onClick={() => handleDelete(imageKey(img))}
+              >
                 ✕
               </button>
             </div>

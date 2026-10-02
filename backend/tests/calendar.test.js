@@ -140,6 +140,22 @@ describe('POST /api/calendar', () => {
     expect(res.body.code).toBe('validation_error');
   });
 
+  it.each([
+    ['available_until', 'not-a-date'],
+    ['recurrence_end', '2025/08/31'],
+  ])('returns 400 for malformed %s', async (field, value) => {
+    const { token: csrf, cookieStr } = await getCsrf();
+    const res = await request(app)
+      .post('/api/calendar')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .set('Cookie', cookieStr)
+      .set('X-CSRF-Token', csrf)
+      .send({ product_id: 5, available_from: '2025-07-01', [field]: value });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+  });
+
   it('returns 400 for invalid recurrence value', async () => {
     const { token: csrf, cookieStr } = await getCsrf();
     const res = await request(app)

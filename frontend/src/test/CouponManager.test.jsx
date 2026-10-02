@@ -1,8 +1,8 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
-vi.mock('../../api/client', async (importOriginal) => {
+vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -15,8 +15,8 @@ vi.mock('../../api/client', async (importOriginal) => {
   };
 });
 
-import CouponManager from '../../components/dashboard/CouponManager';
-import { api } from '../../api/client';
+import CouponManager from '../components/dashboard/CouponManager';
+import { api } from '../api/client';
 
 const COUPONS = [
   { id: 1, code: 'SUMMER10', discount_type: 'percent', discount_value: 10, uses_count: 2, max_uses: 50, expires_at: null },
@@ -176,53 +176,60 @@ describe('CouponManager — coupon list', () => {
 // ── Delete coupon ─────────────────────────────────────────────────────────────
 
 describe('CouponManager — delete coupon', () => {
-  it('calls api.deleteCoupon with the correct id after confirm', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  async function openDeleteDialog() {
     api.getMyCoupons.mockResolvedValue({ data: COUPONS });
-    api.deleteCoupon.mockResolvedValue({});
-
     render(<CouponManager />);
     await waitFor(() => screen.getByText('SUMMER10'));
+    const row = screen.getByText('SUMMER10').closest('tr');
+    fireEvent.click(within(row).getByRole('button', { name: /delete/i }));
+    return screen.findByRole('alertdialog', { name: /delete coupon/i });
+  }
 
-    const deleteButtons = screen.getAllByRole('button', { name: /delete/i });
-    await act(async () => {
-      fireEvent.click(deleteButtons[0]);
-    });
-
-    expect(api.deleteCoupon).toHaveBeenCalledWith(1);
-    vi.restoreAllMocks();
+  it('does not use window.confirm', async () => {
+    const spy = vi.spyOn(window, 'confirm');
+    await openDeleteDialog();
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
-  it('does NOT call api.deleteCoupon when the user cancels the confirm dialog', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
-    api.getMyCoupons.mockResolvedValue({ data: COUPONS });
+  it('shows an accessible confirmation dialog naming the coupon', async () => {
+    const dialog = await openDeleteDialog();
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveTextContent('SUMMER10');
+    // Focus starts on the safe (cancel) action
+    expect(within(dialog).getByRole('button', { name: /cancel/i })).toHaveFocus();
+  });
 
-    render(<CouponManager />);
-    await waitFor(() => screen.getByText('SUMMER10'));
+  it('calls api.deleteCoupon with the correct id after confirming', async () => {
+    api.deleteCoupon.mockResolvedValue({});
+    const dialog = await openDeleteDialog();
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: /delete coupon/i }));
+    });
+    expect(api.deleteCoupon).toHaveBeenCalledWith(1);
+  });
 
-    const deleteButtons = screen.getAllByRole('button', { name: /delete/i });
-    fireEvent.click(deleteButtons[0]);
-
+  it('does NOT call api.deleteCoupon when the user cancels the dialog', async () => {
+    const dialog = await openDeleteDialog();
+    fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
     expect(api.deleteCoupon).not.toHaveBeenCalled();
-    vi.restoreAllMocks();
+  });
+
+  it('does NOT call api.deleteCoupon when Escape is pressed', async () => {
+    await openDeleteDialog();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(api.deleteCoupon).not.toHaveBeenCalled();
   });
 
   it('reloads the coupon list after a successful delete', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    api.getMyCoupons
-      .mockResolvedValueOnce({ data: COUPONS })
-      .mockResolvedValueOnce({ data: [] });
     api.deleteCoupon.mockResolvedValue({});
-
-    render(<CouponManager />);
-    await waitFor(() => screen.getByText('SUMMER10'));
-
-    const deleteButtons = screen.getAllByRole('button', { name: /delete/i });
+    const dialog = await openDeleteDialog();
+    api.getMyCoupons.mockResolvedValueOnce({ data: [] });
     await act(async () => {
-      fireEvent.click(deleteButtons[0]);
+      fireEvent.click(within(dialog).getByRole('button', { name: /delete coupon/i }));
     });
-
     await waitFor(() => expect(api.getMyCoupons).toHaveBeenCalledTimes(2));
-    vi.restoreAllMocks();
   });
 });

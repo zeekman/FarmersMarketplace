@@ -12,7 +12,7 @@
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write . --ignore-path ../.prettierignore"
   },
-  "devDependencies_note": "run: npm install --save-dev rollup-plugin-visualizer @axe-core/react --legacy-peer-deps",
+  "devDependencies_note": "run: npm install --save-dev rollup-plugin-visualizer --legacy-peer-deps",
   "dependencies": {
     "dompurify": "^3.3.3",
     "i18next": "^26.0.1",
@@ -27,7 +27,6 @@
     "recharts": "^3.8.1"
   },
   "devDependencies": {
-    "@axe-core/react": "^4.11.1",
     "@eslint/js": "^8.57.1",
     "@playwright/test": "^1.44.0",
     "@testing-library/jest-dom": "^6.4.2",

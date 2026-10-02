@@ -31,6 +31,13 @@
     "no-dupe-keys": "error",
     "react/prop-types": "off",
     "react/react-in-jsx-scope": "off",
-    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }]
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_"
+      }
+    ],
+    "react/no-array-index-key": "error",
+    "no-alert": "error"
   }
 }

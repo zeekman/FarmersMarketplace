@@ -6,9 +6,11 @@ import Spinner from '../components/Spinner';
 import { getStellarErrorMessage } from '../utils/stellarErrors';
 import { getErrorMessage } from '../utils/errorMessages';
 import { showToast } from '../utils/toast';
+import { useConfirm } from '../hooks/useConfirm';
 import { useTranslation } from 'react-i18next';
 import StreamAccrual from '../components/StreamAccrual';
 import { useXlmRate } from '../utils/useXlmRate';
+import { useNetwork } from '../context/NetworkContext';
 
 const DISCLAIMER_KEY = 'testnet_disclaimer_dismissed';
 const RECONNECT_BASE_MS = 2000;
@@ -76,7 +78,9 @@ function Toast({ toasts, usd }) {
 
 export default function Wallet() {
   const { t } = useTranslation();
+  const { confirm, confirmDialog } = useConfirm();
   const { user } = useAuth();
+  const { network, explorerUrl } = useNetwork();
   const { usd } = useXlmRate();
   const [disclaimerVisible, setDisclaimerVisible] = useState(() => localStorage.getItem(DISCLAIMER_KEY) !== 'true');
   const [wallet, setWallet]       = useState(null);
@@ -95,7 +99,6 @@ export default function Wallet() {
   const [sendForm, setSendForm]   = useState({ destination: '', amount: '', memo: '' });
   const [sending, setSending]     = useState(false);
   const [sendMsg, setSendMsg]     = useState(null);
-  const [network, setNetwork]     = useState(null);
 
   const [showTrustlineForm, setShowTrustlineForm] = useState(false);
   const [tlForm, setTlForm]       = useState({ asset_code: '', asset_issuer: '' });
@@ -218,7 +221,6 @@ export default function Wallet() {
     unmounted.current = false;
     load();
     loadStreams();
-    api.getNetwork().then(res => setNetwork(res.network)).catch(() => {});
     if (user?.role === 'buyer' && typeof api.getBudget === 'function') {
       api.getBudget()
         .then((res) => {
@@ -314,7 +316,13 @@ export default function Wallet() {
   }
 
   async function handleRemoveTrustline(assetCode, assetIssuer) {
-    if (!confirm('Remove trustline for ' + assetCode + '? You must have a zero balance.')) return;
+    const ok = await confirm({
+      title: 'Remove trustline for ' + assetCode + '?',
+      description: 'You must have a zero balance of this asset before removing its trustline.',
+      confirmLabel: 'Remove trustline',
+      destructive: true,
+    });
+    if (!ok) return;
     setRemovingAsset(assetCode);
     setTlMsg(null);
     try {
@@ -789,7 +797,7 @@ export default function Wallet() {
                 {sendMsg.text}
                 {sendMsg.txHash && (
                   <div style={{ marginTop: 6, fontSize: 12 }}>
-                    TX: <a href={'https://stellar.expert/explorer/testnet/tx/' + sendMsg.txHash} target="_blank" rel="noreferrer" style={{ color: '#2d6a4f', wordBreak: 'break-all' }}>{sendMsg.txHash}</a>
+                    TX: <a href={explorerUrl('tx', sendMsg.txHash)} target="_blank" rel="noreferrer" style={{ color: '#2d6a4f', wordBreak: 'break-all' }}>{sendMsg.txHash}</a>
                   </div>
                 )}
               </div>
@@ -930,7 +938,7 @@ export default function Wallet() {
                 </div>
                 <div style={s.hash}>{tx.transaction_hash}</div>
               </div>
-              <a href={`https://stellar.expert/explorer/testnet/tx/${tx.transaction_hash}`}
+              <a href={explorerUrl('tx', tx.transaction_hash)}
                 target="_blank" rel="noreferrer"
                 style={{ fontSize: 12, color: '#2d6a4f', flexShrink: 0, marginLeft: 12 }}>View ↗</a>
             </div>
@@ -939,6 +947,7 @@ export default function Wallet() {
       </div>
         </>
       )}
+      {confirmDialog}
     </div>
   );
 }
