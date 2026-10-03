@@ -1,5 +1,8 @@
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const path = require('path');
 const { request, app, mockQuery, getCsrf } = require('./setup');
+const { EXEMPT_SUFFIXES } = require('../src/middleware/csrf');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -63,6 +66,21 @@ describe('CSRF exempt routes', () => {
       .post('/api/auth/login')
       .send({ email: 'x@x.com', password: 'secret1' });
     expect(res.status).not.toBe(403);
+  });
+
+  // The SPA builds from its own Docker context and cannot import this file, so
+  // the frontend duplicates the list in CSRF_EXEMPT. This is the guard that
+  // keeps the duplicate honest (#1381).
+  it('is mirrored by the frontend CSRF_EXEMPT list', () => {
+    const clientSource = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'frontend', 'src', 'api', 'client.js'),
+      'utf8'
+    );
+    const declaration = clientSource.match(/export const CSRF_EXEMPT\s*=\s*\[([^\]]*)\]/);
+    expect(declaration).not.toBeNull();
+
+    const clientExempt = [...declaration[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect(clientExempt).toEqual(EXEMPT_SUFFIXES);
   });
 });
 
