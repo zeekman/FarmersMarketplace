@@ -7,6 +7,10 @@ const CSRF_HEADER = 'x-csrf-token';
 // Expressed as path suffixes (i.e. with the /api or /api/v1 prefix
 // stripped) so the same list covers every registered API version (#990).
 //
+// The frontend mirrors this list in CSRF_EXEMPT (frontend/src/api/client.js)
+// because it builds in a disjoint Docker context and cannot import this file;
+// backend/tests/csrf.test.js fails if the two ever drift (#1381).
+//
 // /auth/refresh and /auth/logout are exempt because the SPA's
 // refreshAccessToken()/logout() calls do not send an X-CSRF-Token header.
 // They are instead protected by the SameSite=Strict refresh-token cookie
@@ -102,4 +106,4 @@ function parseCookie(cookieStr, name) {
   return null;
 }
 
-module.exports = { csrfProtect, csrfTokenHandler, generateCsrfToken };
+module.exports = { csrfProtect, csrfTokenHandler, generateCsrfToken, EXEMPT_SUFFIXES };

@@ -13,7 +13,8 @@
  * Scenarios covered:
  *   - Successful request returns parsed JSON body
  *   - 401 → refresh → retry once returns data from the retried call
- *   - 401 → refresh fails → logoutCallback fired, throws 'Session expired'
+ *   - Concurrent 401s share ONE refresh call and each retry once (#1381)
+ *   - 401 → refresh fails → logoutCallback fired once, throws 'Session expired'
  *   - Retry is bounded to once (fetch call count is exactly 3: orig + refresh + retry)
  *   - Retried request uses the newly issued access token in Authorization header
  *   - A subsequent 401 on the retried request is NOT retried again
@@ -22,7 +23,7 @@
  *   - Requests without an access token omit the Authorization header
  */
 
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // Set up fetch stub before importing the module so the module-level fetch call
 // inside refreshAccessToken() is captured by the stub.
@@ -37,6 +38,15 @@ import {
 } from '../api/client.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+/** Session-expired toasts currently on screen (see utils/toast.js). */
+function sessionExpiryToasts() {
+  const container = document.getElementById('toast-notifications');
+  if (!container) return [];
+  return [...container.children]
+    .map((el) => el.textContent)
+    .filter((message) => /session has expired/i.test(message));
+}
 
 function okResponse(body = {}) {
   return Promise.resolve({
@@ -60,6 +70,11 @@ beforeEach(() => {
   setLogoutCallback(null);
   // Clear CSRF cookie so tests that don't need CSRF don't accidentally get one
   document.cookie = 'csrf_token=; Max-Age=0; path=/';
+});
+
+afterEach(() => {
+  // Toasts self-remove on a timer; drop them so each test starts clean.
+  document.getElementById('toast-notifications')?.remove();
 });
 
 // ── core request behaviour ────────────────────────────────────────────────────
@@ -203,6 +218,121 @@ describe('401 auto-refresh and retry', () => {
     await api.getWallet().catch(() => {});
     const [, opts] = mockFetch.mock.calls[2];
     expect(opts.headers.Authorization).toBeUndefined();
+  });
+});
+
+// ── concurrent 401s: single-flight refresh (#1381) ─────────────────────────────
+
+describe('Concurrent 401s share a single refresh', () => {
+  beforeEach(() => {
+    document.cookie = 'csrf_token=test-csrf; path=/';
+  });
+
+  function sessionExpiringBackend() {
+    const seen = { tokens: [] };
+    mockFetch.mockImplementation((url, opts = {}) => {
+      if (url.includes('/auth/refresh')) return okResponse({ token: 'shared-token' });
+      seen.tokens.push(opts.headers?.Authorization);
+      // Every endpoint 401s until the retry that carries the refreshed token.
+      return opts.headers?.Authorization === 'Bearer shared-token'
+        ? okResponse({ balance: 42 })
+        : errResponse(401, { error: 'Token expired' });
+    });
+    return seen;
+  }
+
+  it('sends 5 concurrent 401s through exactly 1 refresh and 5 retries', async () => {
+    const logoutSpy = vi.fn();
+    setLogoutCallback(logoutSpy);
+    setAccessToken('expired-token');
+
+    const seen = sessionExpiringBackend();
+
+    const results = await Promise.all([
+      api.getWallet(),
+      api.getOrders(),
+      api.getProducts(),
+      api.getAlerts(),
+      api.getBudget(),
+    ]);
+
+    expect(results).toHaveLength(5);
+    // 5 originals on the expired token, then 5 retries on the refreshed one.
+    expect(seen.tokens).toEqual([
+      ...Array(5).fill('Bearer expired-token'),
+      ...Array(5).fill('Bearer shared-token'),
+    ]);
+    // The backend rotates refresh tokens and revokes the family on a replayed
+    // one, so a second refresh here would log the user out mid-request.
+    expect(mockFetch.mock.calls.filter(([url]) => url.includes('/auth/refresh'))).toHaveLength(1);
+    // Every waiter saw a fresh token, so nobody was logged out.
+    expect(logoutSpy).not.toHaveBeenCalled();
+  });
+
+  it('logs out once when the shared refresh fails', async () => {
+    const logoutSpy = vi.fn();
+    setLogoutCallback(logoutSpy);
+    setAccessToken('expired-token');
+
+    mockFetch.mockImplementation((url) =>
+      url.includes('/auth/refresh') ? errResponse(401, { error: 'Reused' }) : errResponse(401),
+    );
+
+    const attempts = [
+      api.getWallet(),
+      api.getOrders(),
+      api.getProducts(),
+      api.getAlerts(),
+      api.getBudget(),
+    ];
+    const outcomes = await Promise.allSettled(attempts);
+
+    expect(outcomes.map((o) => o.status)).toEqual(Array(5).fill('rejected'));
+    for (const outcome of outcomes) expect(outcome.reason.message).toBe('Session expired');
+    expect(mockFetch.mock.calls.filter(([url]) => url.includes('/auth/refresh'))).toHaveLength(1);
+    expect(logoutSpy).toHaveBeenCalledOnce();
+  });
+
+  it('shows exactly one session-expired toast', async () => {
+    setLogoutCallback(null);
+    setAccessToken('expired-token');
+
+    mockFetch
+      .mockResolvedValueOnce(errResponse(401)) // original
+      .mockResolvedValueOnce(errResponse(401, {})); // refresh fails
+
+    await expect(api.getWallet()).rejects.toThrow('Session expired');
+
+    expect(sessionExpiryToasts()).toHaveLength(1);
+    expect(sessionExpiryToasts()[0]).toMatch(/session has expired/i);
+  });
+
+  it('does not spend a refresh token once the session has ended', async () => {
+    setAccessToken('expired-token');
+    mockFetch.mockImplementation((url) =>
+      url.includes('/auth/refresh') ? errResponse(401) : errResponse(401),
+    );
+
+    await expect(api.getWallet()).rejects.toThrow('Session expired');
+    await expect(api.getOrders()).rejects.toThrow('Session expired');
+
+    expect(mockFetch.mock.calls.filter(([url]) => url.includes('/auth/refresh'))).toHaveLength(1);
+  });
+
+  it('starts a new refresh for a later session', async () => {
+    setAccessToken('expired-token');
+    mockFetch.mockImplementation((url) =>
+      url.includes('/auth/refresh') ? errResponse(401) : errResponse(401),
+    );
+
+    await expect(api.getWallet()).rejects.toThrow('Session expired');
+
+    // Signing in arms the notice again, and the next expiry must not be
+    // swallowed by the latch from the previous one.
+    setAccessToken('second-session-token');
+    await expect(api.getWallet()).rejects.toThrow('Session expired');
+
+    expect(mockFetch.mock.calls.filter(([url]) => url.includes('/auth/refresh'))).toHaveLength(2);
   });
 });
 

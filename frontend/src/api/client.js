@@ -1,11 +1,28 @@
+import { showToast } from '../utils/toast';
+import { getErrorMessage } from '../utils/errorMessages';
+
 const BASE = '/api/v1';
+
+// Error message handed to callers when the refresh token is gone or rejected.
+// The wording is what errorMessages.js maps to the user-facing session-expired copy.
+const SESSION_EXPIRED = 'Session expired';
+
+// A refresh that hangs (offline, proxy black hole) must not leave every queued
+// 401 pending forever, so the single-flight refresh races this deadline.
+const REFRESH_TIMEOUT_MS = 10000;
 
 let accessToken = null;
 let loadingCallback = null;
 let logoutCallback = null;
+// The in-flight refresh, shared by every concurrent 401 (#1381).
+let refreshPromise = null;
+// Latched when a refresh fails so a burst of 401s ends the session once.
+let sessionExpired = false;
 
 export function setAccessToken(token) {
   accessToken = token;
+  // A token in hand means a live session again, so re-arm the expiry notice.
+  sessionExpired = false;
 }
 
 export function clearAccessToken() {
@@ -61,8 +78,9 @@ export function ensureCsrfToken({ force = false } = {}) {
   return csrfReady;
 }
 
-async function refreshAccessToken() {
-  // The refresh endpoint is CSRF-protected on the backend, so it needs the header too.
+async function performRefresh(signal) {
+  // The refresh endpoint is exempt from CSRF validation on the backend (#1363),
+  // but sending the header anyway is harmless — fetch one if it is missing.
   // Best effort: if the token can't be fetched, the refresh call reports the failure.
   await ensureCsrfToken().catch(() => {});
   const csrfToken = getCsrfToken();
@@ -70,19 +88,79 @@ async function refreshAccessToken() {
     method: 'POST',
     credentials: 'include',
     headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
+    signal,
   });
   if (!res.ok) return null;
   const data = await res.json();
-  accessToken = data.token;
-  return accessToken;
+  if (!data?.token) return null;
+  setAccessToken(data.token);
+  return data.token;
+}
+
+/**
+ * Single-flight access-token refresh (#1381).
+ *
+ * The backend rotates refresh tokens and treats a replay of an already-rotated
+ * token as theft, revoking the whole family. So the burst of 401s a dashboard
+ * load produces when the access token expires must not turn into one refresh
+ * call per in-flight request: every caller awaits this same promise and then
+ * retries once with the token it obtained, and only one POST /auth/refresh ever
+ * goes out. Always resolves — a failure resolves to null — so no caller has to
+ * handle a rejection and the flight is always cleared.
+ */
+function refreshAccessToken() {
+  if (refreshPromise) return refreshPromise;
+
+  const controller = new AbortController();
+  let timer;
+  const timedOut = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Token refresh timed out after ${REFRESH_TIMEOUT_MS}ms`));
+    }, REFRESH_TIMEOUT_MS);
+  });
+
+  refreshPromise = Promise.race([performRefresh(controller.signal), timedOut])
+    .catch(() => null)
+    .finally(() => {
+      clearTimeout(timer);
+      refreshPromise = null;
+    });
+  return refreshPromise;
 }
 
 const MUTATING = ['POST', 'PUT', 'PATCH', 'DELETE'];
-// Must match EXEMPT_SUFFIXES in backend/src/middleware/csrf.js.
-export const CSRF_EXEMPT = ['/auth/login', '/auth/register', '/auth/recover'];
+// Paths the backend also skips CSRF validation for. Must stay identical to
+// EXEMPT_SUFFIXES in backend/src/middleware/csrf.js — the frontend and backend
+// Docker build contexts are disjoint directories, so the two cannot import one
+// shared module; instead backend/tests/csrf.test.js reads this file and fails if
+// the lists ever drift (#1381, backend #1363).
+//
+// /auth/refresh and /auth/logout rely on the SameSite=Strict refresh-token
+// cookie plus an Origin check in the auth routes instead of a CSRF token.
+export const CSRF_EXEMPT = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/recover',
+  '/auth/refresh',
+  '/auth/logout',
+];
 
 function isCsrfFailure(status, data) {
   return status === 403 && /csrf token (missing|invalid)/i.test(String(data?.error || data?.message || ''));
+}
+
+/**
+ * Ends the session after a refresh failed. Latched so the concurrent 401s that
+ * triggered the failed refresh produce exactly one logoutCallback() and one
+ * "Session expired" toast instead of one of each per request (#1381).
+ */
+function endSession() {
+  clearAccessToken();
+  if (sessionExpired) return;
+  sessionExpired = true;
+  showToast(getErrorMessage(new Error(SESSION_EXPIRED)), 'error');
+  if (logoutCallback) logoutCallback();
 }
 
 async function request(path, options = {}, retry = true, csrfRetry = true) {
@@ -110,16 +188,13 @@ async function request(path, options = {}, retry = true, csrfRetry = true) {
     });
 
     if (res.status === 401 && retry) {
-      let token;
-      try {
-        token = await refreshAccessToken();
-      } catch {
-        token = null;
-      }
+      // Single-flight: concurrent 401s share one refresh and each retries once.
+      // Once the session has ended, skip the refresh entirely — replaying the
+      // refresh cookie is what trips the backend's reuse detection.
+      const token = sessionExpired ? null : await refreshAccessToken();
       if (token) return request(path, options, false, csrfRetry);
-      clearAccessToken();
-      if (logoutCallback) logoutCallback();
-      throw new Error('Session expired');
+      endSession();
+      throw new Error(SESSION_EXPIRED);
     }
 
     const data = await res.json().catch(() => ({}));
