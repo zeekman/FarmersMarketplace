@@ -1,14 +1,30 @@
 /**
  * POST /api/products/import
+ * POST /api/v1/products/import
  *
- * Accepts:
- *   - Content-Type: application/json  → body is an array of product objects
- *   - Content-Type: multipart/form-data with a `file` CSV field
+ * Unified, validated, transactional bulk product import endpoint.
  *
- * Validates each row with the same rules as POST /api/products.
- * Detects duplicates by (name, farmer_id) — skips with a warning.
- * Max 500 rows; returns { imported, skipped, errors }.
+ * Features
+ * ────────
+ * • Strips UTF-8 BOM (Excel "CSV UTF-8" default)
+ * • Accepts ?delimiter=; (or any single char, default ,)
+ * • Lowercases and trims CSV headers
+ * • Validates every row with the same rules as POST /products (via productService.validateRow)
+ * • Supports ?dry_run=true  → returns {valid, errors, duplicates} without writing
+ * • Supports ?on_duplicate=skip|update|create (default skip)
+ * • Supports ?mode=default|all_or_nothing
+ *     - default: bad rows skipped, good rows committed together
+ *     - all_or_nothing: any bad row rolls back everything
+ * • Runs inside one db.withTransaction; per-row SAVEPOINTs guard good rows from bad neighbours
+ * • Fires batched post-create side effects (price_history, SSE, waitlist notifications, cache)
+ * • Returns: { success, created, updated, skipped, errors: [{ line, field, message }] }
+ *
+ * Template download
+ * ─────────────────
+ * GET /api/products/import/template
  */
+
+'use strict';
 
 const router = require('express').Router();
 const multer = require('multer');
@@ -16,145 +32,336 @@ const { parse } = require('csv-parse');
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
-const { sanitizeText } = require('../utils/sanitize');
+const {
+  insertProduct,
+  fireBatchPostCreateEffects,
+  validateRow,
+} = require('../services/productService');
 
 const MAX_IMPORT = 500;
-const VALID_ALLERGENS = ['gluten', 'nuts', 'dairy', 'eggs', 'soy', 'shellfish'];
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: MAX_FILE_SIZE },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) cb(null, true);
-    else cb(new Error('Only CSV files are allowed'), false);
+    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV files are allowed'), false);
+    }
   },
 });
 
-// Validate a single product row; returns { product } or { error }
-function validateRow(row) {
-  const name = (row.name || '').trim();
-  if (!name) return { error: 'name is required' };
+// ─── Helpers ───────────────────────────────────────────────────────────────
 
-  const price = parseFloat(row.price);
-  if (isNaN(price) || price <= 0) return { error: 'price must be a positive number' };
-
-  const quantity = parseInt(row.quantity, 10);
-  if (isNaN(quantity) || quantity <= 0) return { error: 'quantity must be a positive integer' };
-
-  // allergens
-  const allergenInput = row.allergens;
-  let allergens = null;
-  if (allergenInput !== undefined && allergenInput !== null && allergenInput !== '') {
-    const arr = Array.isArray(allergenInput)
-      ? allergenInput
-      : String(allergenInput).split(',').map((a) => a.trim()).filter(Boolean);
-    const invalid = arr.find((a) => !VALID_ALLERGENS.includes(a));
-    if (invalid) return { error: `Invalid allergen: "${invalid}". Must be one of: ${VALID_ALLERGENS.join(', ')}` };
-    allergens = arr.length > 0 ? JSON.stringify(arr) : null;
+/**
+ * Strip a leading UTF-8 BOM (\uFEFF / 0xEF 0xBB 0xBF) from a Buffer or string.
+ */
+function stripBom(input) {
+  if (Buffer.isBuffer(input)) {
+    if (input[0] === 0xef && input[1] === 0xbb && input[2] === 0xbf) {
+      return input.slice(3);
+    }
+    return input;
   }
-
-  return {
-    product: {
-      name: sanitizeText(name),
-      description: sanitizeText((row.description || '').trim()),
-      price,
-      quantity,
-      unit: sanitizeText((row.unit || 'unit').trim()),
-      category: sanitizeText((row.category || 'other').trim()),
-      allergens,
-    },
-  };
+  return typeof input === 'string' && input.charCodeAt(0) === 0xfeff
+    ? input.slice(1)
+    : input;
 }
 
-// Parse CSV buffer → array of plain objects
-function parseCsv(buffer) {
+/**
+ * Parse CSV buffer → array of plain objects with lowercased, trimmed headers.
+ * @param {Buffer} buffer
+ * @param {string} delimiter  single character, default ','
+ */
+function parseCsv(buffer, delimiter = ',') {
   return new Promise((resolve, reject) => {
     const rows = [];
-    const parser = parse(buffer, { columns: true, skip_empty_lines: true, trim: true });
-    parser.on('data', (r) => rows.push(r));
+    const clean = stripBom(buffer);
+    const parser = parse(clean, {
+      columns: (hdrs) => hdrs.map((h) => h.trim().toLowerCase()),
+      skip_empty_lines: true,
+      trim: true,
+      delimiter,
+    });
+    parser.on('data', (row) => rows.push(row));
     parser.on('end', () => resolve(rows));
     parser.on('error', reject);
   });
 }
 
-// Shared import logic
-async function runImport(rows, farmerId, res) {
-  if (rows.length > MAX_IMPORT) {
-    return res.status(413).json({
-      success: false,
-      error: 'too_large',
-      message: `Maximum ${MAX_IMPORT} rows per import`,
-      code: 'too_large',
-    });
-  }
-
-  // Load existing (name, farmer_id) pairs once for duplicate detection
-  const { rows: existing } = await db.query(
-    'SELECT LOWER(name) AS lname FROM products WHERE farmer_id = $1',
+/**
+ * Load the set of existing lowercase+trimmed product names for a farmer.
+ * Used for duplicate detection.
+ */
+async function loadExistingNames(farmerId) {
+  const { rows } = await db.query(
+    `SELECT LOWER(TRIM(name)) AS lname FROM products WHERE farmer_id = $1`,
     [farmerId]
   );
-  const existingNames = new Set(existing.map((r) => r.lname));
+  return new Set(rows.map((r) => r.lname));
+}
 
-  const results = { imported: 0, skipped: 0, errors: [] };
+// ─── Core import logic ─────────────────────────────────────────────────────
+
+/**
+ * Run the import pipeline (or dry-run) for a set of rows.
+ *
+ * @param {object[]} rows       - raw row objects from CSV/JSON
+ * @param {number}   farmerId
+ * @param {object}   opts
+ * @param {boolean}  opts.dryRun
+ * @param {string}   opts.onDuplicate  'skip' | 'update' | 'create'
+ * @param {string}   opts.mode         'default' | 'all_or_nothing'
+ * @returns {Promise<object>} shape: { created, updated, skipped, errors, valid? (dry_run) }
+ */
+async function runImport(rows, farmerId, opts) {
+  const { dryRun = false, onDuplicate = 'skip', mode = 'default' } = opts;
+
+  if (rows.length > MAX_IMPORT) {
+    const e = new Error(`Maximum ${MAX_IMPORT} rows per import`);
+    e.code = 'too_large';
+    e.status = 413;
+    throw e;
+  }
+
+  // Validate all rows first (no DB calls)
+  const validated = [];   // { rowNum, product }
+  const errorItems = [];  // { line, field, message }
 
   for (let i = 0; i < rows.length; i++) {
-    const rowNum = i + 1;
-    const row = rows[i];
-
-    const { product, error } = validateRow(row);
-    if (error) {
-      results.skipped++;
-      results.errors.push({ row: rowNum, error });
-      continue;
-    }
-
-    // Duplicate detection: (name, farmer_id)
-    if (existingNames.has(product.name.toLowerCase())) {
-      results.skipped++;
-      results.errors.push({ row: rowNum, error: `Duplicate: product "${product.name}" already exists`, skipped: true });
-      continue;
-    }
-
-    try {
-      await db.query(
-        `INSERT INTO products (farmer_id, name, description, category, price, quantity, unit, allergens)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [farmerId, product.name, product.description, product.category, product.price, product.quantity, product.unit, product.allergens]
-      );
-      existingNames.add(product.name.toLowerCase()); // prevent intra-batch dupes
-      results.imported++;
-    } catch (e) {
-      results.skipped++;
-      results.errors.push({ row: rowNum, error: e.message });
+    const rowNum = i + 2; // header is line 1, data starts at line 2
+    const result = validateRow(rows[i]);
+    if (result.errors) {
+      for (const msg of result.errors) {
+        errorItems.push({ line: rowNum, field: null, message: msg });
+      }
+    } else {
+      validated.push({ rowNum, product: result.product });
     }
   }
 
-  res.json({ success: true, ...results });
+  // all_or_nothing: bail before touching the DB if any row is invalid
+  if (mode === 'all_or_nothing' && errorItems.length > 0) {
+    return { created: 0, updated: 0, skipped: rows.length, errors: errorItems };
+  }
+
+  // Dry run: just return the preview
+  if (dryRun) {
+    const existingNames = await loadExistingNames(farmerId);
+    const duplicates = validated
+      .filter((v) => existingNames.has(v.product.name.toLowerCase()))
+      .map((v) => ({ line: v.rowNum, name: v.product.name }));
+    return {
+      dryRun: true,
+      valid: validated.map((v) => ({ line: v.rowNum, name: v.product.name })),
+      errors: errorItems,
+      duplicates,
+    };
+  }
+
+  // Real import — one outer transaction, per-row savepoints
+  const createdIds = [];
+  const results = {
+    created: 0,
+    updated: 0,
+    skipped: errorItems.length,
+    errors: [...errorItems],
+  };
+
+  await db.withTransaction(async (tx) => {
+    // Load existing names inside the transaction for consistency
+    const existingNames = await loadExistingNames(farmerId);
+    // Track intra-batch names to prevent duplicate rows within the same upload
+    const seenInBatch = new Set();
+
+    for (const { rowNum, product } of validated) {
+      const lname = product.name.toLowerCase();
+
+      const isDuplicate = existingNames.has(lname) || seenInBatch.has(lname);
+
+      if (isDuplicate) {
+        if (onDuplicate === 'skip') {
+          results.skipped++;
+          results.errors.push({
+            line: rowNum,
+            field: 'name',
+            message: `Duplicate: "${product.name}" already exists`,
+          });
+          continue;
+        }
+
+        if (onDuplicate === 'update') {
+          // SAVEPOINT so this row's failure doesn't kill others
+          await tx.query('SAVEPOINT import_row');
+          try {
+            await tx.query(
+              `UPDATE products
+                  SET price = $1, quantity = $2, description = $3,
+                      unit = $4, category = $5, allergens = $6
+                WHERE farmer_id = $7 AND LOWER(TRIM(name)) = LOWER($8)`,
+              [
+                product.price,
+                product.quantity,
+                product.description,
+                product.unit,
+                product.category,
+                product.allergens,
+                farmerId,
+                product.name,
+              ]
+            );
+            await tx.query('RELEASE SAVEPOINT import_row');
+            results.updated++;
+            seenInBatch.add(lname);
+          } catch (e) {
+            await tx.query('ROLLBACK TO SAVEPOINT import_row');
+            await tx.query('RELEASE SAVEPOINT import_row');
+            results.skipped++;
+            results.errors.push({ line: rowNum, field: null, message: e.message });
+          }
+          continue;
+        }
+
+        // on_duplicate === 'create': fall through to insert without duplicate check
+      }
+
+      // Insert with SAVEPOINT guard
+      await tx.query('SAVEPOINT import_row');
+      try {
+        const { id } = await insertProduct(tx, farmerId, product);
+        await tx.query('RELEASE SAVEPOINT import_row');
+        createdIds.push(id);
+        results.created++;
+        // prevent duplicate intra-batch inserts
+        existingNames.add(lname);
+        seenInBatch.add(lname);
+      } catch (e) {
+        await tx.query('ROLLBACK TO SAVEPOINT import_row');
+        await tx.query('RELEASE SAVEPOINT import_row');
+
+        if (mode === 'all_or_nothing') {
+          // Throw so the outer withTransaction rolls back everything
+          throw e;
+        }
+        results.skipped++;
+        results.errors.push({ line: rowNum, field: null, message: e.message });
+      }
+    }
+  });
+
+  // Fire batched post-create side effects (cache, SSE, waitlist) outside the tx
+  if (createdIds.length > 0) {
+    fireBatchPostCreateEffects(createdIds).catch(() => {});
+  }
+
+  return results;
 }
 
-// POST /api/products/import
+// ─── Routes ────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/products/import/template
+ * Download a CSV template for bulk import.
+ */
+router.get('/template', (_req, res) => {
+  const csv =
+    'name,description,price,quantity,unit,category,allergens\n' +
+    'Organic Tomatoes,Fresh organic tomatoes,2.50,100,kg,vegetables,\n' +
+    'Free Range Eggs,Farm fresh eggs,5.00,50,dozen,dairy,eggs\n';
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=product-import-template.csv');
+  res.send(csv);
+});
+
+/**
+ * POST /api/products/import
+ *
+ * Accepts:
+ *   - multipart/form-data   with a `file` CSV field
+ *   - application/json      body is an array of product objects (or { products: [...] })
+ *
+ * Query params:
+ *   - dry_run=true            preview without writing
+ *   - on_duplicate=skip|update|create   default: skip
+ *   - mode=default|all_or_nothing       default: default
+ *   - delimiter=;             CSV column separator (default: ,)
+ */
 router.post('/', auth, upload.single('file'), async (req, res) => {
-  if (req.user.role !== 'farmer')
+  if (req.user.role !== 'farmer') {
     return err(res, 403, 'Only farmers can import products', 'forbidden');
+  }
+
+  const dryRun = req.query.dry_run === 'true' || req.query.dry_run === '1';
+  const onDuplicate = ['skip', 'update', 'create'].includes(req.query.on_duplicate)
+    ? req.query.on_duplicate
+    : 'skip';
+  const mode = req.query.mode === 'all_or_nothing' ? 'all_or_nothing' : 'default';
+  const delimiter =
+    typeof req.query.delimiter === 'string' && req.query.delimiter.length === 1
+      ? req.query.delimiter
+      : ',';
 
   const ct = req.headers['content-type'] || '';
 
   try {
-    // JSON array body
+    let rows;
+
     if (ct.includes('application/json')) {
-      const rows = Array.isArray(req.body) ? req.body : req.body?.products;
-      if (!Array.isArray(rows) || rows.length === 0)
-        return err(res, 400, 'Request body must be a non-empty array of products', 'validation_error');
-      return await runImport(rows, req.user.id, res);
+      const body = req.body;
+      rows = Array.isArray(body) ? body : Array.isArray(body?.products) ? body.products : null;
+      if (!rows || rows.length === 0) {
+        return err(
+          res,
+          400,
+          'Request body must be a non-empty array (or { products: [...] })',
+          'validation_error'
+        );
+      }
+    } else {
+      if (!req.file) {
+        return err(
+          res,
+          400,
+          'Provide a CSV file (field: file) or a JSON body',
+          'validation_error'
+        );
+      }
+
+      rows = await parseCsv(req.file.buffer, delimiter);
+
+      if (rows.length === 0) {
+        return err(res, 400, 'CSV file is empty or has no data rows', 'validation_error');
+      }
+
+      // Verify required columns are present (after header normalisation)
+      const headers = Object.keys(rows[0]);
+      const REQUIRED = ['name', 'price', 'quantity'];
+      const missing = REQUIRED.filter((h) => !headers.includes(h));
+      if (missing.length > 0) {
+        return err(
+          res,
+          400,
+          `Missing required columns: ${missing.join(', ')}`,
+          'missing_columns'
+        );
+      }
     }
 
-    // CSV file upload (multipart/form-data)
-    if (!req.file) return err(res, 400, 'Provide a CSV file (field: file) or JSON body', 'validation_error');
-    const rows = await parseCsv(req.file.buffer);
-    if (rows.length === 0) return err(res, 400, 'CSV file is empty', 'validation_error');
-    return await runImport(rows, req.user.id, res);
+    const result = await runImport(rows, req.user.id, { dryRun, onDuplicate, mode });
+
+    // unified response shape
+    res.json({ success: true, ...result });
   } catch (e) {
-    err(res, 400, 'Failed to parse input: ' + e.message, 'parse_error');
+    if (e.status) {
+      return res.status(e.status).json({
+        success: false,
+        error: e.code || 'error',
+        message: e.message,
+      });
+    }
+    err(res, 400, 'Failed to process import: ' + e.message, 'parse_error');
   }
 });
 

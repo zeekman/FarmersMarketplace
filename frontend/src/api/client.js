@@ -329,10 +329,31 @@ export const api = {
   deleteProductImage: (productId, imageId) => request(`/products/${productId}/images/${imageId}`, { method: 'DELETE' }),
   reorderProductImages: (productId, order) => request(`/products/${productId}/images/reorder`, { method: 'PATCH', body: { order } }),
 
-  uploadProductsCsv: (file) => {
+  /**
+   * Dry-run a CSV file: returns { valid, errors, duplicates } without writing.
+   * @param {File} file
+   */
+  previewProductsCsv: (file) => {
     const form = new FormData();
     form.append('file', file);
-    return request('/products/bulk', { method: 'POST', body: form });
+    return request('/products/import?dry_run=true', { method: 'POST', body: form });
+  },
+
+  /**
+   * Commit the actual CSV import.
+   * @param {File}   file
+   * @param {object} [opts]
+   * @param {string} [opts.onDuplicate]  'skip' | 'update' | 'create'
+   * @param {string} [opts.mode]         'default' | 'all_or_nothing'
+   */
+  uploadProductsCsv: (file, opts = {}) => {
+    const form = new FormData();
+    form.append('file', file);
+    const qs = new URLSearchParams();
+    if (opts.onDuplicate) qs.set('on_duplicate', opts.onDuplicate);
+    if (opts.mode) qs.set('mode', opts.mode);
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return request(`/products/import${query}`, { method: 'POST', body: form });
   },
 
   placeOrder: (body, idempotencyKey) => (requireOnline(), request('/orders', {
@@ -567,9 +588,11 @@ export const api = {
   getPushPublicKey: () => request('/notifications/vapid-public-key'),
   subscribePush: (subscription) => request('/notifications/subscribe', { method: 'POST', body: { subscription } }),
   unsubscribePush: () => request('/notifications/subscribe', { method: 'DELETE' }),
-  // Product import (AgroAPI / JSON)
-  importProductsPreview: (products) => request('/products/import', { method: 'POST', body: { products } }),
-  importProductsConfirm: (products) => request('/products/import/confirm', { method: 'POST', body: { products } }),
+  // Product import (JSON array path) — use ?dry_run=true for preview
+  importProductsPreview: (products) =>
+    request('/products/import?dry_run=true', { method: 'POST', body: { products } }),
+  importProductsConfirm: (products) =>
+    request('/products/import', { method: 'POST', body: { products } }),
   // Seed phrase backup & recovery
   getSeedPhrase: (password, totp) =>
     request('/auth/seed-phrase', { method: 'POST', body: totp ? { password, totp } : { password } }),

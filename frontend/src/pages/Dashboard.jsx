@@ -296,6 +296,8 @@ export default function Dashboard() {
   const [csvFile, setCsvFile] = useState(null);
   const [csvUploading, setCsvUploading] = useState(false);
   const [csvResult, setCsvResult] = useState(null);
+  // dry-run preview state (null = no preview, object = pending confirm/cancel)
+  const [csvPreview, setCsvPreview] = useState(null);
   const csvInputRef = useRef(null);
 
   // per-product image gallery state
@@ -1043,32 +1045,63 @@ export default function Dashboard() {
     }
   }
 
+  /**
+   * Step 1: dry-run — ask the server to validate without writing.
+   * Shows a preview table; the farmer must click Confirm to proceed.
+   */
   async function handleCsvUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setCsvFile(file);
     setCsvUploading(true);
     setCsvResult(null);
+    setCsvPreview(null);
     try {
-      const [rowNames, res] = await Promise.all([readCsvRowNames(file), api.uploadProductsCsv(file)]);
-      const { created, errors } = res ?? {};
-      const errorRows = new Set((errors || []).map((e) => e.row));
-      const successRows = Object.entries(rowNames)
-        .filter(([row]) => !errorRows.has(Number(row)))
-        .map(([row, name]) => ({ row: Number(row), name }));
-      setCsvResult({
-        type: errors?.length ? 'warn' : 'ok',
-        text: `Imported ${created ?? 0} product(s)${errors?.length ? ` with ${errors.length} error(s).` : ' successfully.'}`,
-        created: created ?? 0,
-        errors: errors || [],
-        successRows,
-      });
-      if (created > 0) load();
+      const preview = await api.previewProductsCsv(file);
+      // preview = { valid: [{line, name}], errors: [{line, message}], duplicates: [{line, name}] }
+      setCsvPreview({ file, ...preview });
     } catch (err) {
       setCsvResult({ type: 'err', text: getErrorMessage(err), created: 0, errors: [], successRows: [] });
     } finally {
       setCsvUploading(false);
       e.target.value = '';
     }
+  }
+
+  /** Step 2: confirm — submit the real import after the farmer reviews the preview. */
+  async function handleCsvConfirm() {
+    if (!csvPreview?.file) return;
+    setCsvUploading(true);
+    setCsvPreview(null);
+    setCsvResult(null);
+    try {
+      const res = await api.uploadProductsCsv(csvPreview.file);
+      const { created, updated, skipped, errors } = res ?? {};
+      const allErrors = errors || [];
+      const errorLines = new Set(allErrors.map((e) => e.line ?? e.row));
+      const successRows = (csvPreview.valid || [])
+        .filter((v) => !errorLines.has(v.line))
+        .map((v) => ({ row: v.line, name: v.name }));
+      setCsvResult({
+        type: allErrors.length ? 'warn' : 'ok',
+        text: `Imported ${created ?? 0} product(s)${updated ? `, updated ${updated}` : ''}${allErrors.length ? ` with ${allErrors.length} error(s).` : ' successfully.'}`,
+        created: created ?? 0,
+        errors: allErrors.map((e) => ({ row: e.line ?? e.row, error: e.message })),
+        successRows,
+      });
+      if ((created ?? 0) > 0 || (updated ?? 0) > 0) load();
+    } catch (err) {
+      setCsvResult({ type: 'err', text: getErrorMessage(err), created: 0, errors: [], successRows: [] });
+    } finally {
+      setCsvUploading(false);
+      setCsvFile(null);
+    }
+  }
+
+  /** Cancel the pending preview (discard selected file). */
+  function handleCsvCancel() {
+    setCsvPreview(null);
+    setCsvFile(null);
   }
 
   function downloadCsvErrorReport() {
@@ -1649,7 +1682,7 @@ export default function Dashboard() {
           <button
             style={s.csvBtn}
             onClick={() => csvInputRef.current?.click()}
-            disabled={csvUploading}
+            disabled={csvUploading || !!csvPreview}
           >
             {csvUploading ? t('dashboard.uploading') : t('dashboard.uploadCsv')}
           </button>
@@ -1675,6 +1708,93 @@ export default function Dashboard() {
             `}</style>
           </div>
         )}
+
+        {/* Dry-run preview — shown before the farmer confirms */}
+        {csvPreview && (
+          <div
+            role="region"
+            aria-label="Import preview"
+            style={{ border: '1px solid #b7e1c8', borderRadius: 8, padding: 16, marginBottom: 12 }}
+          >
+            <div style={{ fontWeight: 700, color: '#2d6a4f', marginBottom: 8, fontSize: 15 }}>
+              Preview — review before importing
+            </div>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 10 }}>
+              <strong>{(csvPreview.valid || []).length}</strong> row(s) valid,&nbsp;
+              <strong>{(csvPreview.errors || []).length}</strong> error(s),&nbsp;
+              <strong>{(csvPreview.duplicates || []).length}</strong> duplicate(s) will be skipped.
+            </p>
+            {(csvPreview.errors?.length > 0 || csvPreview.duplicates?.length > 0) && (
+              <div style={s.csvResultsWrap}>
+                <div
+                  style={
+                    (csvPreview.errors.length + csvPreview.duplicates.length) > 8
+                      ? s.csvResultsScroll
+                      : undefined
+                  }
+                >
+                  <table style={s.csvTable}>
+                    <thead>
+                      <tr>
+                        <th style={s.csvTableHeadCell}>Line</th>
+                        <th style={s.csvTableHeadCell}>Status</th>
+                        <th style={s.csvTableHeadCell}>Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(csvPreview.valid || []).slice(0, 5).map((v) => (
+                        <tr key={`prev-ok-${v.line}`}>
+                          <td style={s.csvTableCell}>{v.line}</td>
+                          <td style={{ ...s.csvTableCell, ...s.csvRowOk }}>✓ Valid</td>
+                          <td style={s.csvTableCell}>{v.name}</td>
+                        </tr>
+                      ))}
+                      {(csvPreview.valid || []).length > 5 && (
+                        <tr>
+                          <td colSpan={3} style={{ ...s.csvTableCell, color: '#888', fontStyle: 'italic' }}>
+                            …and {(csvPreview.valid.length - 5)} more valid row(s)
+                          </td>
+                        </tr>
+                      )}
+                      {(csvPreview.duplicates || []).map((d) => (
+                        <tr key={`prev-dup-${d.line}`}>
+                          <td style={s.csvTableCell}>{d.line}</td>
+                          <td style={{ ...s.csvTableCell, color: '#e67e22' }}>⚠ Duplicate</td>
+                          <td style={s.csvTableCell}>{d.name} (will be skipped)</td>
+                        </tr>
+                      ))}
+                      {(csvPreview.errors || []).map((e) => (
+                        <tr key={`prev-err-${e.line}-${e.message}`}>
+                          <td style={s.csvTableCell}>{e.line}</td>
+                          <td style={{ ...s.csvTableCell, ...s.csvRowErr }}>✗ Error</td>
+                          <td style={s.csvTableCell}>{e.message}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              <button
+                style={{ ...s.csvBtn, background: '#2d6a4f' }}
+                onClick={handleCsvConfirm}
+                disabled={csvUploading || (csvPreview.valid || []).length === 0}
+                aria-label="Confirm import"
+              >
+                Confirm Import ({(csvPreview.valid || []).length} rows)
+              </button>
+              <button
+                style={{ ...s.csvBtn, background: '#999' }}
+                onClick={handleCsvCancel}
+                aria-label="Cancel import"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {csvResult && (
           <div
             style={{
@@ -1682,6 +1802,7 @@ export default function Dashboard() {
               background: csvResult.type === 'ok' ? '#d8f3dc' : '#fee',
               color: csvResult.type === 'ok' ? '#2d6a4f' : '#c0392b',
             }}
+            role={csvResult.type === 'ok' ? 'status' : 'alert'}
           >
             {csvResult.text}
           </div>
@@ -1705,11 +1826,11 @@ export default function Dashboard() {
                       <td style={s.csvTableCell}>{r.name}</td>
                     </tr>
                   ))}
-                  {csvResult.errors.map((err) => (
-                    <tr key={`err-${err.row}-${err.error || err.message}`}>
-                      <td style={s.csvTableCell}>{err.row}</td>
+                  {csvResult.errors.map((e) => (
+                    <tr key={`err-${e.row}-${e.error || e.message}`}>
+                      <td style={s.csvTableCell}>{e.row}</td>
                       <td style={{ ...s.csvTableCell, ...s.csvRowErr }}>{t('dashboard.csvError')}</td>
-                      <td style={s.csvTableCell}>{err.error || err.message}</td>
+                      <td style={s.csvTableCell}>{e.error || e.message}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1719,24 +1840,11 @@ export default function Dashboard() {
               <button style={s.csvDownloadErrBtn} onClick={downloadCsvErrorReport}>
                 {t('dashboard.downloadErrorReport')}
               </button>
-            {csvResult.details && csvResult.details.length > 0 && (
-              <div style={{ marginTop: 8, fontSize: 12 }}>
-                <strong>{t('common.errors')}:</strong>
-                <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                  {csvResult.details.slice(0, 10).map((err) => (
-                    <li key={`${err.row}-${err.error}`}>
-                      {t('common.row', { n: err.row })}: {err.error}
-                    </li>
-                  ))}
-                  {csvResult.details.length > 10 && (
-                    <li>{t('common.andMore', { n: csvResult.details.length - 10 })}</li>
-                  )}
-                </ul>
-              </div>
             )}
           </div>
         )}
       </div>
+
 
       {/* Profile edit */}
       <div style={{ ...s.card, marginTop: 24 }}>

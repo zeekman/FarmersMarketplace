@@ -1,133 +1,49 @@
+/**
+ * routes/bulkUpload.js  — DEPRECATED ALIAS
+ *
+ * This router now forwards all requests to the unified import pipeline at
+ * POST /api/products/import.  It sets Deprecation + Sunset headers so
+ * clients can migrate.
+ *
+ * Migration guide
+ * ───────────────
+ *   Old:  POST /api/products/bulk          (multipart/form-data, field: file)
+ *   New:  POST /api/products/import        (same multipart body, + query params)
+ *
+ * The /template endpoint is kept for backwards compatibility and redirects to
+ * the canonical template URL.
+ */
+
+'use strict';
+
 const router = require('express').Router();
-const multer = require('multer');
-const { parse } = require('csv-parse');
-const db = require('../db/schema');
-const auth = require('../middleware/auth');
-const { err } = require('../middleware/error');
-const { sanitizeText } = require('../utils/sanitize');
 
-// Configure multer for CSV upload
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only CSV files are allowed'), false);
-    }
-  },
+// Deprecation sunset date: six months after the feature was merged (2026-10-26).
+const DEPRECATION_DATE = 'Mon, 26 Oct 2026 00:00:00 GMT';
+const SUNSET_DATE = 'Mon, 26 Apr 2027 00:00:00 GMT';
+
+/**
+ * Inject Deprecation / Sunset / Link headers on every /products/bulk response.
+ * The handler then forwards to the /products/import sub-router.
+ */
+router.use((req, res, next) => {
+  res.setHeader('Deprecation', DEPRECATION_DATE);
+  res.setHeader('Sunset', SUNSET_DATE);
+  res.setHeader(
+    'Link',
+    '</api/products/import>; rel="successor-version"'
+  );
+  next();
 });
 
-// POST /api/products/bulk - bulk upload products via CSV
-router.post('/', auth, upload.single('file'), async (req, res) => {
-  if (req.user.role !== 'farmer')
-    return err(res, 403, 'Only farmers can upload products', 'forbidden');
-
-  if (!req.file) return err(res, 400, 'No CSV file uploaded', 'validation_error');
-
-  const results = { created: 0, skipped: 0, errors: [] };
-
-  try {
-    const REQUIRED_HEADERS = ['name', 'price', 'quantity'];
-    let detectedHeaders = null;
-
-    const records = await new Promise((resolve, reject) => {
-      const rows = [];
-      const parser = parse(req.file.buffer, {
-        columns: (hdrs) => { detectedHeaders = hdrs; return hdrs; },
-        skip_empty_lines: true,
-        trim: true,
-      });
-      parser.on('data', (row) => rows.push(row));
-      parser.on('end', () => resolve(rows));
-      parser.on('error', reject);
-    });
-
-    if (!detectedHeaders) {
-      return err(res, 400, 'CSV file is empty or has no header row', 'validation_error');
-    }
-
-    const missingHeaders = REQUIRED_HEADERS.filter((h) => !detectedHeaders.includes(h));
-    if (missingHeaders.length > 0) {
-      return err(res, 400, `Missing required columns: ${missingHeaders.join(', ')}`, 'missing_columns');
-    }
-
-    // Limit to 500 rows
-    if (records.length > 500) {
-      return err(res, 400, 'Maximum 500 rows per upload', 'validation_error');
-    }
-
-    await db.withTransaction(async (tx) => {
-      for (let i = 0; i < records.length; i++) {
-        const row = records[i];
-        const rowNum = i + 2;
-
-        if (!row.name || row.name.trim() === '') {
-          results.skipped++;
-          results.errors.push({ row: rowNum, error: 'name is required' });
-          continue;
-        }
-
-        const price = parseFloat(row.price);
-        if (isNaN(price) || price <= 0) {
-          results.skipped++;
-          results.errors.push({ row: rowNum, error: 'price must be a positive number' });
-          continue;
-        }
-
-        const quantity = parseInt(row.quantity, 10);
-        if (isNaN(quantity) || quantity <= 0) {
-          results.skipped++;
-          results.errors.push({ row: rowNum, error: 'quantity must be a positive integer' });
-          continue;
-        }
-
-        await tx.query('SAVEPOINT bulk_upload_row');
-        try {
-          await tx.query(
-            `INSERT INTO products
-             (farmer_id, name, description, price, quantity, unit, category)
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-            [
-              req.user.id,
-              row.name.trim(),
-              sanitizeText(row.description?.trim()) || null,
-              price,
-              quantity,
-              sanitizeText(row.unit?.trim()) || 'unit',
-              sanitizeText(row.category?.trim()) || 'other',
-            ]
-          );
-          await tx.query('RELEASE SAVEPOINT bulk_upload_row');
-          results.created++;
-        } catch (error) {
-          await tx.query('ROLLBACK TO SAVEPOINT bulk_upload_row');
-          await tx.query('RELEASE SAVEPOINT bulk_upload_row');
-          results.skipped++;
-          results.errors.push({ row: rowNum, error: error.message });
-        }
-      }
-    });
-
-    res.json({
-      success: true,
-      created: results.created,
-      skipped: results.skipped,
-      errors: results.errors,
-    });
-  } catch (e) {
-    err(res, 400, 'Failed to parse CSV: ' + e.message, 'parse_error');
-  }
+// GET /api/products/bulk/template  →  redirect to canonical template
+router.get('/template', (_req, res) => {
+  res.redirect(301, '/api/products/import/template');
 });
 
-// GET /api/products/bulk/template - download CSV template
-router.get('/template', (req, res) => {
-  const csv =
-    'name,description,price,quantity,unit,category\nOrganic Tomatoes,Fresh organic tomatoes from the farm,2.50,100,kg,vegetables\nFree Range Eggs,Farm fresh free range eggs,5.00,50,dozen,dairy\n';
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename=product-template.csv');
-  res.send(csv);
-});
+// Forward POST and all other verbs to the canonical import router.
+// The import router is already mounted at /products/import; here we
+// re-require it so the same middleware chain runs without duplication.
+router.use('/', require('./productImport'));
 
 module.exports = router;
