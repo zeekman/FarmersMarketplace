@@ -15,6 +15,10 @@ async function start() {
     const stopJobs = startJobs();
     app.locals.startBackgroundJobs();
 
+    if (process.send) {
+      process.send('ready');
+    }
+
     const shutdown = (signal) => {
       logger.info(`${signal} received, shutting down gracefully`);
       stopJobs();
