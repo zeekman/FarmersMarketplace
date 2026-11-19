@@ -828,8 +828,8 @@ router.post('/', auth, requireEmailVerified, orderRateLimit, validate.order, asy
       paymentSubmitted = true;
       balanceId = `soroban:${orderId}`;
       await db.query(
-        'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4 WHERE id = $5',
-        ['paid', txHash, balanceId, 'funded', orderId]
+        'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4, timeout_unix = $5 WHERE id = $6',
+        ['paid', txHash, balanceId, 'funded', timeoutUnix, orderId]
       );
     } else if (product.is_preorder && product.preorder_delivery_date) {
       const unlockAtUnix = parsePreorderUnlockUnix(product.preorder_delivery_date);
@@ -1242,8 +1242,8 @@ router.post('/:id/escrow', auth, async (req, res) => {
       userId: req.user.id,
     });
     await db.query(
-      'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4 WHERE id = $5',
-      ['paid', result.txHash, `soroban:${order.id}`, 'funded', order.id]
+      'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4, timeout_unix = $5 WHERE id = $6',
+      ['paid', result.txHash, `soroban:${order.id}`, 'funded', timeoutUnix, order.id]
     );
     return res.json({ success: true, txHash: result.txHash });
   } catch (e) {
@@ -1283,9 +1283,9 @@ router.post('/:id/refund', auth, async (req, res) => {
     await db.query('UPDATE orders SET escrow_status = $1, stellar_tx_hash = $2 WHERE id = $3', ['refunded', result.txHash, order.id]);
     return res.json({ success: true, txHash: result.txHash });
   } catch (e) {
-    const escrowErr = parseEscrowError(e);
+    const escrowErr = parseEscrowError(e, 'soroban');
     if (escrowErr) {
-      return res.status(escrowErr.code === 'escrow_in_dispute' ? 409 : 402).json({ success: false, message: 'Refund failed: ' + escrowErr.message, code: escrowErr.code });
+      return res.status(escrowErr.httpStatus).json({ success: false, message: 'Refund failed: ' + escrowErr.userMessage, code: escrowErr.code });
     }
     return res.status(402).json({ success: false, message: 'Refund failed: ' + e.message, code: 'refund_failed' });
   }

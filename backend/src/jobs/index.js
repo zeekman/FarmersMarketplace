@@ -119,6 +119,12 @@ const JOBS = [
     run: () => require('./reconcileEscrow').reconcileEscrow(),
   },
   {
+    name: 'timeout-escrow-refunds',
+    cron: '0 * * * *', // hourly UTC; RUN_JOBS + runExclusive provide leader-only execution
+    enabled: () => !!(config.sorobanEscrowContractId && config.platformFeeAccountSecret),
+    run: () => require('./timeoutRefunds').runTimeoutRefunds(),
+  },
+  {
     name: 'contract-registry-sync',
     intervalMs: parseInt(process.env.REGISTRY_SYNC_INTERVAL_MS || '300000', 10),
     runOnStart: true,

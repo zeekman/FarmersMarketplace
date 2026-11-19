@@ -4,7 +4,10 @@ require('express-async-errors');
 
 const logger = require('./logger');
 const REQUIRED_ENV = ['JWT_SECRET', 'ENCRYPTION_SECRET'];
-const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
+const requiredEnv = process.env.NODE_ENV === 'production'
+  ? [...REQUIRED_ENV, 'OBJECT_STORAGE_BUCKET']
+  : REQUIRED_ENV;
+const missing = requiredEnv.filter((k) => !process.env[k]);
 const weakJwtSecret =
   process.env.NODE_ENV === 'production' &&
   Buffer.byteLength(process.env.JWT_SECRET || '', 'utf8') < 32;
@@ -114,8 +117,10 @@ const uploadStaticOptions = {
     res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
   },
 };
-app.use('/uploads', express.static(path.join(__dirname, '../uploads'), uploadStaticOptions));
-app.use('/uploads/videos', express.static(path.join(__dirname, '../uploads/videos'), uploadStaticOptions));
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/uploads', express.static(path.join(__dirname, '../uploads'), uploadStaticOptions));
+  app.use('/uploads/videos', express.static(path.join(__dirname, '../uploads/videos'), uploadStaticOptions));
+}
 
 app.get('/api/csrf-token', csrfTokenHandler);
 app.get('/api/v1/csrf-token', csrfTokenHandler);
