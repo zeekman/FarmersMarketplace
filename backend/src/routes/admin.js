@@ -447,4 +447,46 @@ router.get('/message-reports', async (req, res) => {
   });
 });
 
+
+// #1648: inspect durable webhook deliveries; dead is the operational default.
+router.get('/webhooks/deliveries', async (req, res) => {
+  const allowedStatuses = new Set(['pending', 'processing', 'delivered', 'dead']);
+  const status = req.query.status || 'dead';
+  if (!allowedStatuses.has(status)) return res.status(400).json({ error: 'Invalid delivery status' });
+  const { rows } = await db.query(
+    `SELECT id, order_id, event, url, webhook_id, webhook_timestamp, status_code,
+            success, response_body, attempt, status, next_attempt_at, delivered_at, created_at
+       FROM webhook_deliveries WHERE status = $1
+       ORDER BY created_at DESC, id DESC LIMIT 200`,
+    [status]
+  );
+  res.json({ success: true, data: rows });
+});
+
+router.post('/webhooks/deliveries/:id/redeliver', async (req, res) => {
+  const { rows } = await db.query('SELECT * FROM webhook_deliveries WHERE id = $1', [req.params.id]);
+  const delivery = rows[0];
+  if (!delivery) return res.status(404).json({ error: 'Webhook delivery not found' });
+  if (delivery.status !== 'dead') return res.status(409).json({ error: 'Only dead deliveries can be redelivered' });
+  const webhookId = require('crypto').randomUUID();
+  await db.query(
+    `UPDATE webhook_deliveries
+        SET status = 'pending', attempt = 0, success = $1, status_code = NULL,
+            response_body = NULL, next_attempt_at = CURRENT_TIMESTAMP,
+            delivered_at = NULL, webhook_id = $2, webhook_timestamp = $3
+      WHERE id = $4`,
+    [false, webhookId, Date.now(), delivery.id]
+  );
+  await writeAuditLog({
+    adminId: req.user.id,
+    action: 'redeliver_webhook',
+    targetType: 'webhook_delivery',
+    targetId: delivery.id,
+    before: { status: 'dead', attempt: delivery.attempt },
+    after: { status: 'pending', attempt: 0, webhook_id: webhookId },
+    req,
+  });
+  res.json({ success: true, id: delivery.id, status: 'pending' });
+});
+
 module.exports = router;
