@@ -29,8 +29,8 @@ function asyncHandler(fn) {
 // eslint-disable-next-line no-unused-vars
 function errorHandler(error, req, res, next) {
   logger.error('Unhandled error', {
-    error: error.message,
-    stack: isProd ? undefined : error.stack,
+    error,
+    stack: error.stack,
     method: req.method,
     url: req.url,
   });

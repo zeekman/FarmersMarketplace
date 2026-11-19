@@ -9,6 +9,7 @@ const { sendPushToUser } = require('../utils/pushNotifications');
 const logger = require('../logger');
 const { writeAuditLog } = require('../utils/auditLog');
 const { decryptUserSecretKey } = require('../utils/crypto');
+const { parsePagination, sendPaginated } = require('../utils/pagination');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -167,17 +168,15 @@ router.get('/', auth, async (req, res, next) => {
     if (req.user.role !== 'admin')
       return res.status(403).json({ error: 'Admins only' });
 
+    const { page, limit, offset } = parsePagination(req);
+    const { rows: countRows } = await db.query('SELECT COUNT(*) AS count FROM disputes');
+    const total = Number(countRows[0]?.count || 0);
     const { rows } = await db.query(`
-      SELECT d.*, u.name as buyer_name, u.email as buyer_email,
-             o.total_price, o.quantity, p.name as product_name
-      FROM disputes d
-      JOIN users u ON d.buyer_id = u.id
-      JOIN orders o ON d.order_id = o.id
-      JOIN products p ON o.product_id = p.id
-      ORDER BY d.created_at DESC
-    `);
-
-    res.json(rows);
+      SELECT d.*, u.name as buyer_name, u.email as buyer_email, o.total_price, o.quantity, p.name as product_name
+      FROM disputes d JOIN users u ON d.buyer_id = u.id JOIN orders o ON d.order_id = o.id JOIN products p ON o.product_id = p.id
+      ORDER BY d.created_at DESC, d.id DESC LIMIT $1 OFFSET $2
+    `, [limit, offset]);
+    sendPaginated(res, req, rows, { page, limit, total });
   } catch (err) {
     next(err);
   }

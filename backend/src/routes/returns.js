@@ -4,6 +4,7 @@ const auth = require('../middleware/auth');
 const { burnRewardTokens } = require('../utils/stellar');
 const logger = require('../logger');
 const { sanitizeText } = require('../utils/sanitize');
+const { parsePagination, sendPaginated } = require('../utils/pagination');
 
 // POST /api/returns - buyer submits a return request
 router.post('/', auth, async (req, res, next) => {
@@ -48,16 +49,16 @@ router.get('/', auth, async (req, res, next) => {
     if (req.user.role !== 'buyer')
       return res.status(403).json({ error: 'Only buyers can view their returns' });
 
+    const { page, limit, offset } = parsePagination(req);
+    const { rows: countRows } = await db.query('SELECT COUNT(*) AS count FROM returns WHERE buyer_id = $1', [req.user.id]);
+    const total = Number(countRows[0]?.count || 0);
     const { rows } = await db.query(
       `SELECT r.*, p.name AS product_name, o.total_price, o.shipping_cost, o.quantity
-       FROM returns r
-       JOIN orders o ON r.order_id = o.id
-       JOIN products p ON o.product_id = p.id
-       WHERE r.buyer_id = $1
-       ORDER BY r.created_at DESC`,
-      [req.user.id]
+       FROM returns r JOIN orders o ON r.order_id = o.id JOIN products p ON o.product_id = p.id
+       WHERE r.buyer_id = $1 ORDER BY r.created_at DESC, r.id DESC LIMIT $2 OFFSET $3`,
+      [req.user.id, limit, offset]
     );
-    res.json(rows);
+    sendPaginated(res, req, rows, { page, limit, total });
   } catch (err) {
     next(err);
   }
