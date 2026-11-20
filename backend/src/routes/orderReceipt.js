@@ -10,6 +10,7 @@ const { err } = require('../middleware/error');
 router.get('/:id/receipt.pdf', auth, async (req, res) => {
   const { rows } = await db.query(
     `SELECT o.id, o.buyer_id, o.quantity, o.total_price, o.status, o.stellar_tx_hash,
+            o.settlement_tx_hash, o.settlement_type, o.settled_at,
             o.created_at, p.name AS product_name, p.unit,
             buyer.name AS buyer_name, buyer.email AS buyer_email,
             farmer.id AS farmer_id, farmer.name AS farmer_name, farmer.email AS farmer_email
@@ -30,6 +31,9 @@ router.get('/:id/receipt.pdf', auth, async (req, res) => {
   const explorerUrl = order.stellar_tx_hash
     ? `https://stellar.expert/explorer/${network}/tx/${encodeURIComponent(order.stellar_tx_hash)}`
     : null;
+  const settlementExplorerUrl = order.settlement_tx_hash
+    ? `https://stellar.expert/explorer/${network}/tx/${encodeURIComponent(order.settlement_tx_hash)}`
+    : null;
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="order-${order.id}-receipt.pdf"`);
@@ -48,6 +52,12 @@ router.get('/:id/receipt.pdf', auth, async (req, res) => {
   document.moveDown();
   document.text(`Stellar transaction: ${order.stellar_tx_hash || 'Not yet available'}`);
   if (explorerUrl) document.fillColor('#075985').text(`Explorer: ${explorerUrl}`);
+  if (order.settlement_tx_hash) {
+    document.fillColor('#222').text(
+      `Settlement (${order.settlement_type || 'escrow'}): ${order.settlement_tx_hash}`
+    );
+    if (settlementExplorerUrl) document.fillColor('#075985').text(`Explorer: ${settlementExplorerUrl}`);
+  }
   document.end();
 });
 
