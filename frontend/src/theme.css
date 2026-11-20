@@ -62,3 +62,12 @@
   --color-shadow: #0008;
   --color-shadow-strong: #000a;
 }
+
+/* RTL Support (#1502) */
+[dir='rtl'] .icon-directional {
+  transform: scaleX(-1);
+}
+
+[dir='rtl'] {
+  direction: rtl;
+}
