@@ -30,6 +30,8 @@ const { csrfProtect, csrfTokenHandler } = require('./middleware/csrf');
 const { errorHandler, notFoundHandler } = require('./middleware/error');
 const { sanitizeResponse } = require('./middleware/sanitize');
 const requestLogger = require('./middleware/requestLogger');
+const auth = require('./middleware/auth');
+const requireAdmin = require('./middleware/requireAdmin');
 const categoriesRouter = require('./routes/categories');
 const db = require('./db/schema');
 
@@ -125,7 +127,29 @@ app.get('/api/auth/csrf-token', csrfTokenHandler);
 // goes through the same rate limiter and CSRF ordering as every other router.
 
 // Interactive API documentation
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+const enableApiDocs = process.env.ENABLE_API_DOCS === 'true' || 
+  (process.env.NODE_ENV !== 'production' && process.env.ENABLE_API_DOCS !== 'false');
+
+if (enableApiDocs) {
+  // Relax CSP for Swagger UI as it needs inline scripts and styles
+  app.use('/api/docs', (req, res, next) => {
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
+    );
+    next();
+  }, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+}
+
+// Optionally expose Swagger spec as JSON behind admin auth in production
+app.get('/api/docs.json', (req, res, next) => {
+  if (process.env.NODE_ENV === 'production') {
+    return auth(req, res, () => requireAdmin(req, res, next));
+  }
+  next();
+}, (req, res) => {
+  res.json(swaggerSpec);
+});
 
 // Apply CSRF protection to all state-changing routes (skip in test)
 if (process.env.NODE_ENV !== 'test') {
