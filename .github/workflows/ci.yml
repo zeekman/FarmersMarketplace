@@ -50,6 +50,16 @@ jobs:
           --env node,es2021
           --rule '{"no-dupe-keys":"error","no-redeclare":"error","no-unreachable":"error","no-dupe-class-members":"error"}'
 
+      # Route handlers must use the async db.query() adapter. The legacy
+      # better-sqlite3 db.prepare() API does not exist on the Postgres adapter,
+      # so any lingering call fails at runtime (see reviews route migration).
+      - name: Forbid synchronous db.prepare in routes
+        run: |
+          if grep -rn --include='*.js' 'db\.prepare' src/routes; then
+            echo "::error::Use the async db.query() adapter instead of db.prepare() in route handlers"
+            exit 1
+          fi
+
       # Boots the real server (in-memory SQLite) so import-time failures in any module surface here.
       - name: Boot server and poll health
         env:
