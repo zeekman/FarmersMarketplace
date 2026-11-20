@@ -1,5 +1,6 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { safeStorage } from '../utils/safeStorage';
 import en from './en.json';
 
 /**
@@ -23,7 +24,8 @@ const localeLoaders = {
   ar: () => import('./ar.json'),
 };
 
-const initialLng = localStorage.getItem('lang') || 'en';
+// Use safeStorage for language preference (defaults to 'en' if not set or storage fails)
+const initialLng = safeStorage.get('lang') || 'en';
 
 i18n.use(initReactI18next).init({
   resources: { en: { translation: en } },
@@ -50,7 +52,7 @@ export async function changeAppLanguage(lng) {
 }
 
 i18n.on('languageChanged', (lng) => {
-  localStorage.setItem('lang', lng);
+  safeStorage.set('lang', lng);
   // Apply dir attribute to document root whenever the language changes
   const dir = getLocaleDirection(lng);
   document.documentElement.setAttribute('dir', dir);

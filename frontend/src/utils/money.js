@@ -4,7 +4,7 @@
 // JavaScript floats produces rounding errors (e.g. 0.1 + 0.2 = 0.30000000000000004),
 // so all amount math is performed on integer stroops using BigInt.
 
-const STROOPS_PER_XLM = 100000000n;
+const STROOPS_PER_XLM = 10_000_000n;
 const XLM_DECIMALS = 7;
 
 /**
@@ -64,13 +64,29 @@ export function add(a, b) {
 
 /**
  * Multiply an amount by a quantity and return stroops.
+ * Uses banker's rounding (round-half-to-even) for consistency.
+ * Formula: (value_stroops × qty_stroops) / STROOPS_PER_XLM
  * @param {bigint|string|number} value
  * @param {bigint|string|number} qty
  * @returns {bigint}
  */
 export function mul(value, qty) {
+  const valueStroops = toStroops(value);
   const qtyStroops = toStroops(qty);
-  return toStroops(value) * qtyStroops / STROOPS_PER_XLM;
+  const product = valueStroops * qtyStroops;
+  // Banker's rounding: round to nearest, ties to even
+  const quotient = product / STROOPS_PER_XLM;
+  const remainder = product % STROOPS_PER_XLM;
+  const half = STROOPS_PER_XLM / 2n;
+  
+  if (remainder < half) {
+    return quotient;
+  } else if (remainder > half) {
+    return quotient + 1n;
+  } else {
+    // Tie: round to even
+    return (quotient & 1n) === 0n ? quotient : quotient + 1n;
+  }
 }
 
 /**
