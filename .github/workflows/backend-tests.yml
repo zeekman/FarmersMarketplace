@@ -70,5 +70,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Check migration prefixes and undo files
+        run: node scripts/check-migrations.js
+
       - name: Run tests with coverage
         run: npm run test:coverage
