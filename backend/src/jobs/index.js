@@ -100,6 +100,13 @@ const JOBS = [
     run: () => require('./confirmPayments').confirmPendingOrders(),
   },
   {
+    // Durable webhook rows replace the old in-process retry loop (#1648).
+    name: 'webhook-deliveries',
+    intervalMs: parseInt(process.env.WEBHOOK_DELIVERY_INTERVAL_MS || '10000', 10),
+    runOnStart: true,
+    run: () => require('../services/webhookService').processWebhookDeliveries(),
+  },
+  {
     name: 'activity-monitor',
     intervalMs: 5 * MINUTE,
     runOnStart: true,
