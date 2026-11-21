@@ -35,6 +35,32 @@ const db = require('./db/schema');
 
 const app = express();
 
+let inflightRequests = 0;
+let drainWaiters = [];
+app.locals.isDraining = false;
+app.locals.waitForInflight = () => inflightRequests === 0
+  ? Promise.resolve()
+  : new Promise((resolve) => drainWaiters.push(resolve));
+
+app.use((req, res, next) => {
+  if (app.locals.isDraining) return res.status(503).set('Connection', 'close').json({ success: false, error: 'server_shutting_down' });
+  inflightRequests += 1;
+  let completed = false;
+  const done = () => {
+    if (completed) return;
+    completed = true;
+    if (inflightRequests > 0) inflightRequests -= 1;
+    if (inflightRequests === 0) {
+      const waiters = drainWaiters;
+      drainWaiters = [];
+      waiters.forEach((resolve) => resolve());
+    }
+  };
+  res.once('finish', done);
+  res.once('close', done);
+  next();
+});
+
 app.use((req, res, next) => {
   Promise.resolve(db.ready).then(() => next(), next);
 });

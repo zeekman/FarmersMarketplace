@@ -13,6 +13,7 @@ const auth = require('../middleware/auth');
 const db = require('../db/schema');
 const config = require('../config');
 const { err } = require('../middleware/error');
+const { parsePagination, sendPaginated } = require('../utils/pagination');
 const paymentStreamsRouter = require('./paymentStreams');
 
 function forward(req, res, next, url, body) {
@@ -79,15 +80,16 @@ async function getParticipantStream(req, res) {
 // GET /api/streams — streams where the caller is the sender or the recipient
 router.get('/', auth, async (req, res) => {
   const callerAddress = await getCallerAddress(req.user.id);
-  if (!callerAddress) return res.json({ success: true, data: [] });
+  const { page, limit, offset } = parsePagination(req);
+  if (!callerAddress) return sendPaginated(res, req, [], { page, limit, total: 0 });
 
   const { rows } = await db.query(
-    `SELECT * FROM payment_streams
-     WHERE sender = $1 OR recipient = $2
-     ORDER BY created_at DESC`,
-    [callerAddress, callerAddress]
+    `SELECT * FROM payment_streams WHERE sender = $1 OR recipient = $2
+     ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4`,
+    [callerAddress, callerAddress, limit, offset]
   );
-  res.json({ success: true, data: rows.map((r) => toClientStream(r, callerAddress)) });
+  const { rows: countRows } = await db.query('SELECT COUNT(*) AS count FROM payment_streams WHERE sender = $1 OR recipient = $2', [callerAddress, callerAddress]);
+  return sendPaginated(res, req, rows.map((r) => toClientStream(r, callerAddress)), { page, limit, total: Number(countRows[0]?.count || 0) });
 });
 
 // POST /api/streams — Body: { recipient_id | recipient, rate, deposit, ends_at, contract_id? }
