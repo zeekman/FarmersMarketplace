@@ -1348,6 +1348,13 @@ router.post('/:id/refund', auth, async (req, res) => {
     return err(res, 400, 'Not a Soroban order', 'invalid_state');
 
   try {
+    const result = await invokeEscrowContract({ action: 'refund', senderSecret: await decryptUserSecretKey(uRows[0].stellar_secret_key), orderId: Number(order.id), userId: req.user.id });
+    // Record the settlement separately: stellar_tx_hash keeps the buyer's
+    // original payment transaction and must never be overwritten.
+    await db.query(
+      'UPDATE orders SET escrow_status = $1, settlement_tx_hash = $2, settlement_type = $3, settled_at = CURRENT_TIMESTAMP WHERE id = $4',
+      ['refunded', result.txHash, 'refund', order.id]
+    );
     const result = await signerService.signAndSubmit({
       userId: req.user.id,
       purpose: 'order_refund',
@@ -1389,6 +1396,9 @@ async function claimOrderBalance(res, order, farmerId, message) {
     return err(res, 400, 'Soroban escrow is released by the buyer, not claimed', 'invalid_state');
   }
   try {
+    const txHash = await claimBalance({
+      claimantSecret: await decryptUserSecretKey(rows[0].stellar_secret_key),
+      balanceId: order.escrow_balance_id,
     const { txHash } = await signerService.signAndSubmit({
       userId: farmerId,
       purpose: 'order_claim_balance',
@@ -1399,11 +1409,12 @@ async function claimOrderBalance(res, order, farmerId, message) {
         });
       },
     });
-    await db.query('UPDATE orders SET escrow_status = $1, stellar_tx_hash = $2 WHERE id = $3', [
-      'claimed',
-      txHash,
-      order.id,
-    ]);
+    // Record the settlement separately: stellar_tx_hash keeps the buyer's
+    // original payment transaction and must never be overwritten.
+    await db.query(
+      'UPDATE orders SET escrow_status = $1, settlement_tx_hash = $2, settlement_type = $3, settled_at = CURRENT_TIMESTAMP WHERE id = $4',
+      ['claimed', txHash, 'claim', order.id]
+    );
     return res.json({ success: true, txHash, ...(message && { message }) });
   } catch (e) {
     return res.status(402).json({ success: false, message: 'Claim failed: ' + e.message, code: 'claim_failed' });
