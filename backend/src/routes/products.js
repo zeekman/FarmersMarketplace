@@ -674,7 +674,11 @@ router.post('/:id/images', auth, async (req, res) => {
     for (let i = 0; i < req.files.length; i++) {
       await db.query(
         'INSERT INTO product_images (product_id, url, sort_order) VALUES ($1, $2, $3)',
-        [req.params.id, `/uploads/${req.files[i].filename}`, maxOrder + 1 + i]
+        [
+          req.params.id,
+          rewriteImageUrl(req.files[i].url || `/uploads/${req.files[i].filename}`),
+          maxOrder + 1 + i,
+        ]
       );
     }
 

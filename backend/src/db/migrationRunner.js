@@ -47,9 +47,24 @@ function getPendingFiles(applied, migrationsDir = MIGRATIONS_DIR) {
   if (!fs.existsSync(migrationsDir)) return [];
   return fs
     .readdirSync(migrationsDir)
-    .filter((f) => /^\d+_.+\.sql$/.test(f) && !f.endsWith('.undo.sql'))
+    .filter(
+      (f) =>
+        /^\d+_.+\.sql$/.test(f) &&
+        !f.endsWith('.undo.sql') &&
+        !/\.(?:postgres|sqlite)\.sql$/.test(f)
+    )
     .sort()
     .filter((f) => !applied.has(f));
+}
+
+function getMigrationFile(file, dialect, migrationsDir = MIGRATIONS_DIR) {
+  const base = file.slice(0, -4);
+  const candidates = [
+    path.join(migrationsDir, `${base}.${dialect}.sql`),
+    path.join(migrationsDir, `${base}.${dialect}`),
+    path.join(migrationsDir, file),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate));
 }
 
 async function runMigrations(db, migrationsDir = MIGRATIONS_DIR) {
@@ -59,16 +74,19 @@ async function runMigrations(db, migrationsDir = MIGRATIONS_DIR) {
 
   for (const file of pending) {
     const dialect = db.isPostgres ? 'postgres' : 'sqlite';
-    const dialectFile = path.join(migrationsDir, `${file.slice(0, -4)}.${dialect}`);
-    const sqlFile = fs.existsSync(dialectFile) ? dialectFile : path.join(migrationsDir, file);
-    const sql = fs.readFileSync(sqlFile, 'utf8');
-    await db.exec(sql);
-    if (file === '034_reviews_schema.sql') {
-      await ensureReviewSchema(db);
+    try {
+      const sqlFile = getMigrationFile(file, dialect, migrationsDir);
+      const sql = fs.readFileSync(sqlFile, 'utf8');
+      await db.exec(sql);
+      if (file === '034_reviews_schema.sql') {
+        await ensureReviewSchema(db);
+      }
+      const p = db.placeholder ? db.placeholder(1) : '$1';
+      await db.query(`INSERT INTO migrations (name) VALUES (${p})`, [file]);
+      logger.info(`[migrate] Applied ${file}`);
+    } catch (err) {
+      throw new Error(`[migrate] Failed migration ${file}: ${err.message}`, { cause: err });
     }
-    const p = db.placeholder ? db.placeholder(1) : '$1';
-    await db.query(`INSERT INTO migrations (name) VALUES (${p})`, [file]);
-    logger.info(`[migrate] Applied ${file}`);
   }
 
   if (pending.length > 0) {
@@ -116,4 +134,11 @@ async function ensureReviewSchema(db) {
   );
 }
 
-module.exports = { runMigrations, ensureMigrationsTable, getApplied, getPendingFiles, ensureReviewSchema };
+module.exports = {
+  runMigrations,
+  ensureMigrationsTable,
+  getApplied,
+  getPendingFiles,
+  getMigrationFile,
+  ensureReviewSchema,
+};
