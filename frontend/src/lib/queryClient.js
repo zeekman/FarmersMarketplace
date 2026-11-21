@@ -21,4 +21,21 @@ export const queryKeys = {
   favorites: ['favorites'],
   unreadCount: ['notifications', 'unreadCount'],
   orders: ['orders'],
+  products: {
+    all: ['products'],
+    mine: ['products', 'mine'],
+    detail: (id) => ['products', 'detail', id],
+    images: (id) => ['products', id, 'images'],
+    tiers: (id) => ['products', id, 'tiers'],
+    reviews: (id) => ['products', id, 'reviews'],
+  },
+  sales: {
+    all: ['orders', 'sales'],
+    byPage: (page) => ['orders', 'sales', page],
+  },
+  harvestBatches: ['harvestBatches'],
+  bundles: ['bundles'],
+  bundleDiscounts: ['bundleDiscounts'],
+  coupons: ['coupons'],
+  profile: ['profile'],
 };

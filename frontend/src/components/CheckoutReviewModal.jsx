@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { api } from '../api/client';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 // Stellar base fee: 100 stroops per operation; a checkout is a single operation.
 export const NETWORK_FEE_XLM = 0.00001;
@@ -25,13 +26,12 @@ const xlm = (n) => `${Number(n).toFixed(7).replace(/0+$/, '').replace(/\.$/, '')
  */
 export default function CheckoutReviewModal({ lines, escrow, payingWith, blockedReason, submitting, onConfirm, onCancel }) {
   const titleId = useId();
-  const confirmRef = useRef(null);
+  const dialogRef = useModalA11y(true, onCancel);
   const [rate, setRate] = useState(null); // { usd, fetchedAt }
   const [balance, setBalance] = useState(null); // { balance, subentries }
   const [autoReleaseDays, setAutoReleaseDays] = useState(null);
 
   useEffect(() => {
-    confirmRef.current?.focus();
     let cancelled = false;
     api.getXlmRate()
       .then((r) => !cancelled && r?.rate && setRate({ usd: Number(r.rate), fetchedAt: r.fetchedAt || r.timestamp || new Date().toISOString() }))
@@ -64,8 +64,7 @@ export default function CheckoutReviewModal({ lines, escrow, payingWith, blocked
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}
       onMouseDown={(e) => e.target === e.currentTarget && !submitting && onCancel?.()}>
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid="checkout-review"
-        onKeyDown={(e) => e.key === 'Escape' && !submitting && onCancel?.()}
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid="checkout-review"
         style={{ background: '#fff', borderRadius: 12, padding: 24, maxWidth: 440, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 4px 24px rgba(0,0,0,0.2)' }}>
         <h2 id={titleId} style={{ fontSize: 17, margin: '0 0 12px', color: '#222' }}>Review your order</h2>
 
@@ -120,7 +119,7 @@ export default function CheckoutReviewModal({ lines, escrow, payingWith, blocked
             style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#f0f0f0', color: '#333', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer' }}>
             Cancel
           </button>
-          <button ref={confirmRef} type="button" onClick={onConfirm} disabled={disabled} aria-busy={submitting}
+          <button type="button" onClick={onConfirm} disabled={disabled} aria-busy={submitting}
             data-testid="confirm-pay-btn"
             style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: disabled ? '#ccc' : '#2d6a4f', color: '#fff', fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer' }}>
             {submitting ? 'Processing…' : 'Confirm & Pay'}
