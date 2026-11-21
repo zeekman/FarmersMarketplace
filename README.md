@@ -623,3 +623,6 @@ For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md)
 
 <!-- handsoff-issue-1713 -->
 - #1713: Add a time-lock to `upgrade()` in escrow and creator-earnings
+
+<!-- handsoff-issue-1714 -->
+- #1714: `CONTRACT_VERSION` is still 1 after many storage changes; define a versioned migration path
