@@ -747,40 +747,31 @@ export default function Dashboard() {
   const [salesExportFrom, setSalesExportFrom] = React.useState('');
   const [salesExportTo, setSalesExportTo] = React.useState('');
 
-  function exportProducts(format) {
-    const token = localStorage.getItem('token');
-    const a = document.createElement('a');
-    a.href = `/api/products/export?format=${format}`;
-    // Use fetch to pass auth header, then trigger download
-    fetch(a.href, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.blob())
-      .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        Object.assign(document.createElement('a'), {
-          href: url,
-          download: `products.${format}`,
-        }).click();
-        URL.revokeObjectURL(url);
-      });
+  async function exportProducts(format) {
+    try {
+      await api.downloadFile(
+        `/export/products?format=${format}`,
+        `products.${format}`
+      );
+    } catch (e) {
+      showToast(getErrorMessage(e), 'error');
+    }
   }
 
-  function exportSales(format) {
-    const token = localStorage.getItem('token');
-    const qs = new URLSearchParams({
-      format,
-      ...(salesExportFrom && { from: salesExportFrom }),
-      ...(salesExportTo && { to: salesExportTo }),
-    });
-    fetch(`/api/orders/sales/export?${qs}`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.blob())
-      .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        Object.assign(document.createElement('a'), {
-          href: url,
-          download: `sales.${format}`,
-        }).click();
-        URL.revokeObjectURL(url);
+  async function exportSales(format) {
+    try {
+      const qs = new URLSearchParams({
+        format,
+        ...(salesExportFrom && { from: salesExportFrom }),
+        ...(salesExportTo && { to: salesExportTo }),
       });
+      await api.downloadFile(
+        `/export/sales?${qs}`,
+        `sales.${format}`
+      );
+    } catch (e) {
+      showToast(getErrorMessage(e), 'error');
+    }
   }
 
   async function handleInlineSave(productId, field, newValue) {

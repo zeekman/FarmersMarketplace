@@ -2,8 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const logger = require('../logger');
 const { redactLogValue } = require('../utils/logRedaction');
 
-// Query params that carry credentials. Values are masked before the URL is logged.
-const SENSITIVE_QUERY_PARAM = /([?&](?:token|ticket|secret|password)=)[^&#]*/gi;
+const SENSITIVE_QUERY_PARAM = /([?&](?:token|ticket|secret|password|mnemonic|seed)=)[^&#]*/gi;
 
 module.exports = (req, res, next) => {
   const requestId = req.headers['x-request-id'] || uuidv4();
@@ -16,5 +15,6 @@ module.exports = (req, res, next) => {
   };
   if (process.env.LOG_REQUEST_BODY === 'true') details.body = redactLogValue(req.body);
   logger.info('request', details);
+  logger.info('request', redactLogValue(details));
   next();
 };

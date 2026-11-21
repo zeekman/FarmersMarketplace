@@ -27,6 +27,8 @@ FarmersMarketplace/
 │   │       ├── orders.js     # place order + pay
 │   │       └── wallet.js     # balance, transactions, fund
 │   └── package.json
+├── docs/
+│   └── API.md                 # Generated REST API table
 └── frontend/
     ├── src/
     │   ├── App.jsx
@@ -79,6 +81,10 @@ The Vite dev server proxies backend paths (`/api`, `/uploads`, `/federation`, `/
 ## API Endpoints
 
 Interactive API documentation is available at **[http://localhost:4000/api/docs](http://localhost:4000/api/docs)** when the backend is running.
+
+The generated endpoint table is available in [docs/API.md](docs/API.md). Regenerate it with `cd backend && npm run docs:api`.
+
+During `SIGTERM`/`SIGINT`, the backend stops accepting new requests, sends a `shutdown` event to every active SSE connection, closes those streams, and drains inflight requests for up to `SHUTDOWN_GRACE_MS` (10 seconds by default). SSE clients should reconnect using their existing reconnect behavior after the stream closes. A hard timeout exits with status 1; set `SHUTDOWN_GRACE_MS` to change the grace period.
 
 | Method | Path                                     | Auth   | Description                                                        |
 | ------ | ---------------------------------------- | ------ | ------------------------------------------------------------------ |

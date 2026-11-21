@@ -458,4 +458,9 @@ registerRoute('/', '/auctions', require('./auctions'));
 
 registerRoute('/', '/categories', require('./categories'));
 
+router.closeRedis = async () => {
+  if (!rateLimitRedis) return;
+  try { await rateLimitRedis.quit(); } catch { rateLimitRedis.disconnect(); }
+};
+
 module.exports = router;

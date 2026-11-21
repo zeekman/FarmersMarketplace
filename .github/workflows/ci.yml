@@ -9,6 +9,23 @@ on:
     - cron: '0 2 * * *'  # nightly at 02:00 UTC
 
 jobs:
+  api-docs:
+    name: API docs are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --ignore-scripts
+      - name: Regenerate API table
+        working-directory: backend
+        run: npm run docs:api
+      - name: Check generated API docs
+        run: git diff --exit-code -- docs/API.md
+
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
@@ -49,6 +66,16 @@ jobs:
           npx eslint src --no-eslintrc --parser-options ecmaVersion:latest
           --env node,es2021
           --rule '{"no-dupe-keys":"error","no-redeclare":"error","no-unreachable":"error","no-dupe-class-members":"error"}'
+
+      # Route handlers must use the async db.query() adapter. The legacy
+      # better-sqlite3 db.prepare() API does not exist on the Postgres adapter,
+      # so any lingering call fails at runtime (see reviews route migration).
+      - name: Forbid synchronous db.prepare in routes
+        run: |
+          if grep -rn --include='*.js' 'db\.prepare' src/routes; then
+            echo "::error::Use the async db.query() adapter instead of db.prepare() in route handlers"
+            exit 1
+          fi
 
       # Boots the real server (in-memory SQLite) so import-time failures in any module surface here.
       - name: Boot server and poll health

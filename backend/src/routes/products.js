@@ -13,6 +13,7 @@ const { sendPushToUser } = require('../utils/pushNotifications');
 const AutomaticOrderProcessor = require('../services/AutomaticOrderProcessor');
 const logger = require('../logger');
 const { stockClients, broadcastStockUpdate } = require('../utils/stockUpdates');
+const sse = require('../utils/sse');
 
 
 const VALID_ALLERGENS = ['gluten', 'nuts', 'dairy', 'eggs', 'soy', 'shellfish'];
@@ -673,7 +674,11 @@ router.post('/:id/images', auth, async (req, res) => {
     for (let i = 0; i < req.files.length; i++) {
       await db.query(
         'INSERT INTO product_images (product_id, url, sort_order) VALUES ($1, $2, $3)',
-        [req.params.id, `/uploads/${req.files[i].filename}`, maxOrder + 1 + i]
+        [
+          req.params.id,
+          rewriteImageUrl(req.files[i].url || `/uploads/${req.files[i].filename}`),
+          maxOrder + 1 + i,
+        ]
       );
     }
 
@@ -863,12 +868,14 @@ router.get('/:id/stock-stream', async (req, res) => {
   // Register client
   if (!stockClients.has(productId)) stockClients.set(productId, new Set());
   stockClients.get(productId).add(res);
+  const unregisterSse = sse.register(res);
 
   // Heartbeat every 30 s to prevent proxy timeouts
   const heartbeat = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* ignore */ } }, 30000);
 
   req.on('close', () => {
     clearInterval(heartbeat);
+    unregisterSse();
     const clients = stockClients.get(productId);
     if (clients) {
       clients.delete(res);

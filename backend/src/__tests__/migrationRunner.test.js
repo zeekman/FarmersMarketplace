@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
-const { runMigrations, getPendingFiles } = require('../db/migrationRunner');
+const { runMigrations, getPendingFiles, getMigrationFile } = require('../db/migrationRunner');
 
 describe('migration runner failure recovery', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'migrations-'));
@@ -28,7 +28,7 @@ describe('migration runner failure recovery', () => {
     fs.writeFileSync(path.join(dir, '002_broken.sql'), 'BROKEN SQL;');
     fs.writeFileSync(path.join(dir, '003_last.sql'), 'CREATE TABLE last (id INTEGER);');
 
-    await expect(runMigrations(db, dir)).rejects.toThrow();
+    await expect(runMigrations(db, dir)).rejects.toThrow('Failed migration 002_broken.sql');
     const afterFailure = await db.query('SELECT name FROM migrations ORDER BY name');
     expect(afterFailure.rows).toEqual([{ name: '001_first.sql' }]);
 
@@ -52,6 +52,19 @@ describe('migration runner failure recovery', () => {
     expect(sqlite.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wrong_dialect'"
     ).get()).toBeUndefined();
+  });
+
+  it('selects a `.postgres.sql` override without treating it as a separate migration', () => {
+    fs.writeFileSync(path.join(dir, '005_postgres_variant.sql'), 'SELECT 1;');
+    fs.writeFileSync(path.join(dir, '005_postgres_variant.postgres.sql'), 'SELECT 2;');
+
+    expect(getMigrationFile('005_postgres_variant.sql', 'postgres', dir)).toBe(
+      path.join(dir, '005_postgres_variant.postgres.sql')
+    );
+    expect(getPendingFiles(new Set(), dir)).toContain('005_postgres_variant.sql');
+    expect(getPendingFiles(new Set(), dir)).not.toContain('005_postgres_variant.postgres.sql');
+  });
+
   it('orders migrations with a shared numeric prefix by full filename', () => {
     const duplicatePrefixDir = fs.mkdtempSync(path.join(os.tmpdir(), 'duplicate-prefix-migrations-'));
     try {
