@@ -24,7 +24,7 @@ const { claimBalance, sendWithdrawal, accountExists } = require('../utils/stella
 const speakeasy = require('speakeasy');
 const { err } = require('../middleware/error');
 const config = require('../config');
-const { decryptUserSecretKey } = require('../utils/crypto');
+const signerService = require('../services/signerService');
 
 const BASE_RESERVE_XLM = 1;
 
@@ -229,7 +229,7 @@ router.post('/send', auth, requireStepUp2FA, validate.sendXLM, async (req, res) 
 
   try {
     const { rows } = await db.query(
-      'SELECT stellar_public_key, stellar_secret_key FROM users WHERE id = $1',
+      'SELECT stellar_public_key FROM users WHERE id = $1',
       [req.user.id]
     );
     const user = rows[0];
@@ -251,11 +251,18 @@ router.post('/send', auth, requireStepUp2FA, validate.sendXLM, async (req, res) 
       });
     }
 
-    const txHash = await sendPayment({
-      senderSecret: await decryptUserSecretKey(user.stellar_secret_key),
-      receiverPublicKey: destination,
-      amount,
-      memo: memo || '',
+    const { txHash } = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'wallet_send',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return sendPayment({
+          senderSecret: secretKey,
+          receiverPublicKey: destination,
+          amount,
+          memo: memo || '',
+        });
+      },
     });
 
     return res.json({ success: true, txHash, amount, destination, memo: memo || null });
@@ -295,7 +302,7 @@ router.post('/withdraw', auth, async (req, res) => {
 
   try {
     const { rows } = await db.query(
-      'SELECT stellar_public_key, stellar_secret_key FROM users WHERE id = $1',
+      'SELECT stellar_public_key FROM users WHERE id = $1',
       [req.user.id]
     );
     const user = rows[0];
@@ -335,12 +342,19 @@ router.post('/withdraw', auth, async (req, res) => {
       );
     }
 
-    const { hash: txHash, created } = await sendWithdrawal({
-      senderSecret: await decryptUserSecretKey(user.stellar_secret_key),
-      destination,
-      amount,
-      memo,
-      memoType,
+    const { hash: txHash, created } = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'wallet_withdrawal',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return sendWithdrawal({
+          senderSecret: secretKey,
+          destination,
+          amount,
+          memo,
+          memoType,
+        });
+      },
     });
 
     return res.json({
@@ -424,15 +438,17 @@ router.post('/trustline', auth, async (req, res) => {
   }
 
   try {
-    const { rows } = await db.query('SELECT stellar_secret_key FROM users WHERE id = $1', [
-      req.user.id,
-    ]);
-    if (!rows[0]) return err(res, 404, 'User not found', 'user_not_found');
-
-    const txHash = await addTrustline({
-      secret: await decryptUserSecretKey(rows[0].stellar_secret_key),
-      assetCode,
-      assetIssuer,
+    const { txHash } = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'add_trustline',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return addTrustline({
+          secret: secretKey,
+          assetCode,
+          assetIssuer,
+        });
+      },
     });
     res.json({ success: true, txHash });
   } catch (e) {
@@ -455,15 +471,17 @@ router.delete('/trustline', auth, async (req, res) => {
   }
 
   try {
-    const { rows } = await db.query('SELECT stellar_secret_key FROM users WHERE id = $1', [
-      req.user.id,
-    ]);
-    if (!rows[0]) return err(res, 404, 'User not found', 'user_not_found');
-
-    const txHash = await removeTrustline({
-      secret: await decryptUserSecretKey(rows[0].stellar_secret_key),
-      assetCode,
-      assetIssuer,
+    const { txHash } = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'remove_trustline',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return removeTrustline({
+          secret: secretKey,
+          assetCode,
+          assetIssuer,
+        });
+      },
     });
     res.json({ success: true, txHash });
   } catch (e) {
@@ -518,14 +536,21 @@ router.post('/claim', auth, async (req, res) => {
 
   try {
     const { rows } = await db.query(
-      'SELECT stellar_public_key, stellar_secret_key FROM users WHERE id = $1',
+      'SELECT stellar_public_key FROM users WHERE id = $1',
       [req.user.id]
     );
     if (!rows[0]) return err(res, 404, 'User not found', 'user_not_found');
 
-    const txHash = await claimBalance({
-      claimantSecret: await decryptUserSecretKey(rows[0].stellar_secret_key),
-      balanceId: balance_id,
+    const { txHash } = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'claim_balance',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return claimBalance({
+          claimantSecret: secretKey,
+          balanceId: balance_id,
+        });
+      },
     });
 
     // Invalidate wallet cache so the updated balance is fetched fresh
@@ -550,7 +575,8 @@ router.post('/claim', auth, async (req, res) => {
   }
 });
 
-router.post('/merge', auth, async (req, res) => {  const destination = String(req.body.destination || '').trim();
+router.post('/merge', auth, async (req, res) => {
+  const destination = String(req.body.destination || '').trim();
   const password = String(req.body.password || '').trim();
 
   if (!destination) {
@@ -565,7 +591,7 @@ router.post('/merge', auth, async (req, res) => {  const destination = String(re
 
   const bcrypt = require('bcryptjs');
   const { rows } = await db.query(
-    'SELECT stellar_public_key, stellar_secret_key, password_hash FROM users WHERE id = $1',
+    'SELECT stellar_public_key, password_hash FROM users WHERE id = $1',
     [req.user.id]
   );
   const user = rows[0];
@@ -579,9 +605,16 @@ router.post('/merge', auth, async (req, res) => {  const destination = String(re
   }
 
   try {
-    const txHash = await mergeAccount({
-      sourceSecret: await decryptUserSecretKey(user.stellar_secret_key),
-      destinationPublicKey: destination,
+    const { txHash } = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'merge_account',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return mergeAccount({
+          sourceSecret: secretKey,
+          destinationPublicKey: destination,
+        });
+      },
     });
 
     await db.query(

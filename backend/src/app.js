@@ -34,10 +34,13 @@ const { errorHandler, notFoundHandler } = require('./middleware/error');
 const { sanitizeResponse } = require('./middleware/sanitize');
 const requestLogger = require('./middleware/requestLogger');
 const categoriesRouter = require('./routes/categories');
+const healthRouter = require('./routes/health');
 const db = require('./db/schema');
 
 const app = express();
 
+// Health checks (liveness, readiness, detailed) must not be blocked by db.ready migrations
+app.use(healthRouter);
 let inflightRequests = 0;
 let drainWaiters = [];
 app.locals.isDraining = false;

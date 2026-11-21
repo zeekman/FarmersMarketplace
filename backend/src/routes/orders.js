@@ -51,7 +51,7 @@ const { getTierPrice, reserveCoupon, releaseCoupon } = require('./coupons');
 const { checkGeoFence, checkCoordinateGeoFence } = require('../utils/geocheck');
 const { broadcastStockUpdate } = require('../utils/stockUpdates');
 const { couponNowExpression } = require('../utils/couponTime');
-const { decryptUserSecretKey } = require('../utils/crypto');
+const signerService = require('../services/signerService');
 const { transition } = require('../models/orderStatus');
 const { parsePagination, sendPaginated } = require('../utils/pagination');
 const sse = require('../utils/sse');
@@ -301,11 +301,18 @@ async function handleBundleOrder(req, res, bundle_id, address_id, coupon_code, u
 
   let paymentSubmitted = false;
   try {
-    const txHash = await sendPayment({
-      senderSecret: await decryptUserSecretKey(buyer.stellar_secret_key),
-      receiverPublicKey: bundle.farmer_wallet,
-      amount: totalPrice,
-      memo: `Bundle#${bundle_id}`,
+    const { txHash } = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'bundle_order_payment',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return sendPayment({
+          senderSecret: secretKey,
+          receiverPublicKey: bundle.farmer_wallet,
+          amount: totalPrice,
+          memo: `Bundle#${bundle_id}`,
+        });
+      },
     });
     paymentSubmitted = true;
     for (const orderId of orderIds) {
@@ -761,12 +768,20 @@ router.post('/', auth, requireEmailVerified, orderRateLimit, validate.order, asy
   // Reward token redemption (#1504) — burn before paying so the discount is never given for free.
   if (rewardTokens > 0) {
     try {
-      rewardRedeemTxHash = await redeemRewardTokens({
-        buyerSecret: await decryptUserSecretKey(buyer.stellar_secret_key),
-        buyerPublicKey: buyer.stellar_public_key,
-        orderId,
-        amount: rewardTokens,
+      const { txHash: rewardHash } = await signerService.signAndSubmit({
+        userId: req.user.id,
+        purpose: 'reward_token_redemption',
+        req,
+        buildTx: async ({ secretKey }) => {
+          return redeemRewardTokens({
+            buyerSecret: secretKey,
+            buyerPublicKey: buyer.stellar_public_key,
+            orderId,
+            amount: rewardTokens,
+          });
+        },
       });
+      rewardRedeemTxHash = rewardHash;
       await db.query(
         'UPDATE orders SET reward_tokens_redeemed = $1, reward_discount = $2, reward_redeem_tx_hash = $3 WHERE id = $4',
         [rewardTokens, rewardDiscount, rewardRedeemTxHash, orderId]
@@ -811,20 +826,27 @@ router.post('/', auth, requireEmailVerified, orderRateLimit, validate.order, asy
         logger.warn('[orders] cooperative lookup failed (non-fatal):', { error: coopErr.message });
       }
 
-      const result = await invokeEscrowContract({
-        action: 'deposit',
-        senderSecret: await decryptUserSecretKey(buyer.stellar_secret_key),
-        orderId,
-        buyerPublicKey: buyer.stellar_public_key,
-        farmerPublicKey: product.farmer_wallet,
-        amount: totalPrice,
-        timeoutUnix,
+      const result = await signerService.signAndSubmit({
         userId: req.user.id,
-        cooperativeAddress,
-        cooperativeRoyaltyBps,
-        releaseAfterUnix: product.is_preorder && product.preorder_delivery_date
-          ? parsePreorderUnlockUnix(product.preorder_delivery_date) || 0
-          : 0,
+        purpose: 'escrow_deposit',
+        req,
+        buildTx: async ({ secretKey }) => {
+          return invokeEscrowContract({
+            action: 'deposit',
+            senderSecret: secretKey,
+            orderId,
+            buyerPublicKey: buyer.stellar_public_key,
+            farmerPublicKey: product.farmer_wallet,
+            amount: totalPrice,
+            timeoutUnix,
+            userId: req.user.id,
+            cooperativeAddress,
+            cooperativeRoyaltyBps,
+            releaseAfterUnix: product.is_preorder && product.preorder_delivery_date
+              ? parsePreorderUnlockUnix(product.preorder_delivery_date) || 0
+              : 0,
+          });
+        },
       });
       txHash = result.txHash;
       paymentSubmitted = true;
@@ -836,11 +858,18 @@ router.post('/', auth, requireEmailVerified, orderRateLimit, validate.order, asy
     } else if (product.is_preorder && product.preorder_delivery_date) {
       const unlockAtUnix = parsePreorderUnlockUnix(product.preorder_delivery_date);
       if (!unlockAtUnix) throw new Error('Invalid pre-order delivery date on product');
-      const hold = await createPreorderClaimableBalance({
-        senderSecret: await decryptUserSecretKey(buyer.stellar_secret_key),
-        farmerPublicKey: product.farmer_wallet,
-        amount: totalPrice,
-        unlockAtUnix,
+      const hold = await signerService.signAndSubmit({
+        userId: req.user.id,
+        purpose: 'preorder_claimable_balance',
+        req,
+        buildTx: async ({ secretKey }) => {
+          return createPreorderClaimableBalance({
+            senderSecret: secretKey,
+            farmerPublicKey: product.farmer_wallet,
+            amount: totalPrice,
+            unlockAtUnix,
+          });
+        },
       });
       txHash = hold.txHash;
       paymentSubmitted = true;
@@ -850,24 +879,40 @@ router.post('/', auth, requireEmailVerified, orderRateLimit, validate.order, asy
         ['paid', txHash, balanceId, 'funded', orderId]
       );
     } else if (usePathPayment) {
-      txHash = await pathPayment({
-        senderSecret: await decryptUserSecretKey(buyer.stellar_secret_key),
-        sourceAssetCode: _sourceAssetCode,
-        sourceAssetIssuer: _sourceAssetIssuer,
-        sendMax: pathSendMax,
-        receiverPublicKey: product.farmer_wallet,
-        destAmount: totalPrice,
-        memo: `Order#${orderId}`,
+      const result = await signerService.signAndSubmit({
+        userId: req.user.id,
+        purpose: 'order_path_payment',
+        req,
+        buildTx: async ({ secretKey }) => {
+          return pathPayment({
+            senderSecret: secretKey,
+            sourceAssetCode: _sourceAssetCode,
+            sourceAssetIssuer: _sourceAssetIssuer,
+            sendMax: pathSendMax,
+            receiverPublicKey: product.farmer_wallet,
+            destAmount: totalPrice,
+            memo: `Order#${orderId}`,
+          });
+        },
       });
+      txHash = result.txHash;
       paymentSubmitted = true;
       await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
     } else {
-      txHash = await sendPayment({
-        senderSecret: await decryptUserSecretKey(buyer.stellar_secret_key),
-        receiverPublicKey: product.farmer_wallet,
-        amount: totalPrice,
-        memo: `Order#${orderId}`,
+      const result = await signerService.signAndSubmit({
+        userId: req.user.id,
+        purpose: 'order_payment',
+        req,
+        buildTx: async ({ secretKey }) => {
+          return sendPayment({
+            senderSecret: secretKey,
+            receiverPublicKey: product.farmer_wallet,
+            amount: totalPrice,
+            memo: `Order#${orderId}`,
+          });
+        },
       });
+      txHash = result.txHash;
       paymentSubmitted = true;
       await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', ['paid', txHash, orderId]);
     }
@@ -1127,7 +1172,7 @@ router.patch('/:id/status', auth, validate.updateOrderStatus, async (req, res) =
   const { rows } = await db.query(
     `SELECT o.*, p.name as product_name, p.unit, p.category, p.carbon_kg_per_unit,
             u.name as buyer_name, u.email as buyer_email, u.stellar_public_key as buyer_stellar_address,
-           f.stellar_public_key as farmer_wallet, f.stellar_secret_key as farmer_secret
+           f.stellar_public_key as farmer_wallet, f.id as farmer_user_id
      FROM orders o
      JOIN products p ON o.product_id = p.id
      JOIN users u ON o.buyer_id = u.id
@@ -1195,12 +1240,21 @@ router.patch('/:id/status', auth, validate.updateOrderStatus, async (req, res) =
       { category: order.category, carbon_kg_per_unit: order.carbon_kg_per_unit },
       order.quantity
     );
-    Promise.resolve(recordCarbonOffset({
-      orderId: order.id,
-      kgCo2: estimate.carbonKg,
-      verifierPublicKey: order.farmer_wallet,
-      verifierSecret: order.farmer_secret,
-    })).catch((e) => logger.error('Carbon offset recording failed:', { error: e.message, orderId: order.id }));
+    Promise.resolve(
+      signerService.signAndSubmit({
+        userId: order.farmer_user_id || req.user.id,
+        purpose: 'carbon_offset_recording',
+        req,
+        buildTx: async ({ secretKey }) => {
+          return recordCarbonOffset({
+            orderId: order.id,
+            kgCo2: estimate.carbonKg,
+            verifierPublicKey: order.farmer_wallet,
+            verifierSecret: secretKey,
+          });
+        },
+      })
+    ).catch((e) => logger.error('Carbon offset recording failed:', { error: e.message, orderId: order.id }));
   }
 
   res.json({ success: true, message: 'Order status updated' });
@@ -1221,7 +1275,7 @@ router.post('/:id/escrow', auth, async (req, res) => {
   if (order.escrow_status === 'funded') return err(res, 409, 'Escrow already funded', 'already_funded');
 
   const { rows: buyerRows } = await db.query(
-    'SELECT stellar_public_key, stellar_secret_key FROM users WHERE id = $1',
+    'SELECT stellar_public_key FROM users WHERE id = $1',
     [req.user.id]
   );
   const buyer = buyerRows[0];
@@ -1229,15 +1283,22 @@ router.post('/:id/escrow', auth, async (req, res) => {
   try {
     const timeoutDays = parseInt(process.env.SOROBAN_ESCROW_TIMEOUT_DAYS || '14', 10);
     const timeoutUnix = Math.floor(Date.now() / 1000) + timeoutDays * 24 * 60 * 60;
-    const result = await invokeEscrowContract({
-      action: 'deposit',
-      senderSecret: await decryptUserSecretKey(buyer.stellar_secret_key),
-      orderId: Number(order.id),
-      buyerPublicKey: buyer.stellar_public_key,
-      farmerPublicKey: order.farmer_wallet,
-      amount: order.total_price,
-      timeoutUnix,
+    const result = await signerService.signAndSubmit({
       userId: req.user.id,
+      purpose: 'escrow_deposit',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return invokeEscrowContract({
+          action: 'deposit',
+          senderSecret: secretKey,
+          orderId: Number(order.id),
+          buyerPublicKey: buyer.stellar_public_key,
+          farmerPublicKey: order.farmer_wallet,
+          amount: order.total_price,
+          timeoutUnix,
+          userId: req.user.id,
+        });
+      },
     });
     await db.query(
       'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4, timeout_unix = $5 WHERE id = $6',
@@ -1258,9 +1319,20 @@ router.post('/:id/dispute', auth, async (req, res) => {
   if (!String(order.escrow_balance_id || '').startsWith('soroban:'))
     return err(res, 400, 'Not a Soroban order', 'invalid_state');
 
-  const { rows: uRows } = await db.query('SELECT stellar_secret_key FROM users WHERE id = $1', [req.user.id]);
   try {
-    const result = await invokeEscrowContract({ action: 'dispute', senderSecret: await decryptUserSecretKey(uRows[0].stellar_secret_key), orderId: Number(order.id), userId: req.user.id });
+    const result = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'order_dispute',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return invokeEscrowContract({
+          action: 'dispute',
+          senderSecret: secretKey,
+          orderId: Number(order.id),
+          userId: req.user.id,
+        });
+      },
+    });
     return res.json({ success: true, txHash: result.txHash });
   } catch (e) {
     return res.status(402).json({ success: false, message: e.message });
@@ -1275,9 +1347,20 @@ router.post('/:id/refund', auth, async (req, res) => {
   if (!order || !String(order.escrow_balance_id || '').startsWith('soroban:'))
     return err(res, 400, 'Not a Soroban order', 'invalid_state');
 
-  const { rows: uRows } = await db.query('SELECT stellar_secret_key FROM users WHERE id = $1', [req.user.id]);
   try {
-    const result = await invokeEscrowContract({ action: 'refund', senderSecret: await decryptUserSecretKey(uRows[0].stellar_secret_key), orderId: Number(order.id), userId: req.user.id });
+    const result = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'order_refund',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return invokeEscrowContract({
+          action: 'refund',
+          senderSecret: secretKey,
+          orderId: Number(order.id),
+          userId: req.user.id,
+        });
+      },
+    });
     await db.query('UPDATE orders SET escrow_status = $1, stellar_tx_hash = $2 WHERE id = $3', ['refunded', result.txHash, order.id]);
     return res.json({ success: true, txHash: result.txHash });
   } catch (e) {
@@ -1305,11 +1388,16 @@ async function claimOrderBalance(res, order, farmerId, message) {
   if (String(order.escrow_balance_id || '').startsWith('soroban:')) {
     return err(res, 400, 'Soroban escrow is released by the buyer, not claimed', 'invalid_state');
   }
-  const { rows } = await db.query('SELECT stellar_secret_key FROM users WHERE id = $1', [farmerId]);
   try {
-    const txHash = await claimBalance({
-      claimantSecret: rows[0].stellar_secret_key,
-      balanceId: order.escrow_balance_id,
+    const { txHash } = await signerService.signAndSubmit({
+      userId: farmerId,
+      purpose: 'order_claim_balance',
+      buildTx: async ({ secretKey }) => {
+        return claimBalance({
+          claimantSecret: secretKey,
+          balanceId: order.escrow_balance_id,
+        });
+      },
     });
     await db.query('UPDATE orders SET escrow_status = $1, stellar_tx_hash = $2 WHERE id = $3', [
       'claimed',

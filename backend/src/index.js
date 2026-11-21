@@ -19,6 +19,11 @@ async function start() {
     const stopJobs = startJobs();
     app.locals.startBackgroundJobs();
 
+    if (process.send) {
+      process.send('ready');
+    }
+
+    const shutdown = (signal) => {
     let shuttingDown = false;
     const shutdown = async (signal) => {
       if (shuttingDown) return;
