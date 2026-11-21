@@ -4,7 +4,7 @@ const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { err } = require('../middleware/error');
 const { sendPayment, getBalance } = require('../utils/stellar');
-const { decryptUserSecretKey } = require('../utils/crypto');
+const signerService = require('../services/signerService');
 
 // Run fn(q) atomically on Postgres; SQLite (single writer) runs statements directly.
 async function withTx(fn) {
@@ -145,7 +145,7 @@ router.post('/purchase', auth, validate.bundlePurchase, async (req, res) => {
       return err(res, 400, `Insufficient stock for "${item.product_name}"`, 'insufficient_stock');
   }
 
-  const buyer = (await db.query('SELECT * FROM users WHERE id = $1', [req.user.id])).rows[0];
+  const buyer = (await db.query('SELECT id, stellar_public_key FROM users WHERE id = $1', [req.user.id])).rows[0];
   const balance = await getBalance(buyer.stellar_public_key);
   if (balance < bundle.price + 0.00001)
     return res
@@ -174,11 +174,18 @@ router.post('/purchase', auth, validate.bundlePurchase, async (req, res) => {
   }
 
   try {
-    const txHash = await sendPayment({
-      senderSecret: await decryptUserSecretKey(buyer.stellar_secret_key),
-      receiverPublicKey: bundle.farmer_wallet,
-      amount: bundle.price,
-      memo: `Bundle#${orderId}`,
+    const { txHash } = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'bundle_payment',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return sendPayment({
+          senderSecret: secretKey,
+          receiverPublicKey: bundle.farmer_wallet,
+          amount: bundle.price,
+          memo: `Bundle#${orderId}`,
+        });
+      },
     });
 
     await db.query('UPDATE bundle_orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', [

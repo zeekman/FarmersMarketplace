@@ -12,6 +12,9 @@
     }
   },
   "rules": {
+    "no-redeclare": ["error"],
+    "import/first": ["error"],
+    "import/no-duplicates": ["error"],
     "react-refresh/only-export-components": ["warn", { "allowConstantExport": true }],
     "import/no-unused-modules": ["error", { "unusedExports": true }],
     "i18next/no-literal-string": [
@@ -27,6 +30,15 @@
       {
         "selector": "JSXAttribute[name.name='style'] ObjectExpression Property[key.name=/^(marginLeft|marginRight|paddingLeft|paddingRight|left|right)$/]",
         "message": "Use logical properties (marginInlineStart/End, paddingInlineStart/End, insetInlineStart/End) instead of physical properties for RTL support"
+    "no-restricted-globals": [
+      "error",
+      {
+        "name": "localStorage",
+        "message": "Use safeStorage from utils/safeStorage.js to handle SecurityError and QuotaExceededError"
+      },
+      {
+        "name": "sessionStorage",
+        "message": "Use safeSessionStorage from utils/safeStorage.js to handle SecurityError and QuotaExceededError"
       }
     ]
   },
@@ -42,6 +54,12 @@
             "ignore": ["XLM", "kg", "g", "lb", "oz", "unit", "units"]
           }
         ]
+      }
+    },
+    {
+      "files": ["src/utils/safeStorage.js", "src/utils/marketplaceSnapshot.js"],
+      "rules": {
+        "no-restricted-globals": "off"
       }
     }
   ],

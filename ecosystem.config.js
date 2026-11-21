@@ -46,6 +46,15 @@ module.exports = {
       // Graceful shutdown — Express will finish in-flight requests
       kill_timeout: 5000,
       listen_timeout: 10000,
+      wait_ready: true,
+
+      // Healthcheck for process monitors and orchestrators
+      // Points to /health/ready to verify database and migrations are ready
+      health_check: {
+        uri: 'http://localhost:4000/health/ready',
+        interval: 10000,
+        timeout: 2000,
+      },
     },
   ],
 };

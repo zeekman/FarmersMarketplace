@@ -324,4 +324,14 @@ beforeEach(() => {
   mailer.sendLowStockAlert?.mockResolvedValue({});
   mailer.sendStatusUpdateEmail?.mockResolvedValue({});
   mailer.sendBackInStockEmail?.mockResolvedValue({});
+
+  const signerService = require('../src/services/signerService');
+  if (signerService && signerService.getKeystore) {
+    const ks = signerService.getKeystore();
+    if (ks && typeof ks.setKey === 'function') {
+      ks.clear?.();
+      ks.setKey('1', { secretKey: 'SSECRET', publicKey: 'GPUBKEY' });
+      ks.setKey('2', { secretKey: 'SSECRET_BUYER', publicKey: 'GPUB_BUYER' });
+    }
+  }
 });

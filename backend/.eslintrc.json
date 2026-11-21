@@ -20,10 +20,8 @@
     "no-dupe-keys": "error",
     "no-redeclare": "error",
     "no-unreachable": "error",
-    "no-dupe-class-members": "error"
-  }
+    "no-dupe-class-members": "error",
     "no-restricted-properties": [
-      "error",
       {
         "object": "db",
         "property": "prepare",

@@ -81,4 +81,14 @@ function publish(channel, event, data) {
   local.emit(channel, event, data);
 }
 
-module.exports = { subscribe, publish };
+async function close() {
+  for (const client of [publisher, subscriber]) {
+    if (!client) continue;
+    try { await client.quit(); } catch { client.disconnect(); }
+  }
+  publisher = null;
+  subscriber = null;
+  ready = false;
+}
+
+module.exports = { subscribe, publish, close };

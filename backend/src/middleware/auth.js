@@ -10,17 +10,6 @@ module.exports = async (req, res, next) => {
   if (!token) return err(res, 401, 'No token provided', 'missing_token');
 
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET, { clockTolerance: 30 });
-    // Check if user is still active and not banned
-    const cacheKey = `auth:status:${req.user.id}`;
-    let status = await cache.get(cacheKey);
-    if (!status) {
-      const { rows } = await db.query('SELECT active, banned_at FROM users WHERE id = $1', [req.user.id]);
-      const user = rows[0] || {};
-      status = { active: user.active, banned: !!user.banned_at };
-      await cache.set(cacheKey, status, AUTH_STATUS_TTL_SECONDS);
-    }
-    if (status.active !== 1 || status.banned) {
     req.user = jwt.verify(token, process.env.JWT_SECRET, {
       algorithms: ['HS256'],
       clockTolerance: 30,
@@ -31,9 +20,17 @@ module.exports = async (req, res, next) => {
     if (req.user.scope === 'stream' || (req.user.typ && req.user.typ !== 'access')) {
       return err(res, 401, 'Invalid token', 'invalid_token');
     }
-    // Check if user is still active
-    const { rows } = await db.query('SELECT active FROM users WHERE id = $1', [req.user.id]);
-    if (!rows[0] || rows[0].active !== 1) {
+    // Check if user is still active and not banned, caching the lookup so the
+    // hot path doesn't hit the DB on every request.
+    const cacheKey = `auth:status:${req.user.id}`;
+    let status = await cache.get(cacheKey);
+    if (!status) {
+      const { rows } = await db.query('SELECT active, banned_at FROM users WHERE id = $1', [req.user.id]);
+      const user = rows[0] || {};
+      status = { active: user.active, banned: !!user.banned_at };
+      await cache.set(cacheKey, status, AUTH_STATUS_TTL_SECONDS);
+    }
+    if (status.active !== 1 || status.banned) {
       return err(res, 401, 'Account deactivated', 'deactivated');
     }
     // Defence in depth: authenticated responses must never be stored by

@@ -7,6 +7,8 @@ const { err } = require('../middleware/error');
 const { sanitizeText } = require('../utils/sanitize');
 const realtime = require('../utils/realtime');
 const createPerUserRateLimiter = require('../middleware/rateLimitPerUser');
+const { parsePagination, sendPaginated } = require('../utils/pagination');
+const sse = require('../utils/sse');
 
 // BE-38: Message rate limits (30 messages/min, 200/day)
 const messageRateLimitPerMinute = createPerUserRateLimiter(30, 60 * 1000);
@@ -102,9 +104,7 @@ router.post('/', auth, messageRateLimitPerMinute, messageRateLimitPerDay, async 
 // GET /api/messages — conversations sorted by last_message_at DESC (paginated)
 router.get('/', auth, async (req, res) => {
   const userId = req.user.id;
-  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-  const offset = (page - 1) * limit;
+  const { page, limit, offset } = parsePagination(req);
 
   try {
     // Count total conversations
@@ -130,18 +130,11 @@ router.get('/', auth, async (req, res) => {
          SELECT MAX(id) FROM messages WHERE sender_id = $1 OR receiver_id = $1
          GROUP BY CASE WHEN sender_id = $1 THEN receiver_id ELSE sender_id END
        )
-       ORDER BY m.created_at DESC
+       ORDER BY m.created_at DESC, m.id DESC
        LIMIT $2 OFFSET $3`,
       [userId, limit, offset]
     );
-    res.json({ 
-      success: true, 
-      data: rows,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit)
-    });
+    sendPaginated(res, req, rows, { page, limit, total });
   } catch (e) {
     err(res, 500, 'Failed to fetch conversations: ' + e.message, 'server_error');
   }
@@ -181,6 +174,7 @@ router.get('/events', sseAuth, (req, res) => {
 
   if (!sseClients.has(userId)) sseClients.set(userId, new Set());
   sseClients.get(userId).add(res);
+  const unregisterSse = sse.register(res);
 
   const heartbeat = setInterval(() => {
     try {
@@ -192,6 +186,7 @@ router.get('/events', sseAuth, (req, res) => {
 
   req.on('close', () => {
     clearInterval(heartbeat);
+    unregisterSse();
     const clients = sseClients.get(userId);
     if (clients) {
       clients.delete(res);

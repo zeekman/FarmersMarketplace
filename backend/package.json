@@ -11,6 +11,7 @@
     "test:contracts": "SKIP_CONTRACT_TESTS=false jest --forceExit --testPathPattern=escrow.contracts.test",
     "migrate": "node migrate.js",
     "migrate:rollback": "node migrate.js rollback",
+    "docs:api": "node scripts/gen-api-table.js",
     "backup": "node scripts/backup.js",
     "restore": "node scripts/restore.js",
     "lint": "eslint . --max-warnings 0",

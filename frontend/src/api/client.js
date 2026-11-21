@@ -395,6 +395,28 @@ export const api = {
     a.click();
     URL.revokeObjectURL(url);
   },
+
+  // Generic download helper for export endpoints. Reuses request pipeline (token, refresh-on-401, error mapping).
+  downloadFile: async (path, filename, options = {}) => {
+    const headers = {};
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+    const url = path.startsWith('http') ? path : `${BASE}${path}`;
+    const res = await fetch(url, { credentials: 'include', headers, ...options });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      const message = d.message || d.error || `Download failed (${res.status})`;
+      throw new Error(message);
+    }
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename;
+    a.click();
+    // Use setTimeout to allow download to begin before revoking
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  },
+
   approveReturn: (orderId) => request(`/orders/${orderId}/return/approve`, { method: 'PATCH' }),
   rejectReturn: (orderId, reject_reason) => request(`/orders/${orderId}/return/reject`, { method: 'PATCH', body: { reject_reason } }),
 

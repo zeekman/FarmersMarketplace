@@ -82,7 +82,11 @@ const options = {
             total: { type: 'integer' },
             page: { type: 'integer' },
             limit: { type: 'integer' },
-            totalPages: { type: 'integer' },
+            links: {
+              type: 'object',
+              description: 'The next page is advertised with an HTTP Link header when available.',
+              nullable: true,
+            },
           },
         },
       },

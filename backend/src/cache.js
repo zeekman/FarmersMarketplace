@@ -120,11 +120,27 @@ async function invalidateProducts() {
   await delByPattern('products:*');
 }
 
-module.exports = { get, set, del, delByPattern, acquireLock, releaseLock, invalidateProducts };
 // Auth middleware caches each user's active/banned status for 30s. Deactivation,
 // ban and deletion must call this so the change is enforced on the next request.
 async function invalidateAuthStatus(userId) {
   await del(`auth:status:${userId}`);
 }
 
-module.exports = { get, set, del, delByPattern, invalidateProducts, invalidateAuthStatus };
+module.exports = {
+  get,
+  set,
+  del,
+  delByPattern,
+  invalidateProducts,
+  invalidateAuthStatus,
+  acquireLock,
+  releaseLock,
+  isReady,
+  client,
+};
+async function close() {
+  if (!client) return;
+  try { await client.quit(); } catch { client.disconnect(); }
+}
+
+module.exports = { get, set, del, delByPattern, invalidateProducts, invalidateAuthStatus, close };
