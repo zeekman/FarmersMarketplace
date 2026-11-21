@@ -60,7 +60,10 @@ router.post('/upload-image', auth, (req, res) => {
     try {
       // Validate file content with magic-byte detection
       const verified = await verifyUploadedFile(req.file);
-      res.status(201).json({ success: true, imageUrl: `/uploads/${verified.filename}` });
+      res.status(201).json({
+        success: true,
+        imageUrl: rewriteImageUrl(verified.url || `/uploads/${verified.filename}`),
+      });
     } catch (verifyErr) {
       if (verifyErr.code === 'INVALID_TYPE') {
         return err(res, 415, verifyErr.message, 'unsupported_media_type');

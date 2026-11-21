@@ -7,7 +7,7 @@ const { simulateContractCall, invokeContract } = require('../utils/stellar');
 const { err } = require('../middleware/error');
 const { getCachedResponse, cacheResponse } = require('../utils/idempotency');
 const logger = require('../logger');
-const { decryptUserSecretKey } = require('../utils/crypto');
+const signerService = require('../services/signerService');
 
 const STROOPS_PER_XLM = 10_000_000;
 
@@ -21,7 +21,7 @@ const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9
  */
 async function requireOwnFarmerAccount(req, res, address) {
   const { rows } = await db.query(
-    `SELECT id, stellar_public_key, stellar_secret_key FROM users WHERE stellar_public_key = $1 AND role = 'farmer'`,
+    `SELECT id, stellar_public_key FROM users WHERE stellar_public_key = $1 AND role = 'farmer'`,
     [address],
   );
   const farmer = rows[0];
@@ -257,20 +257,25 @@ router.post('/:address/claim', auth, async (req, res) => {
   if (!contractId || !tokenContractId) {
     return err(res, 503, 'Creator Earnings contract is not configured', 'contract_unconfigured');
   }
-  if (!farmer.stellar_secret_key) {
-    return err(res, 400, 'No Stellar signing key on file for this account', 'no_key');
-  }
-
   try {
-    const { hash, result } = await invokeContract({
-      contractId,
-      method: 'claim',
-      args: [
-        { type: 'address', value: address },
-        { type: 'address', value: tokenContractId },
-      ],
-      signerSecret: await decryptUserSecretKey(farmer.stellar_secret_key),
+    const invokeResult = await signerService.signAndSubmit({
+      userId: farmer.id,
+      purpose: 'claim_creator_earnings',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return invokeContract({
+          contractId,
+          method: 'claim',
+          args: [
+            { type: 'address', value: address },
+            { type: 'address', value: tokenContractId },
+          ],
+          signerSecret: secretKey,
+        });
+      },
     });
+    const hash = invokeResult.txHash || invokeResult.hash;
+    const result = invokeResult.result;
 
     const responseBody = {
       success: true,

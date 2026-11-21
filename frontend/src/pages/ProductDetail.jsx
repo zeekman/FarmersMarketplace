@@ -1,5 +1,8 @@
 import React, { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
+import { useTranslation } from 'react-i18next';
+import { QRCodeSVG } from 'qrcode.react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useIdempotencyKey } from '../hooks/useIdempotencyKey';
@@ -10,16 +13,19 @@ import { showToast } from '../utils/toast';
 import { useXlmRate } from '../utils/useXlmRate';
 import { calculateHaversineDistance, formatDistanceLabel } from '../utils/distance';
 import { buildSrcSet } from '../utils/imageUtils';
+import { useFreighter, signWithFreighter } from '../utils/freighter';
+import { useReviewForm } from '../hooks/useReviewForm';
+import { usePaymentLink } from '../hooks/usePaymentLink';
+import { useNetwork } from '../context/NetworkContext';
+import { useModalA11y } from '../hooks/useModalA11y';
+import { addRecentlyViewed } from '../utils/recentlyViewed';
 import StarRating from '../components/StarRating';
 import Spinner from '../components/Spinner';
 import FlashSaleCountdown from '../components/FlashSaleCountdown';
 import ShareButtons from '../components/ShareButtons';
 import PriceHistoryChart from '../components/PriceHistoryChart';
-import NotFound from './NotFound';
 import CheckoutReviewModal from '../components/CheckoutReviewModal';
-import { useFreighter, signWithFreighter } from '../utils/freighter';
-import { Helmet } from 'react-helmet-async';
-import { useTranslation } from 'react-i18next';
+import NotFound from './NotFound';
 
 const MapView = lazy(() => import('../components/MapView'));
 
@@ -46,13 +52,6 @@ function LazyMapView(props) {
     </div>
   );
 }
-import QRCode from 'qrcode.react';
-import { useReviewForm } from '../hooks/useReviewForm';
-import { usePaymentLink } from '../hooks/usePaymentLink';
-import { addRecentlyViewed } from '../utils/recentlyViewed';
-import { useNetwork } from '../context/NetworkContext';
-import { useModalA11y } from '../hooks/useModalA11y';
-import NotFound from './NotFound';
 
 const s = {
   page: { maxWidth: 640, margin: "40px auto", padding: 16 },
@@ -1676,7 +1675,14 @@ export default function ProductDetail() {
                     <button onClick={() => setPaymentLinkData(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#595959' }} aria-label="Close">✕</button>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-                    <QRCode value={paymentLinkData.paymentLink} size={200} />
+                    <QRCodeSVG 
+                      value={paymentLinkData.paymentLink} 
+                      size={200} 
+                      level="M"
+                      includeMargin
+                      role="img"
+                      aria-label={`Payment QR code for ${product.name}`}
+                    />
                   </div>
                   <CopyButton url={paymentLinkData.paymentLink} />
                   <div style={{ marginTop: 8, fontSize: 12, color: '#888', textAlign: 'center' }}>

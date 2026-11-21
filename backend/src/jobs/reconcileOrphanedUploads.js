@@ -50,7 +50,8 @@ function extractObjectKey(url) {
   if (!url) return null;
   try {
     const pathName = new URL(url, 'http://localhost').pathname.replace(/^\//, '');
-    return pathName.startsWith('uploads/') ? pathName : null;
+    const uploadsIndex = pathName.indexOf('uploads/');
+    return uploadsIndex === -1 ? null : pathName.slice(uploadsIndex);
   } catch {
     return null;
   }
@@ -151,6 +152,9 @@ async function reconcileOrphanedUploads({
   uploadsDir = DEFAULT_UPLOADS_DIR,
   gracePeriodSeconds = DEFAULT_GRACE_SECONDS,
 } = {}) {
+  if (process.env.NODE_ENV === 'production' && !objectStorage.configured) {
+    throw new Error('Object storage is not configured (OBJECT_STORAGE_BUCKET is required)');
+  }
   if (objectStorage.configured)
     return reconcileObjectStorageUploads({ dryRun, gracePeriodSeconds });
 
