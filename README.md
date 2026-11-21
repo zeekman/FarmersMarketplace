@@ -623,3 +623,6 @@ For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md)
 
 <!-- handsoff-issue-1710 -->
 - #1710: Escrow has no pause circuit breaker, but `get_config` always reports `paused: false`
+
+<!-- handsoff-issue-1719 -->
+- #1719: `mint_for_order` is not idempotent per order, so retries double-mint rewards
