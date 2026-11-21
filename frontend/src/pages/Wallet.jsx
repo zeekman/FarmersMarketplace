@@ -9,6 +9,7 @@ import { showToast } from '../utils/toast';
 import { useConfirm } from '../hooks/useConfirm';
 import { useXlmRate } from '../utils/useXlmRate';
 import { useNetwork } from '../context/NetworkContext';
+import { safeStorage } from '../utils/safeStorage';
 import {
   classifyDestination,
   validateMemo,
@@ -109,7 +110,7 @@ export default function Wallet() {
   const { user } = useAuth();
   const { network, explorerUrl } = useNetwork();
   const { usd } = useXlmRate();
-  const [disclaimerVisible, setDisclaimerVisible] = useState(() => localStorage.getItem(DISCLAIMER_KEY) !== 'true');
+  const [disclaimerVisible, setDisclaimerVisible] = useState(() => safeStorage.get(DISCLAIMER_KEY) !== 'true');
   const [wallet, setWallet]       = useState(null);
   const [txs, setTxs]             = useState([]);
   const [loading, setLoading]     = useState(true);

@@ -24,6 +24,17 @@
         "should-validate-template": false,
         "ignore": ["XLM", "kg", "g", "lb", "oz", "unit", "units", "+", "-", "×", "÷", "=", "/", ":", ";", ",", ".", "!", "?", "%", "$", "#", "@", "&", "|", "\\", "(", ")", "[", "]", "{", "}", "<", ">", "~", "`", "^", "*", "_"]
       }
+    ],
+    "no-restricted-globals": [
+      "error",
+      {
+        "name": "localStorage",
+        "message": "Use safeStorage from utils/safeStorage.js to handle SecurityError and QuotaExceededError"
+      },
+      {
+        "name": "sessionStorage",
+        "message": "Use safeSessionStorage from utils/safeStorage.js to handle SecurityError and QuotaExceededError"
+      }
     ]
   },
   "overrides": [
@@ -38,6 +49,12 @@
             "ignore": ["XLM", "kg", "g", "lb", "oz", "unit", "units"]
           }
         ]
+      }
+    },
+    {
+      "files": ["src/utils/safeStorage.js", "src/utils/marketplaceSnapshot.js"],
+      "rules": {
+        "no-restricted-globals": "off"
       }
     }
   ],

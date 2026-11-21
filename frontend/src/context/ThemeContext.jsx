@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { safeStorage } from '../utils/safeStorage';
 
 const ThemeContext = createContext(undefined);
 
 const getInitialTheme = () => {
   if (typeof window === 'undefined') return 'light';
-  const stored = window.localStorage.getItem('theme');
+  const stored = safeStorage.get('theme');
   if (stored === 'light' || stored === 'dark') return stored;
   if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
     return 'dark';
@@ -16,14 +17,14 @@ export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(getInitialTheme);
   const [useSystemTheme, setUseSystemTheme] = useState(() => {
     if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem('theme') === null;
+    return safeStorage.get('theme') === null;
   });
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
     document.documentElement.dataset.theme = theme;
     if (!useSystemTheme) {
-      window.localStorage.setItem('theme', theme);
+      safeStorage.set('theme', theme);
     }
   }, [theme, useSystemTheme]);
 
