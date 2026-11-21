@@ -9,6 +9,23 @@ on:
     - cron: '0 2 * * *'  # nightly at 02:00 UTC
 
 jobs:
+  api-docs:
+    name: API docs are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --ignore-scripts
+      - name: Regenerate API table
+        working-directory: backend
+        run: npm run docs:api
+      - name: Check generated API docs
+        run: git diff --exit-code -- docs/API.md
+
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest

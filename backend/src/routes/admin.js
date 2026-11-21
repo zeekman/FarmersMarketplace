@@ -6,22 +6,26 @@ const requireAdmin = require('../middleware/requireAdmin');
 const { sendPayment } = require('../utils/stellar');
 const signerService = require('../services/signerService');
 const { writeAuditLog } = require('../utils/auditLog');
+const { parsePagination, sendPaginated } = require('../utils/pagination');
 
 router.use(auth, requireAdmin);
 
 // GET /api/admin/returns - list all return requests
 router.get('/returns', async (_req, res) => {
+router.get('/returns', async (req, res) => {
+  const { page, limit, offset } = parsePagination(req);
+  const { rows: countRows } = await db.query('SELECT COUNT(*) AS count FROM returns');
+  const total = Number(countRows[0]?.count || 0);
   const { rows } = await db.query(`
     SELECT r.*, o.total_price, o.shipping_cost, o.stellar_tx_hash AS order_tx_hash,
-           p.name AS product_name,
-           b.name AS buyer_name, b.email AS buyer_email
+           p.name AS product_name, b.name AS buyer_name, b.email AS buyer_email
     FROM returns r
     JOIN orders o ON r.order_id = o.id
     JOIN products p ON o.product_id = p.id
     JOIN users b ON r.buyer_id = b.id
-    ORDER BY r.created_at DESC
-  `);
-  res.json(rows);
+    ORDER BY r.created_at DESC, r.id DESC LIMIT $1 OFFSET $2
+  `, [limit, offset]);
+  return sendPaginated(res, req, rows, { page, limit, total });
 });
 
 router.post('/returns/:id/approve', async (req, res) => {
@@ -290,6 +294,84 @@ router.post('/returns/:id/reject', async (req, res) => {
 
         const { rows: gmvRows } = await db.query(
           `SELECT ROUND(SUM(total_price), 7) AS total,
+  const { rows } = await db.query('SELECT * FROM returns WHERE id = $1', [req.params.id]);
+  const ret = rows[0];
+  if (!ret) return res.status(404).json({ error: 'Return request not found' });
+  if (ret.status !== 'pending') return res.status(400).json({ error: `Return already ${ret.status}` });
+  await db.query('UPDATE returns SET status = $1 WHERE id = $2', ['rejected', ret.id]);
+  await writeAuditLog({ adminId: req.user.id, action: 'reject_return', targetType: 'return', targetId: ret.id,
+    before: { status: 'pending' }, after: { status: 'rejected' }, req });
+  res.json({ message: 'Return request rejected' });
+});
+
+router.get('/users', async (req, res) => {
+  const { page, limit, offset } = parsePagination(req, { maxLimit: 200, defaultLimit: 50 });
+  const conditions = [];
+  const params = [];
+  if (req.query.active !== undefined) { params.push(req.query.active === '1' || req.query.active === 'true'); conditions.push(`active = $${params.length}`); }
+  if (req.query.role !== undefined) { params.push(req.query.role); conditions.push(`role = $${params.length}`); }
+  if (req.query.verified !== undefined) conditions.push(req.query.verified === 'true' || req.query.verified === '1' ? 'email_verified_at IS NOT NULL' : 'email_verified_at IS NULL');
+  if (req.query.banned !== undefined) conditions.push(req.query.banned === 'true' || req.query.banned === '1' ? 'banned_at IS NOT NULL' : 'banned_at IS NULL');
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const countResult = await db.query(`SELECT COUNT(*) as count FROM users ${where}`, params);
+  const total = Number(countResult.rows[0].count);
+  const usersParams = [...params, limit, offset];
+  const { rows } = await db.query(`SELECT id, name, email, role, created_at, active, banned_at, email_verified_at FROM users ${where} ORDER BY created_at DESC, id DESC LIMIT $${usersParams.length - 1} OFFSET $${usersParams.length}`, usersParams);
+  return sendPaginated(res, req, rows, { page, limit, total });
+});
+
+// GET /api/admin/orders - list orders with pagination
+router.get('/orders', async (req, res) => {
+  const { page, limit, offset } = parsePagination(req);
+  const { rows: countRows } = await db.query('SELECT COUNT(*) as count FROM orders');
+  const total = Number(countRows[0].count);
+  const { rows } = await db.query(`SELECT o.id, o.buyer_id, b.name AS buyer_name, o.product_id, p.name AS product_name, o.quantity, o.total_price, o.status, o.created_at
+    FROM orders o JOIN users b ON o.buyer_id = b.id JOIN products p ON o.product_id = p.id
+    ORDER BY o.created_at DESC, o.id DESC LIMIT $1 OFFSET $2`, [limit, offset]);
+  return sendPaginated(res, req, rows, { page, limit, total });
+});
+
+// GET /api/admin/stats - dashboard statistics
+router.get('/stats', async (req, res) => {
+  const count = async (sql, params) => Number((await db.query(sql, params)).rows[0].count);
+  const totalUsers = await count('SELECT COUNT(*) as count FROM users');
+  const totalProducts = await count('SELECT COUNT(*) as count FROM products');
+  const totalOrders = await count('SELECT COUNT(*) as count FROM orders');
+  const totalRevenue = (
+    await db.query("SELECT COALESCE(SUM(total_price), 0) as total FROM orders WHERE status = $1", ['paid'])
+  ).rows[0].total;
+  
+  res.json({
+    totalUsers,
+    totalProducts,
+    totalOrders,
+    totalRevenue
+  });
+});
+
+router.get('/stats', async (_req, res) => {
+  const count = async (sql) => Number((await db.query(sql)).rows[0].count);
+  const [totalUsers, totalProducts, totalOrders] = await Promise.all([
+    count('SELECT COUNT(*) as count FROM users'),
+    count('SELECT COUNT(*) as count FROM products'),
+    count('SELECT COUNT(*) as count FROM orders'),
+  ]);
+  const { rows } = await db.query(
+    "SELECT COALESCE(SUM(total_price), 0) as total FROM orders WHERE status = $1",
+    ['paid']
+  );
+
+  res.json({ totalUsers, totalProducts, totalOrders, totalRevenue: Number(rows[0].total) });
+});
+
+router.get('/analytics/summary', async (_req, res) => {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .replace('T', ' ')
+    .slice(0, 19);
+
+  const { rows: gmvRows } = await db.query(
+    `SELECT ROUND(SUM(total_price), 7) AS total,
             ROUND(SUM(total_price - COALESCE(shipping_cost, 0)), 7) AS product,
             ROUND(SUM(COALESCE(shipping_cost, 0)), 7) AS shipping,
             COUNT(*) AS paid_orders
@@ -366,6 +448,33 @@ router.post('/returns/:id/reject', async (req, res) => {
         router.get('/analytics/creator-earnings', async (_req, res) => {
           const { rows: totalsRows } = await db.query(
             `SELECT
+    [since]
+  );
+  const conversion = conversionRows[0];
+  res.json({
+    period: 'last_30_days',
+    gmv: gmvRows[0],
+    conversion: Number(conversion.total_orders)
+      ? conversion
+      : { total_orders: 0, paid_orders: 0, rate_pct: 0 },
+    top_products: topProducts,
+    daily_active_users: dailyActiveUsers,
+    daily_gmv: dailyGmv,
+  });
+});
+
+// GET /api/admin/failed-emails
+router.get('/failed-emails', async (req, res) => {
+  const { page, limit, offset } = parsePagination(req);
+  const { rows: countRows } = await db.query('SELECT COUNT(*) AS count FROM failed_emails');
+  const total = Number(countRows[0]?.count || 0);
+  const { rows } = await db.query('SELECT * FROM failed_emails ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2', [limit, offset]);
+  return sendPaginated(res, req, rows, { page, limit, total });
+});
+
+router.get('/analytics/creator-earnings', async (_req, res) => {
+  const { rows: totalsRows } = await db.query(
+    `SELECT
        COALESCE(SUM(CASE WHEN event_type = 'credit' THEN amount ELSE 0 END), 0) AS total_credited,
        COALESCE(SUM(CASE WHEN event_type = 'claim' THEN amount ELSE 0 END), 0) AS total_claimed,
        COALESCE(SUM(CASE WHEN event_type = 'credit' THEN fee_amount ELSE 0 END), 0) AS total_platform_fee
@@ -418,6 +527,42 @@ router.post('/returns/:id/reject', async (req, res) => {
 
           const { rows } = await db.query(
             `SELECT 
+  );
+
+  const byDay = new Map();
+  for (const row of seriesRows) {
+    if (!byDay.has(row.day)) {
+      byDay.set(row.day, { day: row.day, credited: 0, claimed: 0, platform_fee: 0 });
+    }
+    const bucket = byDay.get(row.day);
+    if (row.event_type === 'credit') {
+      bucket.credited += Number(row.amount);
+      bucket.platform_fee += Number(row.fee_amount);
+    } else if (row.event_type === 'claim') {
+      bucket.claimed += Number(row.amount);
+    }
+  }
+
+  res.json({
+    success: true,
+    data: {
+      total_credited_xlm: Number(totalsRows[0].total_credited),
+      total_claimed_xlm: Number(totalsRows[0].total_claimed),
+      total_platform_fee_xlm: Number(totalsRows[0].total_platform_fee),
+      time_series: [...byDay.values()],
+    },
+  });
+});
+
+// BE-38: GET /api/admin/message-reports — view reported messages
+router.get('/message-reports', async (req, res) => {
+  const { page, limit, offset } = parsePagination(req);
+
+  const { rows: countRows } = await db.query('SELECT COUNT(*) as count FROM message_reports');
+  const total = Number(countRows[0].count);
+
+  const { rows } = await db.query(
+    `SELECT 
       r.id, r.message_id, r.reason, r.created_at,
       m.content as message_content, m.created_at as message_created_at,
       sender.id as sender_id, sender.name as sender_name, sender.email as sender_email,
@@ -426,7 +571,7 @@ router.post('/returns/:id/reject', async (req, res) => {
      JOIN messages m ON r.message_id = m.id
      JOIN users sender ON m.sender_id = sender.id
      JOIN users reporter ON r.reporter_id = reporter.id
-     ORDER BY r.created_at DESC
+     ORDER BY r.created_at DESC, r.id DESC
      LIMIT $1 OFFSET $2`,
             [limit, offset]
           );
@@ -437,5 +582,49 @@ router.post('/returns/:id/reject', async (req, res) => {
             pagination: { page, limit, total, pages: Math.ceil(total / limit) },
           });
         });
+  return sendPaginated(res, req, rows, { page, limit, total });
+});
+
+
+// #1648: inspect durable webhook deliveries; dead is the operational default.
+router.get('/webhooks/deliveries', async (req, res) => {
+  const allowedStatuses = new Set(['pending', 'processing', 'delivered', 'dead']);
+  const status = req.query.status || 'dead';
+  if (!allowedStatuses.has(status)) return res.status(400).json({ error: 'Invalid delivery status' });
+  const { rows } = await db.query(
+    `SELECT id, order_id, event, url, webhook_id, webhook_timestamp, status_code,
+            success, response_body, attempt, status, next_attempt_at, delivered_at, created_at
+       FROM webhook_deliveries WHERE status = $1
+       ORDER BY created_at DESC, id DESC LIMIT 200`,
+    [status]
+  );
+  res.json({ success: true, data: rows });
+});
+
+router.post('/webhooks/deliveries/:id/redeliver', async (req, res) => {
+  const { rows } = await db.query('SELECT * FROM webhook_deliveries WHERE id = $1', [req.params.id]);
+  const delivery = rows[0];
+  if (!delivery) return res.status(404).json({ error: 'Webhook delivery not found' });
+  if (delivery.status !== 'dead') return res.status(409).json({ error: 'Only dead deliveries can be redelivered' });
+  const webhookId = require('crypto').randomUUID();
+  await db.query(
+    `UPDATE webhook_deliveries
+        SET status = 'pending', attempt = 0, success = $1, status_code = NULL,
+            response_body = NULL, next_attempt_at = CURRENT_TIMESTAMP,
+            delivered_at = NULL, webhook_id = $2, webhook_timestamp = $3
+      WHERE id = $4`,
+    [false, webhookId, Date.now(), delivery.id]
+  );
+  await writeAuditLog({
+    adminId: req.user.id,
+    action: 'redeliver_webhook',
+    targetType: 'webhook_delivery',
+    targetId: delivery.id,
+    before: { status: 'dead', attempt: delivery.attempt },
+    after: { status: 'pending', attempt: 0, webhook_id: webhookId },
+    req,
+  });
+  res.json({ success: true, id: delivery.id, status: 'pending' });
+});
 
         module.exports = router;

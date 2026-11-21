@@ -53,6 +53,8 @@ const { broadcastStockUpdate } = require('../utils/stockUpdates');
 const { couponNowExpression } = require('../utils/couponTime');
 const signerService = require('../services/signerService');
 const { transition } = require('../models/orderStatus');
+const { parsePagination, sendPaginated } = require('../utils/pagination');
+const sse = require('../utils/sse');
 const { getRewardSummary, maxRedeemableTokens, redeemRewardTokens, reissueRedeemedTokens } = require('../utils/rewardTokens');
 
 // XLM per kg per km
@@ -850,8 +852,8 @@ router.post('/', auth, requireEmailVerified, orderRateLimit, validate.order, asy
       paymentSubmitted = true;
       balanceId = `soroban:${orderId}`;
       await db.query(
-        'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4 WHERE id = $5',
-        ['paid', txHash, balanceId, 'funded', orderId]
+        'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4, timeout_unix = $5 WHERE id = $6',
+        ['paid', txHash, balanceId, 'funded', timeoutUnix, orderId]
       );
     } else if (product.is_preorder && product.preorder_delivery_date) {
       const unlockAtUnix = parsePreorderUnlockUnix(product.preorder_delivery_date);
@@ -1017,9 +1019,7 @@ router.post('/', auth, requireEmailVerified, orderRateLimit, validate.order, asy
 // GET /api/orders
 router.get('/', auth, async (req, res) => {
   const { status } = req.query;
-  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-  const offset = (page - 1) * limit;
+  const { page, limit, offset } = parsePagination(req);
 
   const conditions = ['o.buyer_id = $1'];
   const params = [req.user.id];
@@ -1037,7 +1037,7 @@ router.get('/', auth, async (req, res) => {
             rr.status as return_status, rr.reason as return_reason, rr.reject_reason, rr.refund_tx_hash,
             (SELECT h.reason FROM order_status_history h
               WHERE h.order_id = o.id AND h.to_status = 'failed'
-              ORDER BY h.created_at DESC, h.id DESC LIMIT 1) as failure_reason
+              ORDER BY h.created_at DESC, h.id DESC LIMIT 1) as failure_reason,
             (SELECT d.id FROM disputes d WHERE d.order_id = o.id) as dispute_id
      FROM orders o
      JOIN products p ON o.product_id = p.id
@@ -1046,7 +1046,7 @@ router.get('/', auth, async (req, res) => {
      LEFT JOIN addresses a ON o.address_id = a.id
      LEFT JOIN return_requests rr ON rr.order_id = o.id
      ${where}
-     ORDER BY o.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+     ORDER BY o.created_at DESC, o.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset]
   );
 
@@ -1059,7 +1059,7 @@ router.get('/', auth, async (req, res) => {
     }
   }));
 
-  res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
+  return sendPaginated(res, req, data, { page, limit, total });
 });
 
 /**
@@ -1071,9 +1071,7 @@ router.get('/', auth, async (req, res) => {
  */
 router.get('/sales', auth, async (req, res) => {
   if (req.user.role !== 'farmer') return err(res, 403, 'Farmers only', 'forbidden');
-  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-  const offset = (page - 1) * limit;
+  const { page, limit, offset } = parsePagination(req);
 
   const { rows: countRows } = await db.query(
     `SELECT COUNT(*) as count
@@ -1098,7 +1096,7 @@ router.get('/sales', auth, async (req, res) => {
      LEFT JOIN addresses a ON o.address_id = a.id
      LEFT JOIN return_requests rr ON rr.order_id = o.id
      WHERE p.farmer_id = $1
-     ORDER BY o.created_at DESC
+     ORDER BY o.created_at DESC, o.id DESC
      LIMIT $2 OFFSET $3`,
     [req.user.id, limit, offset]
   );
@@ -1112,7 +1110,7 @@ router.get('/sales', auth, async (req, res) => {
     }
   }));
 
-  res.json({ success: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
+  return sendPaginated(res, req, data, { page, limit, total });
 });
 
 // GET /api/orders/:id/history — status timeline from order_status_history + escrow state (#1501)
@@ -1303,8 +1301,8 @@ router.post('/:id/escrow', auth, async (req, res) => {
       },
     });
     await db.query(
-      'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4 WHERE id = $5',
-      ['paid', result.txHash, `soroban:${order.id}`, 'funded', order.id]
+      'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4, timeout_unix = $5 WHERE id = $6',
+      ['paid', result.txHash, `soroban:${order.id}`, 'funded', timeoutUnix, order.id]
     );
     return res.json({ success: true, txHash: result.txHash });
   } catch (e) {
@@ -1366,9 +1364,9 @@ router.post('/:id/refund', auth, async (req, res) => {
     await db.query('UPDATE orders SET escrow_status = $1, stellar_tx_hash = $2 WHERE id = $3', ['refunded', result.txHash, order.id]);
     return res.json({ success: true, txHash: result.txHash });
   } catch (e) {
-    const escrowErr = parseEscrowError(e);
+    const escrowErr = parseEscrowError(e, 'soroban');
     if (escrowErr) {
-      return res.status(escrowErr.code === 'escrow_in_dispute' ? 409 : 402).json({ success: false, message: 'Refund failed: ' + escrowErr.message, code: escrowErr.code });
+      return res.status(escrowErr.httpStatus).json({ success: false, message: 'Refund failed: ' + escrowErr.userMessage, code: escrowErr.code });
     }
     return res.status(402).json({ success: false, message: 'Refund failed: ' + e.message, code: 'refund_failed' });
   }
@@ -1610,11 +1608,13 @@ router.get('/stream', async (req, res) => {
 
   if (!orderClients.has(user.id)) orderClients.set(user.id, new Set());
   orderClients.get(user.id).add(res);
+  const unregisterSse = sse.register(res);
 
   const heartbeat = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* ignore */ } }, 30000);
 
   req.on('close', () => {
     clearInterval(heartbeat);
+    unregisterSse();
     const clients = orderClients.get(user.id);
     if (clients) {
       clients.delete(res);
