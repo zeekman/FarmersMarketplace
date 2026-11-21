@@ -4,7 +4,10 @@ require('express-async-errors');
 
 const logger = require('./logger');
 const REQUIRED_ENV = ['JWT_SECRET', 'ENCRYPTION_SECRET'];
-const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
+const requiredEnv = process.env.NODE_ENV === 'production'
+  ? [...REQUIRED_ENV, 'OBJECT_STORAGE_BUCKET']
+  : REQUIRED_ENV;
+const missing = requiredEnv.filter((k) => !process.env[k]);
 const weakJwtSecret =
   process.env.NODE_ENV === 'production' &&
   Buffer.byteLength(process.env.JWT_SECRET || '', 'utf8') < 32;
@@ -31,9 +34,38 @@ const { errorHandler, notFoundHandler } = require('./middleware/error');
 const { sanitizeResponse } = require('./middleware/sanitize');
 const requestLogger = require('./middleware/requestLogger');
 const categoriesRouter = require('./routes/categories');
+const healthRouter = require('./routes/health');
 const db = require('./db/schema');
 
 const app = express();
+
+// Health checks (liveness, readiness, detailed) must not be blocked by db.ready migrations
+app.use(healthRouter);
+let inflightRequests = 0;
+let drainWaiters = [];
+app.locals.isDraining = false;
+app.locals.waitForInflight = () => inflightRequests === 0
+  ? Promise.resolve()
+  : new Promise((resolve) => drainWaiters.push(resolve));
+
+app.use((req, res, next) => {
+  if (app.locals.isDraining) return res.status(503).set('Connection', 'close').json({ success: false, error: 'server_shutting_down' });
+  inflightRequests += 1;
+  let completed = false;
+  const done = () => {
+    if (completed) return;
+    completed = true;
+    if (inflightRequests > 0) inflightRequests -= 1;
+    if (inflightRequests === 0) {
+      const waiters = drainWaiters;
+      drainWaiters = [];
+      waiters.forEach((resolve) => resolve());
+    }
+  };
+  res.once('finish', done);
+  res.once('close', done);
+  next();
+});
 
 app.use((req, res, next) => {
   Promise.resolve(db.ready).then(() => next(), next);
@@ -114,8 +146,10 @@ const uploadStaticOptions = {
     res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
   },
 };
-app.use('/uploads', express.static(path.join(__dirname, '../uploads'), uploadStaticOptions));
-app.use('/uploads/videos', express.static(path.join(__dirname, '../uploads/videos'), uploadStaticOptions));
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/uploads', express.static(path.join(__dirname, '../uploads'), uploadStaticOptions));
+  app.use('/uploads/videos', express.static(path.join(__dirname, '../uploads/videos'), uploadStaticOptions));
+}
 
 app.get('/api/csrf-token', csrfTokenHandler);
 app.get('/api/v1/csrf-token', csrfTokenHandler);

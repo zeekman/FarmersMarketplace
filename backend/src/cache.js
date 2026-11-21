@@ -127,4 +127,9 @@ async function invalidateAuthStatus(userId) {
   await del(`auth:status:${userId}`);
 }
 
-module.exports = { get, set, del, delByPattern, invalidateProducts, invalidateAuthStatus };
+async function close() {
+  if (!client) return;
+  try { await client.quit(); } catch { client.disconnect(); }
+}
+
+module.exports = { get, set, del, delByPattern, invalidateProducts, invalidateAuthStatus, close };

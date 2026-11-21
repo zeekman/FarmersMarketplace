@@ -100,6 +100,7 @@ if (USE_POSTGRES) {
     isPostgres: true,
     placeholder: (i) => `$${i}`,
     getClient: () => pg.connect(),
+    close: () => pg.end(),
   };
 
   db.ready = runMigrations(db);
@@ -190,6 +191,7 @@ if (USE_POSTGRES) {
     },
     isPostgres: false,
     placeholder: () => '?',
+    close: async () => sqlite.close(),
   };
 
   const { runMigrations } = require('./migrationRunner');

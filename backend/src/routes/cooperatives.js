@@ -16,7 +16,8 @@ const auth = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { err } = require('../middleware/error');
 const { createWallet, server, networkPassphrase } = require('../utils/stellar');
-const { encrypt, decrypt, decryptUserSecretKey } = require('../utils/crypto');
+const { encrypt } = require('../utils/crypto');
+const signerService = require('../services/signerService');
 const logger = require('../logger');
 
 const MULTISIG_THRESHOLD_XLM = 50; // payments above this require multi-sig
@@ -109,7 +110,7 @@ router.post('/:id/multisig-setup', auth, validate.cooperativeMultisig, async (re
     return err(res, 403, 'Only cooperative admins may configure multisig', 'forbidden');
 
   const { rows: coopRows } = await db.query(
-    `SELECT stellar_secret_key, stellar_public_key FROM cooperatives WHERE id = $1`,
+    `SELECT id, stellar_public_key FROM cooperatives WHERE id = $1`,
     [coopId]
   );
   if (!coopRows.length) return err(res, 404, 'Cooperative not found', 'not_found');
@@ -135,38 +136,42 @@ router.post('/:id/multisig-setup', auth, validate.cooperativeMultisig, async (re
 
   // Configure Stellar multi-sig on the cooperative account
   try {
-    const coopKeypair = StellarSdk.Keypair.fromSecret(await decrypt(coop.stellar_secret_key));
-    const coopAccount = await server.loadAccount(coopKeypair.publicKey());
+    await signerService.signAndSubmit({
+      cooperativeId: coopId,
+      userId: req.user.id,
+      purpose: 'cooperative_multisig_setup',
+      req,
+      buildTx: async ({ publicKey }) => {
+        const coopAccount = await server.loadAccount(publicKey);
+        const txBuilder = new StellarSdk.TransactionBuilder(coopAccount, {
+          fee: StellarSdk.BASE_FEE,
+          networkPassphrase,
+        });
 
-    const txBuilder = new StellarSdk.TransactionBuilder(coopAccount, {
-      fee: StellarSdk.BASE_FEE,
-      networkPassphrase,
-    });
+        // Add each member as a signer with weight 1
+        for (const m of members) {
+          if (m.stellar_public_key && m.stellar_public_key !== publicKey) {
+            txBuilder.addOperation(
+              StellarSdk.Operation.setOptions({
+                signer: { ed25519PublicKey: m.stellar_public_key, weight: 1 },
+              })
+            );
+          }
+        }
 
-    // Add each member as a signer with weight 1
-    for (const m of members) {
-      if (m.stellar_public_key && m.stellar_public_key !== coop.stellar_public_key) {
+        // Set thresholds (low/med/high all = threshold)
         txBuilder.addOperation(
           StellarSdk.Operation.setOptions({
-            signer: { ed25519PublicKey: m.stellar_public_key, weight: 1 },
+            lowThreshold: threshold,
+            medThreshold: threshold,
+            highThreshold: threshold,
+            masterWeight: 1,
           })
         );
-      }
-    }
 
-    // Set thresholds (low/med/high all = threshold)
-    txBuilder.addOperation(
-      StellarSdk.Operation.setOptions({
-        lowThreshold: threshold,
-        medThreshold: threshold,
-        highThreshold: threshold,
-        masterWeight: 1,
-      })
-    );
-
-    const tx = txBuilder.setTimeout(30).build();
-    tx.sign(coopKeypair);
-    await server.submitTransaction(tx);
+        return txBuilder.setTimeout(30).build();
+      },
+    });
   } catch (e) {
     // If account not funded yet, just save the config — Stellar setup will happen when funded
     logger.warn('[multisig-setup] Stellar setup skipped (account may not be funded)', {
@@ -201,7 +206,7 @@ router.post('/:id/transactions', auth, validate.cooperativeTransaction, async (r
   if (!memCheck.length) return err(res, 403, 'Not a member', 'forbidden');
 
   const { rows: coopRows } = await db.query(
-    `SELECT stellar_secret_key, stellar_public_key, multisig_threshold FROM cooperatives WHERE id = $1`,
+    `SELECT id, stellar_public_key, multisig_threshold FROM cooperatives WHERE id = $1`,
     [coopId]
   );
   if (!coopRows.length) return err(res, 404, 'Cooperative not found', 'not_found');
@@ -211,11 +216,19 @@ router.post('/:id/transactions', auth, validate.cooperativeTransaction, async (r
   if (amount <= MULTISIG_THRESHOLD_XLM) {
     const { sendPayment } = require('../utils/stellar');
     try {
-      const txHash = await sendPayment({
-        senderSecret: await decrypt(coop.stellar_secret_key),
-        receiverPublicKey: destination,
-        amount,
-        memo,
+      const { txHash } = await signerService.signAndSubmit({
+        cooperativeId: coopId,
+        userId: req.user.id,
+        purpose: 'cooperative_direct_payment',
+        req,
+        buildTx: async ({ secretKey }) => {
+          return sendPayment({
+            senderSecret: secretKey,
+            receiverPublicKey: destination,
+            amount,
+            memo,
+          });
+        },
       });
       return res.json({ success: true, direct: true, txHash });
     } catch (e) {
@@ -242,17 +255,19 @@ router.post('/:id/transactions', auth, validate.cooperativeTransaction, async (r
       .setTimeout(3600)
       .build();
 
-    // Sign with initiator's key if they are a signer
-    const { rows: initiatorRows } = await db.query(
-      `SELECT stellar_secret_key FROM users WHERE id = $1`,
-      [req.user.id]
-    );
-    if (initiatorRows[0]?.stellar_secret_key) {
-      tx.sign(
-        StellarSdk.Keypair.fromSecret(
-          await decryptUserSecretKey(initiatorRows[0].stellar_secret_key)
-        )
-      );
+    // Sign with initiator's key if available
+    try {
+      await signerService.signAndSubmit({
+        userId: req.user.id,
+        purpose: 'cooperative_initiate_tx',
+        req,
+        buildTx: async ({ keypair }) => {
+          if (keypair) tx.sign(keypair);
+          return { hash: tx.hash().toString('hex') };
+        },
+      });
+    } catch {
+      // initiator may not have custodial key configured
     }
 
     xdr = tx.toXDR();
@@ -334,15 +349,17 @@ router.post('/transactions/:id/sign', auth, async (req, res) => {
       }
       tx.addSignature(publicKey, sigBuf.toString('base64'));
     } else {
-      const { rows: userRows } = await db.query(`SELECT stellar_secret_key FROM users WHERE id = $1`, [
-        req.user.id,
-      ]);
-      if (!userRows[0]?.stellar_secret_key) return err(res, 400, 'No Stellar key', 'no_key');
-      tx.sign(StellarSdk.Keypair.fromSecret(await decryptUserSecretKey(userRows[0].stellar_secret_key)));
+      await signerService.signAndSubmit({
+        userId: req.user.id,
+        purpose: 'cooperative_sign_pending_tx',
+        req,
+        buildTx: async ({ keypair }) => {
+          if (!keypair) throw new Error('No Stellar key');
+          tx.sign(keypair);
+          return { hash: tx.hash().toString('hex') };
+        },
+      });
     }
-    tx.sign(
-      StellarSdk.Keypair.fromSecret(await decryptUserSecretKey(userRows[0].stellar_secret_key))
-    );
   } catch (e) {
     return err(res, 400, `Could not sign: ${e.message}`, 'sign_error');
   }

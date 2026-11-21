@@ -486,10 +486,32 @@ async function invokeContract({ contractId, method, args = [], signerSecret }) {
   for (let i = 0; i < 10; i++) {
     const txResult = await sorobanServer.getTransaction(hash);
     if (txResult.status === 'SUCCESS') return { hash, result: txResult.returnValue };
-    if (txResult.status === 'FAILED') throw new Error('Soroban transaction failed');
+    if (txResult.status === 'FAILED') {
+      const failure = txResult.resultXdr || txResult.errorResultXdr || txResult.resultMetaXdr || '';
+      throw new Error(`Soroban transaction failed${failure ? `: ${failure}` : ''}`);
+    }
     await new Promise((r) => setTimeout(r, 2000));
   }
   throw new Error('Transaction confirmation timeout');
+}
+
+/** Permissionlessly claim a timed-out escrow refund, paying the transaction fee
+ * from the configured platform fee account.
+ */
+async function claimTimeoutRefund({ orderId, signerSecret = config.platformFeeAccountSecret }) {
+  if (!config.sorobanEscrowContractId) throw new Error('SOROBAN_ESCROW_CONTRACT_ID is not configured');
+  if (!signerSecret) throw new Error('PLATFORM_FEE_ACCOUNT_SECRET is not configured');
+  const numericOrderId = Number(orderId);
+  if (!Number.isSafeInteger(numericOrderId) || numericOrderId <= 0) {
+    throw new Error('orderId must be a positive safe integer');
+  }
+  const { hash, result } = await invokeContract({
+    contractId: config.sorobanEscrowContractId,
+    method: 'claim_timeout_refund',
+    args: [{ type: 'u64', value: numericOrderId }],
+    signerSecret,
+  });
+  return { txHash: hash, result };
 }
 
 async function recordCarbonOffset({ orderId, kgCo2, verifierPublicKey, verifierSecret }) {
@@ -904,6 +926,7 @@ module.exports = {
   invokeEscrowContract,
   getEscrowState,
   invokeContract,
+  claimTimeoutRefund,
   recordCarbonOffset,
   getCarbonOffset,
   simulateContract,

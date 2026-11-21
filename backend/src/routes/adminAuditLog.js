@@ -34,8 +34,9 @@ router.get('/', adminAuth, async (req, res) => {
   const conditions = [];
   const params = [];
 
-  if (req.query.admin_id) {
-    params.push(parseInt(req.query.admin_id, 10));
+  const targetUserId = req.query.admin_id || req.query.user_id;
+  if (targetUserId) {
+    params.push(parseInt(targetUserId, 10));
     conditions.push(`a.admin_id = ${params.length}`);
   }
 

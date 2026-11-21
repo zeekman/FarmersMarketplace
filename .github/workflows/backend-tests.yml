@@ -72,3 +72,145 @@ jobs:
 
       - name: Run tests with coverage
         run: npm run test:coverage
+
+  migration-parity:
+    name: Migration parity (SQLite / PostgreSQL)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: farmers_migrations
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install PostgreSQL client for schema dump
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Migrate, roll back repeatedly, and remigrate PostgreSQL
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/farmers_migrations
+        run: |
+          npm run migrate
+          rollback_count=0
+          while true; do
+            set +e
+            output=$(npm run migrate:rollback 2>&1)
+            status=$?
+            set -e
+            printf '%s\n' "$output"
+            if [ "$status" -eq 0 ]; then
+              rollback_count=$((rollback_count + 1))
+            elif printf '%s' "$output" | grep -q 'No rollback file found:'; then
+              echo "Reached the first migration without a rollback file after $rollback_count rollback(s)."
+              break
+            else
+              exit "$status"
+            fi
+          done
+          if [ "$rollback_count" -eq 0 ]; then
+            echo 'No migration could be rolled back.' >&2
+            exit 1
+          fi
+          npm run migrate
+
+      - name: Migrate, roll back repeatedly, and remigrate SQLite
+        run: |
+          rm -f market.db
+          DATABASE_URL='' npm run migrate
+          rollback_count=0
+          while true; do
+            set +e
+            output=$(DATABASE_URL='' npm run migrate:rollback 2>&1)
+            status=$?
+            set -e
+            printf '%s\n' "$output"
+            if [ "$status" -eq 0 ]; then
+              rollback_count=$((rollback_count + 1))
+            elif printf '%s' "$output" | grep -q 'No rollback file found:'; then
+              echo "Reached the first migration without a rollback file after $rollback_count rollback(s)."
+              break
+            else
+              exit "$status"
+            fi
+          done
+          if [ "$rollback_count" -eq 0 ]; then
+            echo 'No migration could be rolled back.' >&2
+            exit 1
+          fi
+          DATABASE_URL='' npm run migrate
+
+      - name: Dump both schemas and compare curated table columns
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/farmers_migrations
+        run: |
+          pg_dump --schema-only --no-owner --no-privileges "$DATABASE_URL" > /tmp/postgres-schema.sql
+          node <<'NODE'
+          const fs = require('fs');
+          const Database = require('better-sqlite3');
+          const db = new Database('market.db', { readonly: true });
+          const schema = db.prepare(
+            "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type, name"
+          ).all().map(({ sql }) => `${sql};`).join('\n\n');
+          fs.writeFileSync('/tmp/sqlite-schema.sql', `${schema}\n`);
+          db.close();
+          NODE
+          node <<'NODE'
+          const Database = require('better-sqlite3');
+          const { Client } = require('pg');
+
+          (async () => {
+            const tables = ['users', 'orders', 'products', 'reviews', 'coupons'];
+            const sqlite = new Database('market.db', { readonly: true });
+            const postgres = new Client({ connectionString: process.env.DATABASE_URL });
+            await postgres.connect();
+            try {
+              for (const table of tables) {
+                const sqliteColumns = sqlite.prepare(`PRAGMA table_info("${table}")`)
+                  .all().map(({ name }) => name).sort();
+                const result = await postgres.query(
+                  'SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1',
+                  [table]
+                );
+                const postgresColumns = result.rows.map(({ column_name }) => column_name).sort();
+                if (sqliteColumns.length === 0 || postgresColumns.length === 0) {
+                  throw new Error(`Missing curated table ${table}: SQLite=${sqliteColumns.length > 0}, PostgreSQL=${postgresColumns.length > 0}`);
+                }
+                if (JSON.stringify(sqliteColumns) !== JSON.stringify(postgresColumns)) {
+                  throw new Error(
+                    `Column parity failure for ${table}: SQLite=[${sqliteColumns.join(', ')}], PostgreSQL=[${postgresColumns.join(', ')}]`
+                  );
+                }
+                console.log(`Column parity OK: ${table} (${sqliteColumns.length} columns)`);
+              }
+            } finally {
+              sqlite.close();
+              await postgres.end();
+            }
+          })().catch((error) => {
+            console.error(error.message);
+            process.exitCode = 1;
+          });
+          NODE

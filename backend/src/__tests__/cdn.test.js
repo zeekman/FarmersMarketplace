@@ -3,12 +3,15 @@
  */
 
 const { rewriteImageUrl } = require('../utils/cdn');
+const originalObjectStoragePublicUrl = process.env.OBJECT_STORAGE_PUBLIC_URL;
 
 describe('cdn.js — rewriteImageUrl', () => {
   const originalEnv = process.env.CDN_URL;
 
   afterEach(() => {
     process.env.CDN_URL = originalEnv;
+    if (originalObjectStoragePublicUrl === undefined) delete process.env.OBJECT_STORAGE_PUBLIC_URL;
+    else process.env.OBJECT_STORAGE_PUBLIC_URL = originalObjectStoragePublicUrl;
   });
 
   it('rewrites a relative /uploads/ path when CDN_URL is configured', () => {
@@ -61,5 +64,13 @@ describe('cdn.js — rewriteImageUrl', () => {
   it('handles relative paths without leading slash', () => {
     process.env.CDN_URL = 'https://cdn.example.com';
     expect(rewriteImageUrl('uploads/product.jpg')).toBe('https://cdn.example.com/uploads/product.jpg');
+  });
+
+  it('prefers OBJECT_STORAGE_PUBLIC_URL over CDN_URL', () => {
+    process.env.OBJECT_STORAGE_PUBLIC_URL = 'https://objects.example.com/bucket/';
+    process.env.CDN_URL = 'https://legacy-cdn.example.com';
+    expect(rewriteImageUrl('/uploads/product.jpg')).toBe(
+      'https://objects.example.com/bucket/uploads/product.jpg'
+    );
   });
 });

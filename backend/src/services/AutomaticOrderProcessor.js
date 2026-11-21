@@ -249,8 +249,8 @@ class AutomaticOrderProcessor {
       // Update order with payment details
       if (product.use_soroban_escrow) {
         await db.query(
-          'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4 WHERE id = $5',
-          ['paid', paymentResult.txHash, paymentResult.escrowOrderId, 'funded', order.id]
+          'UPDATE orders SET status = $1, stellar_tx_hash = $2, escrow_balance_id = $3, escrow_status = $4, timeout_unix = $5 WHERE id = $6',
+          ['paid', paymentResult.txHash, `soroban:${paymentResult.escrowOrderId}`, 'funded', paymentResult.timeoutUnix, order.id]
         );
       } else {
         await db.query('UPDATE orders SET status = $1, stellar_tx_hash = $2 WHERE id = $3', [
@@ -340,6 +340,7 @@ class AutomaticOrderProcessor {
         success: true,
         txHash: result.txHash,
         escrowOrderId: order.id,
+        timeoutUnix,
         code: 'ESCROW_FUNDED',
       };
     } catch (error) {
