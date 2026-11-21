@@ -12,6 +12,10 @@ const adminToken = jwt.sign(
   { id: 99, role: 'admin' },
   process.env.JWT_SECRET || 'test-secret-for-jest'
 );
+const buyerToken = jwt.sign(
+  { id: 5, role: 'buyer' },
+  process.env.JWT_SECRET || 'test-secret-for-jest'
+);
 const secretKey = `S${'A'.repeat(55)}`;
 
 function authorizeQueries(resolver) {
@@ -32,17 +36,47 @@ beforeEach(() => {
 });
 
 describe('admin routes using asynchronous database queries', () => {
-  it('lists return requests', async () => {
-    authorizeQueries(async (sql) => (
-      /FROM returns/i.test(sql)
-        ? { rows: [{ id: 7, status: 'pending' }], rowCount: 1 }
-        : { rows: [], rowCount: 0 }
-    ));
+  it('lists return requests with pagination and joined product/buyer fields', async () => {
+    authorizeQueries(async (sql) => {
+      if (/COUNT\(\*\) as count FROM returns/i.test(sql)) {
+        return { rows: [{ count: '1' }], rowCount: 1 };
+      }
+      if (/FROM returns r/i.test(sql)) {
+        return {
+          rows: [{
+            id: 7,
+            status: 'pending',
+            product_name: 'Organic Carrots',
+            buyer_name: 'Buyer One',
+            buyer_email: 'buyer@example.test',
+          }],
+          rowCount: 1,
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    });
 
-    const response = await adminRequest('get', '/api/admin/returns');
+    const response = await adminRequest('get', '/api/admin/returns?status=pending&page=1&limit=10');
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual([{ id: 7, status: 'pending' }]);
+    expect(response.body.data[0]).toMatchObject({
+      product_name: 'Organic Carrots',
+      buyer_name: 'Buyer One',
+      buyer_email: 'buyer@example.test',
+    });
+    expect(response.body.pagination).toMatchObject({ page: 1, limit: 10, total: 1 });
+    expect(mockDb.query.mock.calls.some(([sql]) => /r\.status = \$1/.test(sql))).toBe(true);
+    expect(mockDb.query.mock.calls.some(([sql]) => /LIMIT \$2 OFFSET \$3/.test(sql))).toBe(true);
+  });
+
+  it('rejects a non-admin caller with 403', async () => {
+    authorizeQueries(async () => ({ rows: [], rowCount: 0 }));
+
+    const response = await request(app)
+      .get('/api/admin/returns')
+      .set('Authorization', `Bearer ${buyerToken}`);
+
+    expect(response.status).toBe(403);
   });
 
   it('approves a return with an async query and records its refund', async () => {
