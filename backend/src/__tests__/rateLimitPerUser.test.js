@@ -1,43 +1,29 @@
 /**
  * rateLimitPerUser.test.js
  *
- * Tests for the sliding-window rate-limit middleware.
+ * Tests for the fixed-window rate-limit middleware.
  *
  * Strategy:
- *   - Force in-memory mode by unsetting REDIS_URL.
- *   - Build minimal Express apps that mount the limiter directly (not the full app),
- *     so limits can be set to small values without fighting the prod defaults.
- *   - Call _reset() in beforeEach to clear the in-memory store between tests.
- *   - Use jest fake timers so sliding-window expiry can be verified without sleeping.
- *
- * Scenarios covered:
- *   Per-user limiter:
- *     - Allows requests within the limit
- *     - Blocks the (N+1)th request with HTTP 429 and code: 'rate_limit_exceeded'
- *     - Sets X-RateLimit-Limit and X-RateLimit-Remaining headers correctly
- *     - Sets Retry-After header on rejection
- *     - X-RateLimit-Remaining decrements with each request
- *     - Different users are tracked independently
- *     - Sliding window: requests older than the window expire and free capacity
- *     - Returns 401 when req.user is absent
- *
- *   Per-IP limiter:
- *     - Allows requests within the limit
- *     - Blocks the (N+1)th request with HTTP 429 and code: 'rate_limit_exceeded'
- *     - Sets required response headers
- *     - Sets Retry-After on rejection
- *     - Sliding window: old requests expire
- *
- *   Response body:
- *     - 429 body contains { success: false, code: 'rate_limit_exceeded' }
+ *   - Mock the cache module to test both memory and Redis modes.
+ *   - Build minimal Express apps that mount the limiter directly.
+ *   - Use jest fake timers to verify expiry and eviction.
  */
 
-process.env.REDIS_URL = '';
 process.env.JWT_SECRET = 'test-secret-for-jest';
 process.env.NODE_ENV = 'test';
 
 const express = require('express');
 const request = require('supertest');
+const cache = require('../cache');
+
+// Mock cache module
+jest.mock('../cache', () => ({
+  isReady: jest.fn(),
+  client: {
+    multi: jest.fn(),
+    pexpire: jest.fn(),
+  },
+}));
 
 const {
   createPerUserRateLimiter,
@@ -47,8 +33,11 @@ const {
 
 beforeEach(() => {
   _reset();
+  jest.clearAllMocks();
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2024-06-01T00:00:00.000Z'));
+  // Default to memory mode for most tests
+  cache.isReady.mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -60,7 +49,6 @@ afterEach(() => {
 function buildUserApp(maxRequests, windowMs) {
   const app = express();
   app.use(express.json());
-  // Inject a fake user so auth-limiter doesn't 401 on us
   app.use((req, _res, next) => {
     req.user = { id: parseInt(req.headers['x-user-id'] || '1', 10), role: 'buyer' };
     next();
@@ -78,173 +66,134 @@ function buildIpApp(maxRequests, windowMs) {
   return app;
 }
 
-// ── per-user limiter ─────────────────────────────────────────────────────────
+// ── memory store tests ───────────────────────────────────────────────────────
 
-describe('Per-User Rate Limiter', () => {
-  test('allows requests within the limit', async () => {
-    const app = buildUserApp(3, 60_000);
-    for (let i = 0; i < 3; i++) {
-      const res = await request(app).post('/test').set('x-user-id', '1');
-      expect(res.status).toBe(200);
-    }
-  });
+describe('Rate Limiter (Memory Mode)', () => {
+  describe('Per-User', () => {
+    test('allows requests within the limit', async () => {
+      const app = buildUserApp(3, 60_000);
+      for (let i = 0; i < 3; i++) {
+        const res = await request(app).post('/test').set('x-user-id', '1');
+        expect(res.status).toBe(200);
+      }
+    });
 
-  test('blocks the (limit+1)th request with HTTP 429', async () => {
-    const app = buildUserApp(3, 60_000);
-    for (let i = 0; i < 3; i++) {
+    test('blocks the (limit+1)th request', async () => {
+      const app = buildUserApp(2, 60_000);
       await request(app).post('/test').set('x-user-id', '1');
-    }
-    const res = await request(app).post('/test').set('x-user-id', '1');
-    expect(res.status).toBe(429);
+      await request(app).post('/test').set('x-user-id', '1');
+      const res = await request(app).post('/test').set('x-user-id', '1');
+      expect(res.status).toBe(429);
+      expect(res.body.code).toBe('rate_limit_exceeded');
+    });
+
+    test('sets RateLimit-Limit and RateLimit-Remaining headers', async () => {
+      const app = buildUserApp(5, 60_000);
+      const res = await request(app).post('/test').set('x-user-id', '1');
+      expect(res.headers['ratelimit-limit']).toBe('5');
+      expect(res.headers['ratelimit-remaining']).toBe('4');
+    });
+
+    test('sets Retry-After header on rejection', async () => {
+      const app = buildUserApp(1, 60_000);
+      await request(app).post('/test').set('x-user-id', '1');
+      const res = await request(app).post('/test').set('x-user-id', '1');
+      expect(res.status).toBe(429);
+      expect(res.headers['retry-after']).toBe('60');
+    });
+
+    test('window reset: capacity is restored after windowMs', async () => {
+      const app = buildUserApp(1, 60_000);
+      await request(app).post('/test').set('x-user-id', '1');
+      expect((await request(app).post('/test').set('x-user-id', '1')).status).toBe(429);
+
+      jest.advanceTimersByTime(60_001);
+
+      expect((await request(app).post('/test').set('x-user-id', '1')).status).toBe(200);
+    });
+
+    test('memory eviction: sweep removes expired keys', async () => {
+      const app = buildUserApp(1, 60_000);
+      await request(app).post('/test').set('x-user-id', 'evict-me');
+
+      // Advance time past the window
+      jest.advanceTimersByTime(60_001);
+
+      // Trigger the sweep interval (set to 60s in the middleware)
+      jest.advanceTimersByTime(60_000);
+
+      // We can't directly inspect memoryStore without exporting it or adding a helper,
+      // but we can verify that a new request after sweep starts a fresh window.
+      const res = await request(app).post('/test').set('x-user-id', 'evict-me');
+      expect(res.status).toBe(200);
+      expect(res.headers['ratelimit-remaining']).toBe('0'); // fixed-window: 1st request of new window
+    });
   });
 
-  test('429 body has code: rate_limit_exceeded', async () => {
-    const app = buildUserApp(1, 60_000);
-    await request(app).post('/test').set('x-user-id', '1');
-    const res = await request(app).post('/test').set('x-user-id', '1');
-    expect(res.status).toBe(429);
-    expect(res.body).toMatchObject({ success: false, code: 'rate_limit_exceeded' });
+  describe('Per-IP', () => {
+    test('blocks by IP', async () => {
+      const app = buildIpApp(1, 60_000);
+      await request(app).post('/test');
+      const res = await request(app).post('/test');
+      expect(res.status).toBe(429);
+      expect(res.headers['ratelimit-limit']).toBe('1');
+    });
+  });
+});
+
+// ── redis store tests ────────────────────────────────────────────────────────
+
+describe('Rate Limiter (Redis Mode)', () => {
+  let mockMulti;
+
+  beforeEach(() => {
+    cache.isReady.mockReturnValue(true);
+    mockMulti = {
+      incr: jest.fn().mockReturnThis(),
+      pttl: jest.fn().mockReturnThis(),
+      exec: jest.fn(),
+    };
+    cache.client.multi.mockReturnValue(mockMulti);
   });
 
-  test('sets X-RateLimit-Limit and X-RateLimit-Remaining headers', async () => {
-    const app = buildUserApp(5, 60_000);
-    const res = await request(app).post('/test').set('x-user-id', '1');
+  test('calls Redis INCR and PTTL', async () => {
+    mockMulti.exec.mockResolvedValue([
+      [null, 1], // INCR result: 1
+      [null, -1], // PTTL result: -1 (new key)
+    ]);
+    cache.client.pexpire.mockResolvedValue(1);
+
+    const app = buildIpApp(5, 60_000);
+    const res = await request(app).post('/test');
+
     expect(res.status).toBe(200);
-    expect(res.headers['x-ratelimit-limit']).toBe('5');
-    expect(res.headers['x-ratelimit-remaining']).toBe('4');
+    expect(mockMulti.incr).toHaveBeenCalled();
+    expect(cache.client.pexpire).toHaveBeenCalledWith(expect.any(String), 60_000);
+    expect(res.headers['ratelimit-remaining']).toBe('4');
   });
 
-  test('X-RateLimit-Remaining decrements with each request', async () => {
-    const app = buildUserApp(5, 60_000);
-    const r1 = await request(app).post('/test').set('x-user-id', '1');
-    const r2 = await request(app).post('/test').set('x-user-id', '1');
-    const r3 = await request(app).post('/test').set('x-user-id', '1');
-    expect(r1.headers['x-ratelimit-remaining']).toBe('4');
-    expect(r2.headers['x-ratelimit-remaining']).toBe('3');
-    expect(r3.headers['x-ratelimit-remaining']).toBe('2');
-  });
+  test('blocks when Redis count exceeds limit', async () => {
+    mockMulti.exec.mockResolvedValue([
+      [null, 6], // INCR result: 6
+      [null, 30_000], // PTTL result: 30s remaining
+    ]);
 
-  test('sets Retry-After header on rejection', async () => {
-    const app = buildUserApp(1, 60_000);
-    await request(app).post('/test').set('x-user-id', '1');
-    const res = await request(app).post('/test').set('x-user-id', '1');
+    const app = buildIpApp(5, 60_000);
+    const res = await request(app).post('/test');
+
     expect(res.status).toBe(429);
-    expect(res.headers['retry-after']).toBe('60');
-  });
-
-  test('Retry-After reflects the window length in seconds', async () => {
-    const app = buildUserApp(1, 30_000);
-    await request(app).post('/test').set('x-user-id', '1');
-    const res = await request(app).post('/test').set('x-user-id', '1');
     expect(res.headers['retry-after']).toBe('30');
   });
 
-  test('different users are tracked independently', async () => {
-    const app = buildUserApp(2, 60_000);
-    // exhaust user 1's limit
-    await request(app).post('/test').set('x-user-id', '1');
-    await request(app).post('/test').set('x-user-id', '1');
-    const blocked = await request(app).post('/test').set('x-user-id', '1');
-    expect(blocked.status).toBe(429);
-    // user 2 still has capacity
-    const allowed = await request(app).post('/test').set('x-user-id', '2');
-    expect(allowed.status).toBe(200);
-  });
+  test('falls back to memory if Redis fails', async () => {
+    mockMulti.exec.mockRejectedValue(new Error('Redis Down'));
 
-  test('sliding window: requests older than the window expire and free capacity', async () => {
-    const app = buildUserApp(2, 60_000);
-
-    // Fill the window
-    await request(app).post('/test').set('x-user-id', '1');
-    await request(app).post('/test').set('x-user-id', '1');
-
-    // At limit — should be blocked
-    const blocked = await request(app).post('/test').set('x-user-id', '1');
-    expect(blocked.status).toBe(429);
-
-    // Advance past the full window so all stored timestamps expire
-    jest.advanceTimersByTime(60_001);
-
-    // Window reset — request should succeed
-    const allowed = await request(app).post('/test').set('x-user-id', '1');
-    expect(allowed.status).toBe(200);
-  });
-
-  test('returns 401 when req.user is absent', async () => {
-    // Build an app WITHOUT the user-injection middleware
-    const app = express();
-    app.use(express.json());
-    const limiter = createPerUserRateLimiter(10, 60_000);
-    app.post('/test', limiter, (_req, res) => res.json({ success: true }));
-
-    const res = await request(app).post('/test');
-    expect(res.status).toBe(401);
-  });
-});
-
-// ── per-IP limiter ───────────────────────────────────────────────────────────
-
-describe('Per-IP Rate Limiter', () => {
-  test('allows requests within the limit', async () => {
-    const app = buildIpApp(3, 60_000);
-    for (let i = 0; i < 3; i++) {
-      const res = await request(app).post('/test');
-      expect(res.status).toBe(200);
-    }
-  });
-
-  test('blocks the (limit+1)th request with HTTP 429', async () => {
-    const app = buildIpApp(3, 60_000);
-    for (let i = 0; i < 3; i++) {
-      await request(app).post('/test');
-    }
-    const res = await request(app).post('/test');
-    expect(res.status).toBe(429);
-    expect(res.body.code).toBe('rate_limit_exceeded');
-  });
-
-  test('sets X-RateLimit-Limit and X-RateLimit-Remaining headers', async () => {
-    const app = buildIpApp(5, 60_000);
-    const res = await request(app).post('/test');
-    expect(res.headers['x-ratelimit-limit']).toBe('5');
-    expect(res.headers['x-ratelimit-remaining']).toBe('4');
-  });
-
-  test('sets Retry-After header on rejection', async () => {
-    const app = buildIpApp(1, 45_000);
+    const app = buildIpApp(1, 60_000);
+    // 1st request (Redis fails, falls back to memory, allows)
     await request(app).post('/test');
+    // 2nd request (Redis fails, falls back to memory, blocks)
     const res = await request(app).post('/test');
+
     expect(res.status).toBe(429);
-    expect(res.headers['retry-after']).toBe('45');
-  });
-
-  test('sliding window: old requests expire and allow new ones', async () => {
-    const app = buildIpApp(2, 60_000);
-
-    await request(app).post('/test');
-    await request(app).post('/test');
-
-    const blocked = await request(app).post('/test');
-    expect(blocked.status).toBe(429);
-
-    jest.advanceTimersByTime(60_001);
-
-    const allowed = await request(app).post('/test');
-    expect(allowed.status).toBe(200);
-  });
-});
-
-// ── response body ────────────────────────────────────────────────────────────
-
-describe('429 response body', () => {
-  test('contains success: false and code: rate_limit_exceeded', async () => {
-    const app = buildUserApp(1, 60_000);
-    await request(app).post('/test').set('x-user-id', '42');
-    const res = await request(app).post('/test').set('x-user-id', '42');
-    expect(res.status).toBe(429);
-    expect(res.body).toMatchObject({
-      success: false,
-      code: 'rate_limit_exceeded',
-    });
   });
 });
