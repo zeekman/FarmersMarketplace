@@ -22,10 +22,11 @@
 
 const router = require('express').Router();
 const db = require('../db/schema');
-const adminAuth = require('../middleware/adminAuth');
+const auth = require('../middleware/auth');
+const requireAdmin = require('../middleware/requireAdmin');
 const { stringify } = require('csv-stringify/sync');
 
-router.get('/', adminAuth, async (req, res) => {
+router.get('/', auth, requireAdmin, async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
   const offset = (page - 1) * limit;
