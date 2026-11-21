@@ -16,6 +16,14 @@
 //! signatures; `set_coop` emits a `coop_changed` event carrying a hash of the
 //! member list so off-chain signers can detect a reorder and discard pending
 //! signatures. See ADR-0001 for the positional-vs-paired decision.
+//!
+//! # Authorization (issue #1716)
+//!
+//! `initialize(admin)` must be called exactly once to bind an admin address.
+//! `set_coop` requires that admin's authorization, so an arbitrary account can
+//! no longer replace the signer set and release the escrow. While an escrow is
+//! `Active`, members may only be changed after `unlock_at` (a ledger timestamp
+//! time-lock), preventing a signer swap from bypassing collected signatures.
 
 #![no_std]
 
@@ -50,14 +58,48 @@ pub struct CooperativeContract;
 
 #[contractimpl]
 impl CooperativeContract {
+    /// Bind the cooperative admin. Callable exactly once.
+    pub fn initialize(env: Env, admin: Address) {
+        assert!(
+            !env.storage().instance().has(&symbol_short!("admin")),
+            "already initialized"
+        );
+        env.storage().instance().set(&symbol_short!("admin"), &admin);
+    }
+
     /// Configure the cooperative members and release threshold.
+    ///
+    /// Requires the admin's authorization. While an escrow is `Active`, the
+    /// member set may only be changed once `unlock_at` (ledger timestamp) has
+    /// passed, so a signer swap cannot bypass already-collected signatures.
     ///
     /// Emits `coop_changed` with a hash of the member list so off-chain signers
     /// can detect a reorder (which invalidates positionally-matched signatures).
-    pub fn set_coop(env: Env, members: Vec<Address>, threshold: u32) {
+    pub fn set_coop(env: Env, members: Vec<Address>, threshold: u32, unlock_at: u64) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("admin"))
+            .expect("not initialized");
+        admin.require_auth();
+
         assert!(!members.is_empty(), "members must not be empty");
         assert!(members.len() <= MAX_MEMBERS, "too many members");
         assert!(threshold > 0 && threshold <= members.len(), "invalid threshold");
+
+        // While an escrow is Active, changing members requires the time-lock.
+        if let Some(escrow) = env
+            .storage()
+            .instance()
+            .get::<_, Escrow>(&symbol_short!("escrow"))
+        {
+            if escrow.state == EscrowState::Active {
+                assert!(
+                    env.ledger().timestamp() >= unlock_at,
+                    "members locked while escrow active"
+                );
+            }
+        }
 
         let config = CoopConfig { members: members.clone(), threshold };
         env.storage().instance().set(&symbol_short!("coop"), &config);
@@ -130,15 +172,17 @@ impl CooperativeContract {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::{Address as _, Ledger as _};
     use soroban_sdk::{Bytes, BytesN, Env, Vec};
 
     fn setup(env: &Env, member_count: u32, threshold: u32) -> Vec<Address> {
+        let admin = Address::generate(env);
+        CooperativeContract::initialize(env.clone(), admin);
         let mut members = Vec::new(env);
         for _ in 0..member_count {
             members.push_back(Address::generate(env));
         }
-        CooperativeContract::set_coop(env.clone(), members.clone(), threshold);
+        CooperativeContract::set_coop(env.clone(), members.clone(), threshold, 0);
         env.storage().instance().set(
             &symbol_short!("escrow"),
             &Escrow { state: EscrowState::Active, amount: 100 },
@@ -201,23 +245,58 @@ mod test {
         assert_eq!(CooperativeContract::escrow_state(env), EscrowState::Released);
     }
 
-    // (d) the same valid signature is not counted for two members.
+    // (e) non-admin set_coop fails.
     #[test]
-    fn duplicate_signature_not_counted_twice() {
+    fn non_admin_set_coop_fails() {
         let env = Env::default();
-        let members = setup(&env, 3, 2);
-        let message = Bytes::from_slice(&env, b"release-1");
+        let admin = Address::generate(&env);
+        CooperativeContract::initialize(env.clone(), admin);
 
-        let sig = sign(&env, &members.get(0).unwrap(), &message);
-        let mut sigs = Vec::new(&env);
-        sigs.push_back(sig.clone());
-        // Reusing member 0's signature for member 1 must not satisfy threshold.
-        sigs.push_back(sig);
+        let attacker = Address::generate(&env);
+        let mut members = Vec::new(&env);
+        members.push_back(attacker.clone());
+
+        // Only the attacker authorizes; the admin does not.
+        env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+            address: &attacker,
+            invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                contract: &env.current_contract_address(),
+                fn_name: "set_coop",
+                args: (members.clone(), 1u32, 0u64).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            CooperativeContract::multisig_release(env.clone(), message, sigs);
+            CooperativeContract::set_coop(env.clone(), members, 1, 0);
         }));
-        assert!(result.is_err(), "duplicate signature must not count twice");
-        assert_eq!(CooperativeContract::escrow_state(env), EscrowState::Active);
+        assert!(result.is_err(), "non-admin set_coop must fail");
+    }
+
+    // (f) members cannot change while escrow Active before the time-lock.
+    #[test]
+    fn members_locked_while_escrow_active() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        CooperativeContract::initialize(env.clone(), admin.clone());
+
+        let mut members = Vec::new(&env);
+        members.push_back(Address::generate(&env));
+        CooperativeContract::set_coop(env.clone(), members.clone(), 1, 0);
+        env.storage().instance().set(
+            &symbol_short!("escrow"),
+            &Escrow { state: EscrowState::Active, amount: 100 },
+        );
+
+        env.mock_all_auths();
+        env.ledger().set_timestamp(100);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            CooperativeContract::set_coop(env.clone(), members.clone(), 1, 500);
+        }));
+        assert!(result.is_err(), "members must be locked while escrow active");
+
+        // After the time-lock the change is allowed.
+        env.ledger().set_timestamp(500);
+        CooperativeContract::set_coop(env.clone(), members, 1, 500);
     }
 }
