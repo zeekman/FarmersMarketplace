@@ -12,6 +12,9 @@
     }
   },
   "rules": {
+    "no-redeclare": ["error"],
+    "import/first": ["error"],
+    "import/no-duplicates": ["error"],
     "react-refresh/only-export-components": ["warn", { "allowConstantExport": true }],
     "import/no-unused-modules": ["error", { "unusedExports": true }],
     "i18next/no-literal-string": [

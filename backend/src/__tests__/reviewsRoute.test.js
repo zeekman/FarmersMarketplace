@@ -24,17 +24,54 @@ beforeEach(() => {
 });
 
 describe('review route database queries', () => {
-  it('lists approved product reviews', async () => {
-    db.query.mockResolvedValueOnce({
-      rows: [{ id: 4, rating: 5, body: 'Fresh produce', buyer_name: 'Buyer' }],
-      rowCount: 1,
-    });
+  it('lists approved product reviews (paginated, body field)', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '1' }], rowCount: 1 }) // total count
+      .mockResolvedValueOnce({
+        rows: [{ id: 4, rating: 5, body: 'Fresh produce', buyer_name: 'Buyer' }],
+        rowCount: 1,
+      });
 
     const response = await request(app).get('/api/reviews/5');
 
     expect(response.status).toBe(200);
     expect(response.body.data[0].body).toBe('Fresh produce');
-    expect(db.query.mock.calls[0][0]).toContain("r.status = 'approved'");
+    expect(response.body.page).toBe(1);
+    expect(response.body.limit).toBe(20);
+    expect(response.body.total).toBe(1);
+
+    // The data query reads the schema column (comment) and exposes it as `body`.
+    const dataCall = db.query.mock.calls.find(([sql]) => /r\.comment AS body/i.test(sql));
+    expect(dataCall).toBeDefined();
+    expect(dataCall[0]).toContain("r.status = $2");
+  });
+
+  it('caps the page size limit at 100', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '0' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const response = await request(app).get('/api/reviews/5?limit=500');
+
+    expect(response.status).toBe(200);
+    expect(response.body.limit).toBe(100);
+
+    const dataCall = db.query.mock.calls.find(([sql]) => /LIMIT \$3 OFFSET \$4/i.test(sql));
+    expect(dataCall[1]).toEqual(['5', 'approved', 100, 0]);
+  });
+
+  it('treats a page below 1 as page 1', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '0' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const response = await request(app).get('/api/reviews/5?page=0');
+
+    expect(response.status).toBe(200);
+    expect(response.body.page).toBe(1);
+
+    const dataCall = db.query.mock.calls.find(([sql]) => /LIMIT \$3 OFFSET \$4/i.test(sql));
+    expect(dataCall[1]).toEqual(['5', 'approved', 20, 0]);
   });
 
   it('deletes a buyer-owned review and recalculates its product rating', async () => {

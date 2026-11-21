@@ -1,9 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
-const { jwtSecret: JWT_SECRET } = require('../config');
-const User = require('../models/User');
+const db = require('../db/schema');
 
 // Single-use stream tickets. A ticket is an opaque random ID bound to a user and
 // expires after STREAM_TICKET_TTL_MS. It is deleted on first use, so a URL that
@@ -90,11 +88,6 @@ async function sseAuth(req, res, next) {
 
   if (!ticket) {
     return res.status(401).json({ error: 'Missing stream ticket' });
-  let payload;
-  try {
-    payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid or expired stream token' });
   }
 
   const userId = consumeStreamTicket(String(ticket));
@@ -103,19 +96,23 @@ async function sseAuth(req, res, next) {
   }
 
   try {
-    const user = await User.findById(userId);
+    const { rows } = await db.query(
+      'SELECT id, name, role, active, banned_at FROM users WHERE id = $1',
+      [userId]
+    );
+    const user = rows[0];
     if (!user) {
       return res.status(401).json({ error: 'Invalid stream ticket' });
     }
-    if (user.banned || user.isBanned) {
+    if (user.banned_at) {
       return res.status(403).json({ error: 'Account is banned' });
     }
-    if (user.active === false || user.isActive === false) {
+    if (user.active === false) {
       return res.status(403).json({ error: 'Account is not active' });
     }
 
     req.user = user;
-    req.userId = user.id || user._id;
+    req.userId = user.id;
     return next();
   } catch (err) {
     return res.status(500).json({ error: 'Failed to authenticate stream ticket' });

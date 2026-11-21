@@ -404,7 +404,7 @@ pm2 reload farmers-marketplace
 # 9. Verify the application is healthy
 pm2 status
 pm2 logs farmers-marketplace --lines 50
-curl -s https://yourdomain.com/api/health | head -5
+curl -s https://yourdomain.com/health/ready | head -5
 
 # 10. If the reload fails, force a full restart
 pm2 restart farmers-marketplace

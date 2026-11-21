@@ -24,7 +24,7 @@ const validate = require('../middleware/validate');
 const db = require('../db/schema');
 const { err } = require('../middleware/error');
 const { invokeContract, simulateContract } = require('../utils/stellar');
-const { decryptUserSecretKey } = require('../utils/crypto');
+const signerService = require('../services/signerService');
 
 function validateContractId(contractId) {
   return /^[A-Z2-7]{56}$|^[0-9a-fA-F]{64}$/.test(contractId);
@@ -45,14 +45,10 @@ function isPositiveNumber(n) {
 
 async function getCallerStellarAddress(userId) {
   const { rows } = await db.query(
-    'SELECT stellar_public_key, stellar_secret_key FROM users WHERE id = $1',
+    'SELECT stellar_public_key FROM users WHERE id = $1',
     [userId]
   );
-  const caller = rows[0] || null;
-  if (caller?.stellar_secret_key) {
-    caller.stellar_secret_key = await decryptUserSecretKey(caller.stellar_secret_key);
-  }
-  return caller;
+  return rows[0] || null;
 }
 
 async function getStreamRow(contractId, streamId) {
@@ -86,7 +82,7 @@ router.post('/', auth, validate.paymentStream, async (req, res) => {
   }
 
   const caller = await getCallerStellarAddress(req.user.id);
-  if (!caller?.stellar_secret_key) {
+  if (!caller?.stellar_public_key) {
     return err(res, 400, 'No Stellar wallet on file for this account', 'no_wallet');
   }
   if (recipient === caller.stellar_public_key) {
@@ -94,19 +90,26 @@ router.post('/', auth, validate.paymentStream, async (req, res) => {
   }
 
   try {
-    const { hash, result } = await invokeContract({
-      contractId: contract_id,
-      method: 'create_stream',
-      signerSecret: caller.stellar_secret_key,
-      args: [
-        { type: 'address', value: caller.stellar_public_key },
-        { type: 'address', value: recipient },
-        { type: 'i128', value: BigInt(Math.round(rate_per_second)) },
-        { type: 'i128', value: BigInt(Math.round(deposit)) },
-        { type: 'u64', value: endTimeNum },
-      ],
+    const invokeResult = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'payment_stream_create',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return invokeContract({
+          contractId: contract_id,
+          method: 'create_stream',
+          signerSecret: secretKey,
+          args: [
+            { type: 'address', value: caller.stellar_public_key },
+            { type: 'address', value: recipient },
+            { type: 'i128', value: BigInt(Math.round(rate_per_second)) },
+            { type: 'i128', value: BigInt(Math.round(deposit)) },
+            { type: 'u64', value: endTimeNum },
+          ],
+        });
+      },
     });
-    res.status(201).json({ success: true, txHash: hash, result });
+    res.status(201).json({ success: true, txHash: invokeResult.txHash || invokeResult.hash, result: invokeResult.result });
   } catch (e) {
     err(res, 502, `Failed to create stream: ${e.message}`, 'contract_error');
   }
@@ -168,22 +171,26 @@ router.patch('/:contractId/:streamId/rate', auth, validate.paymentStreamRate, as
   if (caller?.stellar_public_key !== stream.sender) {
     return err(res, 403, 'Only the stream sender can decrease the rate', 'forbidden');
   }
-  if (!caller?.stellar_secret_key) {
-    return err(res, 400, 'No Stellar wallet on file for this account', 'no_wallet');
-  }
 
   try {
-    const { hash, result } = await invokeContract({
-      contractId,
-      method: 'decrease_rate_per_second',
-      signerSecret: caller.stellar_secret_key,
-      args: [
-        { type: 'u64', value: streamId },
-        { type: 'address', value: caller.stellar_public_key },
-        { type: 'i128', value: BigInt(Math.round(new_rate)) },
-      ],
+    const invokeResult = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'payment_stream_decrease_rate',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return invokeContract({
+          contractId,
+          method: 'decrease_rate_per_second',
+          signerSecret: secretKey,
+          args: [
+            { type: 'u64', value: streamId },
+            { type: 'address', value: caller.stellar_public_key },
+            { type: 'i128', value: BigInt(Math.round(new_rate)) },
+          ],
+        });
+      },
     });
-    res.json({ success: true, txHash: hash, result });
+    res.json({ success: true, txHash: invokeResult.txHash || invokeResult.hash, result: invokeResult.result });
   } catch (e) {
     err(res, 502, `Failed to decrease rate: ${e.message}`, 'contract_error');
   }
@@ -206,21 +213,25 @@ router.post('/:contractId/:streamId/withdraw', auth, async (req, res) => {
   if (caller?.stellar_public_key !== stream.recipient) {
     return err(res, 403, 'Only the stream recipient can withdraw', 'forbidden');
   }
-  if (!caller?.stellar_secret_key) {
-    return err(res, 400, 'No Stellar wallet on file for this account', 'no_wallet');
-  }
 
   try {
-    const { hash, result } = await invokeContract({
-      contractId,
-      method: 'withdraw',
-      signerSecret: caller.stellar_secret_key,
-      args: [
-        { type: 'u64', value: streamId },
-        { type: 'address', value: caller.stellar_public_key },
-      ],
+    const invokeResult = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'payment_stream_withdraw',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return invokeContract({
+          contractId,
+          method: 'withdraw',
+          signerSecret: secretKey,
+          args: [
+            { type: 'u64', value: streamId },
+            { type: 'address', value: caller.stellar_public_key },
+          ],
+        });
+      },
     });
-    res.json({ success: true, txHash: hash, result });
+    res.json({ success: true, txHash: invokeResult.txHash || invokeResult.hash, result: invokeResult.result });
   } catch (e) {
     err(res, 502, `Failed to withdraw: ${e.message}`, 'contract_error');
   }
@@ -243,21 +254,25 @@ router.post('/:contractId/:streamId/cancel', auth, async (req, res) => {
   if (caller?.stellar_public_key !== stream.sender) {
     return err(res, 403, 'Only the stream sender can cancel', 'forbidden');
   }
-  if (!caller?.stellar_secret_key) {
-    return err(res, 400, 'No Stellar wallet on file for this account', 'no_wallet');
-  }
 
   try {
-    const { hash, result } = await invokeContract({
-      contractId,
-      method: 'cancel_stream',
-      signerSecret: caller.stellar_secret_key,
-      args: [
-        { type: 'u64', value: streamId },
-        { type: 'address', value: caller.stellar_public_key },
-      ],
+    const invokeResult = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'payment_stream_cancel',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return invokeContract({
+          contractId,
+          method: 'cancel_stream',
+          signerSecret: secretKey,
+          args: [
+            { type: 'u64', value: streamId },
+            { type: 'address', value: caller.stellar_public_key },
+          ],
+        });
+      },
     });
-    res.json({ success: true, txHash: hash, result });
+    res.json({ success: true, txHash: invokeResult.txHash || invokeResult.hash, result: invokeResult.result });
   } catch (e) {
     err(res, 502, `Failed to cancel stream: ${e.message}`, 'contract_error');
   }
@@ -286,23 +301,27 @@ router.post('/:contractId/:streamId/top-up', auth, async (req, res) => {
   if (caller?.stellar_public_key !== stream.sender) {
     return err(res, 403, 'Only the stream sender can top up', 'forbidden');
   }
-  if (!caller?.stellar_secret_key) {
-    return err(res, 400, 'No Stellar wallet on file for this account', 'no_wallet');
-  }
 
   try {
-    const { hash, result } = await invokeContract({
-      contractId,
-      method: 'top_up',
-      signerSecret: caller.stellar_secret_key,
-      args: [
-        { type: 'u64', value: streamId },
-        { type: 'address', value: caller.stellar_public_key },
-        { type: 'address', value: tokenContractId },
-        { type: 'i128', value: BigInt(Math.round(amount)) },
-      ],
+    const invokeResult = await signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'payment_stream_top_up',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return invokeContract({
+          contractId,
+          method: 'top_up',
+          signerSecret: secretKey,
+          args: [
+            { type: 'u64', value: streamId },
+            { type: 'address', value: caller.stellar_public_key },
+            { type: 'address', value: tokenContractId },
+            { type: 'i128', value: BigInt(Math.round(amount)) },
+          ],
+        });
+      },
     });
-    res.json({ success: true, txHash: hash, result });
+    res.json({ success: true, txHash: invokeResult.txHash || invokeResult.hash, result: invokeResult.result });
   } catch (e) {
     err(res, 502, `Failed to top up stream: ${e.message}`, 'contract_error');
   }

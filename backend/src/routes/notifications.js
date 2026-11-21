@@ -4,6 +4,7 @@ const adminAuth = require('../middleware/adminAuth');
 const { err } = require('../middleware/error');
 const db = require('../db/schema');
 const push = require('../utils/pushNotifications');
+const { parsePagination, sendPaginated } = require('../utils/pagination');
 
 router.get('/vapid-public-key', (_req, res) => {
   if (!push.isConfigured()) {
@@ -13,9 +14,7 @@ router.get('/vapid-public-key', (_req, res) => {
 });
 
 router.get('/history', auth, async (req, res) => {
-  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-  const offset = (page - 1) * limit;
+  const { page, limit, offset } = parsePagination(req);
 
   try {
     const { rows: countRows } = await db.query(
@@ -27,19 +26,12 @@ router.get('/history', auth, async (req, res) => {
       `SELECT id, title, body, status, error, created_at
        FROM push_notification_history
        WHERE user_id = $1
-       ORDER BY created_at DESC
+       ORDER BY created_at DESC, id DESC
        LIMIT $2 OFFSET $3`,
       [req.user.id, limit, offset]
     );
 
-    res.json({
-      success: true,
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    sendPaginated(res, req, data, { page, limit, total });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message, code: 'notification_history_error' });
   }

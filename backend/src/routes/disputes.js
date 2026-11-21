@@ -8,7 +8,9 @@ const { invokeEscrowContract } = require('../utils/stellar-contracts');
 const { sendPushToUser } = require('../utils/pushNotifications');
 const logger = require('../logger');
 const { writeAuditLog } = require('../utils/auditLog');
+const signerService = require('../services/signerService');
 const { decryptUserSecretKey } = require('../utils/crypto');
+const { parsePagination, sendPaginated } = require('../utils/pagination');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -133,27 +135,32 @@ router.post('/', auth, validate.dispute, async (req, res, next) => {
     const disputeId = inserted[0].id;
 
     // Call escrow contract to mark dispute on-chain (non-fatal)
-    const { rows: buyerRows } = await db.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    const { rows: buyerRows } = await db.query('SELECT id, stellar_public_key FROM users WHERE id = $1', [req.user.id]);
     const buyer = buyerRows[0];
-    if (buyer?.stellar_secret_key) {
-      invokeEscrowContract({
-        action: 'dispute',
-        senderSecret: await decryptUserSecretKey(buyer.stellar_secret_key),
-        orderId: order_id,
-        buyerPublicKey: buyer.stellar_public_key,
-        farmerPublicKey: order.farmer_wallet,
-        userId: req.user.id,
-      }).catch((e) => logger.warn('[disputes] escrow open_dispute failed (non-fatal):', e.message));
-    }
+    signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'dispute_escrow_open',
+      req,
+      buildTx: async ({ secretKey }) => {
+        return invokeEscrowContract({
+          action: 'dispute',
+          senderSecret: secretKey,
+          orderId: order_id,
+          buyerPublicKey: buyer?.stellar_public_key,
+          farmerPublicKey: order.farmer_wallet,
+          userId: req.user.id,
+        });
+      },
+    }).catch((e) => logger.warn('[disputes] escrow open_dispute failed (non-fatal):', e.message));
 
     // Notify buyer
     sendPushToUser(req.user.id, { title: 'Dispute Filed', body: `Your dispute for order #${order_id} has been submitted.` })
-      .catch(() => {});
+      .catch(() => { });
     sendDisputeOpenedEmail({ buyer, order, farmerName: order.farmer_name, farmerEmail: order.farmer_email })
-      .catch(() => {});
+      .catch(() => { });
     // Notify farmer
     sendPushToUser(order.farmer_id, { title: 'Dispute Opened', body: `A dispute has been filed against order #${order_id}.` })
-      .catch(() => {});
+      .catch(() => { });
 
     res.status(201).json({ id: disputeId, order_id, status: 'open', message: 'Dispute filed' });
   } catch (err) {
@@ -167,17 +174,15 @@ router.get('/', auth, async (req, res, next) => {
     if (req.user.role !== 'admin')
       return res.status(403).json({ error: 'Admins only' });
 
+    const { page, limit, offset } = parsePagination(req);
+    const { rows: countRows } = await db.query('SELECT COUNT(*) AS count FROM disputes');
+    const total = Number(countRows[0]?.count || 0);
     const { rows } = await db.query(`
-      SELECT d.*, u.name as buyer_name, u.email as buyer_email,
-             o.total_price, o.quantity, p.name as product_name
-      FROM disputes d
-      JOIN users u ON d.buyer_id = u.id
-      JOIN orders o ON d.order_id = o.id
-      JOIN products p ON o.product_id = p.id
-      ORDER BY d.created_at DESC
-    `);
-
-    res.json(rows);
+      SELECT d.*, u.name as buyer_name, u.email as buyer_email, o.total_price, o.quantity, p.name as product_name
+      FROM disputes d JOIN users u ON d.buyer_id = u.id JOIN orders o ON d.order_id = o.id JOIN products p ON o.product_id = p.id
+      ORDER BY d.created_at DESC, d.id DESC LIMIT $1 OFFSET $2
+    `, [limit, offset]);
+    sendPaginated(res, req, rows, { page, limit, total });
   } catch (err) {
     next(err);
   }
@@ -241,11 +246,11 @@ router.post('/:id/evidence', auth, evidenceUpload.array('files', MAX_EVIDENCE_PE
 
     await fs.promises.mkdir(EVIDENCE_DIR, { recursive: true });
     const { rows: userRows } = await db.query(
-      'SELECT stellar_secret_key, stellar_public_key FROM users WHERE id = $1',
+      'SELECT stellar_public_key FROM users WHERE id = $1',
       [req.user.id]
     );
     const signer = userRows[0];
-    const onChain = String(dispute.escrow_balance_id || '').startsWith('soroban:') && signer?.stellar_secret_key;
+    const onChain = String(dispute.escrow_balance_id || '').startsWith('soroban:');
 
     const created = [];
     for (const file of files) {
@@ -263,15 +268,21 @@ router.post('/:id/evidence', auth, evidenceUpload.array('files', MAX_EVIDENCE_PE
     // Submit hashes on chain in the background; the UI polls GET /:id for tx_status.
     if (onChain) {
       (async () => {
-        const senderSecret = await decryptUserSecretKey(signer.stellar_secret_key);
         for (const { id, sha256 } of created) {
           try {
-            const result = await invokeEscrowContract({
-              action: 'submit_evidence',
-              senderSecret,
-              orderId: dispute.order_id,
-              evidenceHash: sha256,
+            const result = await signerService.signAndSubmit({
               userId: req.user.id,
+              purpose: 'dispute_submit_evidence',
+              req,
+              buildTx: async ({ secretKey }) => {
+                return invokeEscrowContract({
+                  action: 'submit_evidence',
+                  senderSecret: secretKey,
+                  orderId: dispute.order_id,
+                  evidenceHash: sha256,
+                  userId: req.user.id,
+                });
+              },
             });
             await db.query(
               "UPDATE dispute_evidence SET tx_status = 'confirmed', tx_hash = $1 WHERE id = $2",
@@ -282,7 +293,7 @@ router.post('/:id/evidence', auth, evidenceUpload.array('files', MAX_EVIDENCE_PE
             await db.query(
               "UPDATE dispute_evidence SET tx_status = 'failed', tx_error = $1 WHERE id = $2",
               [String(e.message).slice(0, 500), id]
-            ).catch(() => {});
+            ).catch(() => { });
           }
         }
       })().catch((e) => logger.warn('[disputes] evidence submission aborted:', e.message));
@@ -290,7 +301,7 @@ router.post('/:id/evidence', auth, evidenceUpload.array('files', MAX_EVIDENCE_PE
 
     const otherParty = party === 'buyer' ? dispute.farmer_id : dispute.buyer_id;
     sendPushToUser(otherParty, { title: 'New dispute evidence', body: `New evidence was added to the dispute on order #${dispute.order_id}.` })
-      .catch(() => {});
+      .catch(() => { });
 
     res.status(201).json(await serializeDispute(dispute, party));
   } catch (err) {
@@ -357,21 +368,23 @@ router.patch('/:id/resolve', auth, async (req, res, next) => {
     // Invoke escrow resolve_dispute (non-fatal). One contract call covers all three
     // outcomes: the contract refunds the buyer's share and pays the farmer's share
     // through the platform-fee / cooperative-royalty deduction (#1299).
-    const adminRows = await db.query('SELECT stellar_secret_key FROM users WHERE id = $1', [req.user.id]);
-    const adminSecret = adminRows.rows[0]?.stellar_secret_key;
-    if (adminSecret) {
-      const escrowPayload = {
-        action: 'resolve_dispute',
-        senderSecret: await decryptUserSecretKey(adminSecret),
-        orderId: dispute.order_id,
-        buyerPublicKey: buyer?.stellar_public_key,
-        farmerPublicKey: farmer?.stellar_public_key,
-        buyerBps,
-        userId: req.user.id,
-      };
-      invokeEscrowContract(escrowPayload)
-        .catch((e) => logger.warn('[disputes] escrow resolve_dispute failed (non-fatal):', e.message));
-    }
+    signerService.signAndSubmit({
+      userId: req.user.id,
+      purpose: 'dispute_resolve',
+      req,
+      buildTx: async ({ secretKey }) => {
+        const escrowPayload = {
+          action: 'resolve_dispute',
+          senderSecret: secretKey,
+          orderId: dispute.order_id,
+          buyerPublicKey: buyer?.stellar_public_key,
+          farmerPublicKey: farmer?.stellar_public_key,
+          buyerBps,
+          userId: req.user.id,
+        };
+        return invokeEscrowContract(escrowPayload);
+      },
+    }).catch((e) => logger.warn('[disputes] escrow resolve_dispute failed (non-fatal):', e.message));
 
     await db.query(
       `UPDATE disputes SET status = 'resolved', resolution = $1, split_percent_buyer = $2 WHERE id = $3`,
@@ -401,11 +414,11 @@ router.patch('/:id/resolve', auth, async (req, res, next) => {
 
     // Notify both parties
     sendDisputeResolvedEmail({ dispute: { ...dispute, resolution }, order, product, buyer })
-      .catch(() => {});
+      .catch(() => { });
     sendPushToUser(dispute.buyer_id, { title: 'Dispute Resolved', body: `Your dispute for order #${dispute.order_id} was resolved: ${resolution}.` })
-      .catch(() => {});
+      .catch(() => { });
     sendPushToUser(dispute.farmer_id, { title: 'Dispute Resolved', body: `Dispute for order #${dispute.order_id} was resolved: ${resolution}.` })
-      .catch(() => {});
+      .catch(() => { });
 
     // Burn reward tokens (non-fatal)
     if (buyer?.stellar_public_key) {

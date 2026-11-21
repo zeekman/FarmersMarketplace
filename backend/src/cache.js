@@ -138,3 +138,9 @@ module.exports = {
   isReady,
   client,
 };
+async function close() {
+  if (!client) return;
+  try { await client.quit(); } catch { client.disconnect(); }
+}
+
+module.exports = { get, set, del, delByPattern, invalidateProducts, invalidateAuthStatus, close };

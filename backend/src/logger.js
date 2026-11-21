@@ -8,6 +8,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const logFormat = winston.format.combine(
   winston.format((info) => {
     Object.assign(info, redactLogValue({ ...info }));
+    if (info.stack) info.stack = redactLogValue(info.stack);
     return info;
   })(),
   winston.format.timestamp(),
