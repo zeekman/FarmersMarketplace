@@ -14,6 +14,7 @@ module.exports = (req, res, next) => {
     url: req.url.replace(SENSITIVE_QUERY_PARAM, '$1[REDACTED]'),
   };
   if (process.env.LOG_REQUEST_BODY === 'true') details.body = redactLogValue(req.body);
+  logger.info('request', details);
   logger.info('request', redactLogValue(details));
   next();
 };
