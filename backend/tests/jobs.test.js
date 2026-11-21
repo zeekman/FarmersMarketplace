@@ -34,12 +34,21 @@ describe('importing app', () => {
     expect(setIntervalSpy).not.toHaveBeenCalled();
     setIntervalSpy.mockRestore();
   });
+
+  it('does not expose app.locals.startBackgroundJobs (registry is the only scheduler)', () => {
+    const app = require('../src/app');
+    expect(app.locals.startBackgroundJobs).toBeUndefined();
+  });
 });
 
 describe('startJobs', () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    cron.schedule.mockClear();
+    // jest.setup.js calls jest.resetAllMocks() before every test, which would
+    // strip the node-cron factory implementation below — re-arm it so
+    // cron.schedule() keeps returning a stoppable task handle.
+    cron.schedule.mockReset();
+    cron.schedule.mockImplementation(() => ({ stop: jest.fn() }));
   });
 
   afterEach(() => {
@@ -88,6 +97,57 @@ describe('startJobs', () => {
     jest.advanceTimersByTime(100);
     expect(run).not.toHaveBeenCalled();
     stop();
+  });
+
+  it('schedules zero timers for the real registry when RUN_JOBS is unset', () => {
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const runs = JOBS.map(() => jest.fn());
+    const jobs = JOBS.map((job, i) => ({ ...job, runOnStart: true, run: runs[i] }));
+
+    const stop = startJobs({ env: {}, jobs });
+    jest.advanceTimersByTime(24 * 60 * 60 * 1000);
+
+    expect(cron.schedule).not.toHaveBeenCalled();
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    expect(runs.every((run) => run.mock.calls.length === 0)).toBe(true);
+    stop();
+    setIntervalSpy.mockRestore();
+  });
+
+  it('schedules each registry job exactly once when RUN_JOBS=true', () => {
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const jobs = JOBS.map((job) => ({ ...job, enabled: undefined, runOnStart: false, run: jest.fn() }));
+
+    const stop = startJobs({ env: { RUN_JOBS: 'true' }, jobs });
+
+    const cronJobs = jobs.filter((job) => job.cron).length;
+    const intervalJobs = jobs.filter((job) => job.intervalMs).length;
+    expect(cron.schedule).toHaveBeenCalledTimes(cronJobs);
+    expect(setIntervalSpy).toHaveBeenCalledTimes(intervalJobs);
+    expect(new Set(JOBS.map((job) => job.name)).size).toBe(JOBS.length);
+
+    stop();
+    setIntervalSpy.mockRestore();
+  });
+
+  it('stop() cancels every scheduled job in the registry', () => {
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const clearIntervalSpy = jest.spyOn(global, 'clearInterval');
+    const jobs = JOBS.map((job) => ({ ...job, enabled: undefined, runOnStart: false, run: jest.fn() }));
+
+    const stop = startJobs({ env: { RUN_JOBS: 'true' }, jobs });
+    const intervalHandles = setIntervalSpy.mock.calls.length;
+    expect(intervalHandles).toBeGreaterThan(0);
+
+    stop();
+
+    cron.schedule.mock.results.forEach((result) => {
+      expect(result.value.stop).toHaveBeenCalled();
+    });
+    expect(clearIntervalSpy).toHaveBeenCalledTimes(intervalHandles);
+
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
   });
 });
 
@@ -138,5 +198,23 @@ describe('job registry', () => {
       .map((f) => f.replace(/\.js$/, ''));
     const unregistered = modules.filter((m) => !registrySource.includes(`require('./${m}')`));
     expect(unregistered).toEqual([]);
+  });
+});
+
+describe('job leader wiring (#011)', () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, '../src/index.js'), 'utf8');
+  const appSource = fs.readFileSync(path.join(__dirname, '../src/app.js'), 'utf8');
+
+  it('schedules jobs only through the jobs/index.js registry', () => {
+    expect(indexSource).toMatch(/const stopJobs = startJobs\(\)/);
+    expect(indexSource).not.toMatch(/startBackgroundJobs/);
+    expect(appSource).not.toMatch(/startBackgroundJobs/);
+    expect(appSource).not.toMatch(/startActivityMonitor|startOrphanedUploadsCleanupJob/);
+  });
+
+  it('cancels the scheduled jobs when the process is signalled to stop', () => {
+    expect(indexSource).toMatch(/process\.once\('SIGTERM'/);
+    expect(indexSource).toMatch(/process\.once\('SIGINT'/);
+    expect(indexSource).toContain('stopJobs()');
   });
 });
