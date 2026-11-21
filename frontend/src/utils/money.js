@@ -1,123 +1,82 @@
-// Money utilities for XLM amounts.
+// Money helpers for XLM <-> stroops and fiat formatting.
 //
-// XLM has 7 decimal places (1 XLM = 10,000,000 stroops). Doing arithmetic with
-// JavaScript floats produces rounding errors (e.g. 0.1 + 0.2 = 0.30000000000000004),
-// so all amount math is performed on integer stroops using BigInt.
+// `toStroops` is the single source of truth for validating user-entered XLM
+// amounts. It rejects:
+//   - negative values
+//   - exponent notation (e.g. "1e3")
+//   - more than 7 decimal places (XLM precision)
+//   - non-numeric / empty input
+// and returns the integer stroop amount (1 XLM = 10_000_000 stroops).
 
-const STROOPS_PER_XLM = 10_000_000n;
-const XLM_DECIMALS = 7;
+export const STROOPS_PER_XLM = 10_000_000;
+export const XLM_DECIMALS = 7;
+
+// Matches an optional sign, integer part, and up to 7 fractional digits.
+// Deliberately excludes exponent notation and stray characters.
+const XLM_AMOUNT_RE = /^-?\d+(?:\.\d{1,7})?$/;
 
 /**
- * Parse a decimal string/number into integer stroops (BigInt).
- * Accepts up to 7 decimal places; throws on invalid input or excess precision.
- * @param {string|number|bigint} value
- * @returns {bigint}
+ * Validate a user-entered XLM amount and convert it to stroops.
+ *
+ * @param {string|number} value
+ * @returns {{ ok: true, stroops: number, xlm: number } | { ok: false, error: string }}
  */
 export function toStroops(value) {
-  if (typeof value === 'bigint') return value;
-  if (value === null || value === undefined || value === '') {
-    throw new Error('Invalid amount: empty value');
+  if (value === null || value === undefined) {
+    return { ok: false, error: 'Enter an amount' };
   }
 
-  const str = String(value).trim();
-  if (!/^-?\d+(\.\d+)?$/.test(str)) {
-    throw new Error(`Invalid amount: ${value}`);
+  const raw = String(value).trim();
+
+  if (raw === '') {
+    return { ok: false, error: 'Enter an amount' };
   }
 
-  const negative = str.startsWith('-');
-  const unsigned = negative ? str.slice(1) : str;
-  const [whole, fraction = ''] = unsigned.split('.');
-
-  if (fraction.length > XLM_DECIMALS) {
-    throw new Error(`Amount has more than ${XLM_DECIMALS} decimal places: ${value}`);
+  // Reject exponent notation explicitly so "1e3" gets a clear message.
+  if (/[eE]/.test(raw)) {
+    return { ok: false, error: 'Exponent notation is not allowed' };
   }
 
-  const paddedFraction = fraction.padEnd(XLM_DECIMALS, '0');
-  const stroops = BigInt(whole) * STROOPS_PER_XLM + BigInt(paddedFraction || '0');
-  return negative ? -stroops : stroops;
+  if (!XLM_AMOUNT_RE.test(raw)) {
+    // Distinguish too-many-decimals from other malformed input.
+    if (/^-?\d+\.\d{8,}$/.test(raw)) {
+      return { ok: false, error: `Use at most ${XLM_DECIMALS} decimal places` };
+    }
+    return { ok: false, error: 'Enter a valid amount' };
+  }
+
+  const xlm = Number(raw);
+
+  if (!Number.isFinite(xlm)) {
+    return { ok: false, error: 'Enter a valid amount' };
+  }
+
+  if (xlm < 0) {
+    return { ok: false, error: 'Amount cannot be negative' };
+  }
+
+  // Round to avoid floating point drift when scaling to stroops.
+  const stroops = Math.round(xlm * STROOPS_PER_XLM);
+
+  return { ok: true, stroops, xlm };
 }
 
 /**
- * Convert integer stroops (BigInt) back to a decimal string in XLM.
- * @param {bigint|string|number} stroops
+ * Format a fiat amount, e.g. formatFiat(123.45, 'KES') -> "KES 123.45".
+ *
+ * @param {number} amount
+ * @param {string} [currency='KES']
  * @returns {string}
  */
-export function fromStroops(stroops) {
-  const value = typeof stroops === 'bigint' ? stroops : toStroops(stroops);
-  const negative = value < 0n;
-  const abs = negative ? -value : value;
-  const whole = abs / STROOPS_PER_XLM;
-  const fraction = (abs % STROOPS_PER_XLM).toString().padStart(XLM_DECIMALS, '0');
-  const result = `${whole}.${fraction}`;
-  return negative ? `-${result}` : result;
-}
-
-/**
- * Add two amounts (in stroops or XLM) and return stroops.
- * @param {bigint|string|number} a
- * @param {bigint|string|number} b
- * @returns {bigint}
- */
-export function add(a, b) {
-  return toStroops(a) + toStroops(b);
-}
-
-/**
- * Multiply an amount by a quantity and return stroops.
- * Uses banker's rounding (round-half-to-even) for consistency.
- * Formula: (value_stroops × qty_stroops) / STROOPS_PER_XLM
- * @param {bigint|string|number} value
- * @param {bigint|string|number} qty
- * @returns {bigint}
- */
-export function mul(value, qty) {
-  const valueStroops = toStroops(value);
-  const qtyStroops = toStroops(qty);
-  const product = valueStroops * qtyStroops;
-  // Banker's rounding: round to nearest, ties to even
-  const quotient = product / STROOPS_PER_XLM;
-  const remainder = product % STROOPS_PER_XLM;
-  const half = STROOPS_PER_XLM / 2n;
-  
-  if (remainder < half) {
-    return quotient;
-  } else if (remainder > half) {
-    return quotient + 1n;
-  } else {
-    // Tie: round to even
-    return (quotient & 1n) === 0n ? quotient : quotient + 1n;
+export function formatFiat(amount, currency = 'KES') {
+  if (amount === null || amount === undefined || !Number.isFinite(Number(amount))) {
+    return '';
   }
-}
 
-/**
- * Format an amount as XLM with up to 7 decimal places, trimming trailing zeros.
- * @param {bigint|string|number} value
- * @param {string} [locale]
- * @returns {string}
- */
-export function formatXlm(value, locale) {
-  const stroops = typeof value === 'bigint' ? value : toStroops(value);
-  const decimal = fromStroops(stroops);
-  const [whole, fraction = ''] = decimal.split('.');
-  const trimmed = fraction.replace(/0+$/, '');
-  const wholeFormatted = Number(whole).toLocaleString(locale);
-  return trimmed ? `${wholeFormatted}.${trimmed}` : wholeFormatted;
-}
-
-/**
- * Format a fiat amount with 2 decimal places.
- * @param {number|string} value
- * @param {string} [locale]
- * @param {string} [currency]
- * @returns {string}
- */
-export function formatFiat(value, locale, currency = 'USD') {
-  const num = typeof value === 'number' ? value : parseFloat(value);
-  if (Number.isNaN(num)) return '';
-  return num.toLocaleString(locale, {
-    style: 'currency',
-    currency,
+  const formatted = Number(amount).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+  return `${currency} ${formatted}`;
 }
