@@ -5,15 +5,15 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: farmersmarketplace
-      POSTGRES_USER: fmuser
-      POSTGRES_PASSWORD: fmpassword
+      POSTGRES_DB: ${POSTGRES_DB:-farmersmarketplace}
+      POSTGRES_USER: ${POSTGRES_USER:-fmuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fmpassword}
     ports:
       - '5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U fmuser -d farmersmarketplace']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-fmuser} -d ${POSTGRES_DB:-farmersmarketplace}']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -29,11 +29,13 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: postgresql://fmuser:fmpassword@postgres:5432/farmersmarketplace
+      DATABASE_URL: postgresql://${POSTGRES_USER:-fmuser}:${POSTGRES_PASSWORD:-fmpassword}@postgres:5432/${POSTGRES_DB:-farmersmarketplace}
       JWT_SECRET: ${JWT_SECRET}
       REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET}
+      DB_ENCRYPTION_KEY: ${DB_ENCRYPTION_KEY}
       STELLAR_NETWORK: ${STELLAR_NETWORK:-testnet}
-      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:3000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       # Single backend container, so it is the jobs leader. With several replicas,
       # set RUN_JOBS=true on exactly one of them (#1367).
       RUN_JOBS: ${RUN_JOBS:-true}
