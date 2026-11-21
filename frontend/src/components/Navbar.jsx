@@ -17,6 +17,7 @@ const s = {
   btn: { background: '#95d5b2', border: 'none', borderRadius: 6, padding: '10px 14px', cursor: 'pointer', fontSize: 14, fontWeight: 600, minHeight: 44 },
   toggleBtn: { background: 'none', border: '1px solid #95d5b2', borderRadius: 6, padding: '10px', cursor: 'pointer', fontSize: 16, color: '#d8f3dc', minHeight: 44, minWidth: 44 },
   langSelect: { background: 'none', border: '1px solid #95d5b2', borderRadius: 6, padding: '6px 10px', color: '#d8f3dc', fontSize: 13, cursor: 'pointer', minHeight: 44 },
+  testnetPill: { background: '#e9c46a', color: '#1b1b1b', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center' },
 };
 
 function navLinkStyle({ isActive }) {
@@ -135,16 +136,12 @@ export default function Navbar() {
         🌿 FarmersMarket
       </NavLink>
       {network && network !== 'mainnet' && (
-        <span style={{
-          background: '#2d6a4f',
-          color: '#fff',
-          borderRadius: 4,
-          padding: '2px 8px',
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: 0.5,
-          textTransform: 'uppercase',
-        }}>
+        <span
+          style={s.testnetPill}
+          role="status"
+          aria-label={`Connected to ${network} network`}
+          title={`Connected to ${network} network`}
+        >
           TESTNET
         </span>
       )}
@@ -197,32 +194,14 @@ export default function Navbar() {
               </span>
             )}
             <button style={s.toggleBtn} onClick={toggleTheme} aria-label="Toggle dark mode">{theme === 'light' ? '🌙' : '☀️'}</button>
-            <button style={{ ...s.toggleBtn, fontSize: 12, minWidth: 120, color: '#fff' }} onClick={useSystemTheme} aria-label="Use system theme">
-              {isUsingSystemTheme ? 'System ✓' : 'Use system'}
-            </button>
-            <button style={s.btn} onClick={handleLogout}>Logout</button>
+            <button style={{ ...s.toggleBtn, fontSize: 12, minWidth: 120, color: '#fff' }} onClick={handleLogout}>Logout</button>
           </>
         ) : (
           <>
-            <NavLink to="/marketplace" style={navLinkStyle} onClick={closeDrawer}>Browse</NavLink>
             <NavLink to="/login" style={navLinkStyle} onClick={closeDrawer}>Login</NavLink>
             <NavLink to="/register" style={navLinkStyle} onClick={closeDrawer}>Register</NavLink>
-            <button style={s.toggleBtn} onClick={toggleTheme} aria-label="Toggle dark mode">{theme === 'light' ? '🌙' : '☀️'}</button>
-            <button style={{ ...s.toggleBtn, fontSize: 12, minWidth: 120, color: '#fff' }} onClick={useSystemTheme} aria-label="Use system theme">
-              {isUsingSystemTheme ? 'System ✓' : 'Use system'}
-            </button>
           </>
         )}
-        <select
-          style={s.langSelect}
-          value={i18n.language}
-          onChange={(e) => changeAppLanguage(e.target.value)}
-          aria-label="Select language"
-        >
-          <option value="en">English</option>
-          <option value="es">Español</option>
-          <option value="fr">Français</option>
-        </select>
       </div>
     </nav>
   );
