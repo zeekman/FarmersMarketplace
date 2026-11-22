@@ -407,5 +407,8 @@
     "retry": "Retry",
     "loadError": "Could not load more items.",
     "empty": "Nothing here yet."
+  },
+  "starRating": {
+    "ratedOutOf": "Rated {{value}} out of {{max}}"
   }
 }
