@@ -200,10 +200,12 @@ jobs:
 
       - name: Check bundle size budgets
         # BUNDLE_INITIAL_BUDGET_KB: max KiB for vendor+index (initial load, uncompressed)
+        # BUNDLE_INITIAL_GZIP_BUDGET_KB: max KiB gzip for vendor+index (initial load, wire size; #1695)
         # BUNDLE_TOTAL_BUDGET_KB:   max KiB for all JS chunks combined (uncompressed)
         # Raise these intentionally and document the reason — never bump silently.
         env:
           BUNDLE_INITIAL_BUDGET_KB: 500
+          BUNDLE_INITIAL_GZIP_BUDGET_KB: 180
           BUNDLE_TOTAL_BUDGET_KB: 5000
         run: node scripts/check-bundle-size.js
 
@@ -212,7 +214,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-bundle-size
-          path: frontend/dist/assets/*.js
+          path: |
+            frontend/dist/assets/*.js
+            frontend/dist/bundle-report.html
           retention-days: 30
 
   smoke-test-testnet:
