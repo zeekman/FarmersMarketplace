@@ -310,6 +310,8 @@
     "attribute": "Attribute",
     "farmer": "Farmer",
     "price": "Price",
+    "pricePerUnit": "Price per unit",
+    "unavailable": "No longer available",
     "quantity": "Quantity",
     "unit": "Unit",
     "rating": "Rating",
