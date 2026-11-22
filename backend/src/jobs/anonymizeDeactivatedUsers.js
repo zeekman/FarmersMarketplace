@@ -104,8 +104,9 @@ async function scrubRelatedPii(userId) {
 /**
  * Anonymize PII for users deactivated more than 30 days ago (GDPR).
  * Idempotent: skips rows already anonymized (email matches the anonymized pattern).
- * Custodial Stellar keys are only destroyed when the user holds no value and
- * has no open obligations that depend on the key.
+ * Custodial Stellar keys (stellar_secret_key and stellar_mnemonic_encrypted) are
+ * only destroyed when the user holds no value and has no open obligations that
+ * depend on the key.
  *
  * @returns {Promise<{anonymized: number, blocked: number, errors: number}>}
  */
@@ -142,6 +143,7 @@ async function anonymizeDeactivatedUsers() {
         continue;
       }
 
+      // Anonymize user record and nullify custodial Stellar keys
       await db.query(
         `UPDATE users SET
            name = $1,
@@ -150,6 +152,7 @@ async function anonymizeDeactivatedUsers() {
            stellar_public_key = NULL,
            stellar_secret_key = NULL,
            stellar_mnemonic = NULL,
+           stellar_mnemonic_encrypted = NULL,
            two_factor_secret = NULL,
            bio = NULL,
            location = NULL,
