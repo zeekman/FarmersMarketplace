@@ -595,8 +595,12 @@ export const api = {
     request(`/contracts/${contractId}/simulate`, { method: 'POST', body: { method, args } }),
   getBudget: () => request('/wallet/budget'),
   setBudget: (monthly_budget) => request('/wallet/budget', { method: 'PATCH', body: { monthly_budget } }),
-  withdrawFunds: (destination, amount, extra = {}) =>
-    request('/wallet/withdraw', { method: 'POST', body: { destination, amount, ...extra } }),
+  withdrawFunds: (destination, amount, extra = {}, idempotencyKey) =>
+    request('/wallet/withdraw', {
+      method: 'POST',
+      body: { destination, amount, ...extra },
+      headers: { 'X-Idempotency-Key': requireIdempotencyKey(idempotencyKey) },
+    }),
   checkAccountExists: (address) => request(`/wallet/account-exists?address=${encodeURIComponent(address)}`),
   getContractEvents: (contractId, params = {}) => request(`/contracts/${contractId}/events${toQs(params)}`),
 

@@ -517,6 +517,18 @@ async function accountExists(publicKey) {
   }
 }
 
+/** Existence plus SEP-29 `config.memo_required` flag (data entry is base64 "1" when set). */
+async function getDestinationInfo(publicKey) {
+  try {
+    const account = await server.loadAccount(publicKey);
+    const flag = account.data_attr?.['config.memo_required'];
+    return { exists: true, memoRequired: flag != null && Buffer.from(flag, 'base64').toString() === '1' };
+  } catch (error) {
+    if (error?.response?.status === 404) return { exists: false, memoRequired: false };
+    throw error;
+  }
+}
+
 /**
  * Withdraw XLM to an external G… or muxed M… address. Uses `createAccount`
  * when the destination does not exist yet (requires >= 1 XLM).
@@ -556,6 +568,7 @@ module.exports = {
   sendPayment,
   sendWithdrawal,
   accountExists,
+  getDestinationInfo,
   buildMemo,
   getTransactions,
   findIncomingPaymentsByMemo,
