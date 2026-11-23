@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -429,6 +428,7 @@ function SeedPhraseBackup() {
   const [verifyResult, setVerifyResult] = useState(null);
   const hideTimer = useRef(null);
   const clipboardTimer = useRef(null);
+  const copiedRef = useRef(false);
 
   useEffect(() => {
     api.get2FAStatus().then(d => setNeedsTotp(!!d?.enabled)).catch(() => {});
@@ -452,9 +452,22 @@ function SeedPhraseBackup() {
     return () => clearTimeout(hideTimer.current);
   }, [mnemonic, handleHide]);
 
+  // Hide when the tab is backgrounded (screen-share, shoulder-surfing).
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.visibilityState === 'hidden') handleHide();
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [handleHide]);
+
+  // On unmount, wipe the phrase and, if it was copied, clear the clipboard now
+  // (the pending timer would otherwise be lost with the component).
   useEffect(() => () => {
     clearTimeout(hideTimer.current);
+    clearTimeout(clipboardTimer.current);
     setMnemonic(null);
+    if (copiedRef.current) navigator.clipboard?.writeText('').catch(() => {});
   }, []);
 
   async function handleReveal(e) {
@@ -479,6 +492,7 @@ function SeedPhraseBackup() {
   function handleCopy() {
     const phrase = mnemonic;
     navigator.clipboard.writeText(phrase).then(() => {
+      copiedRef.current = true;
       setCopied(true);
       clearTimeout(clipboardTimer.current);
       // Best effort: only clear the clipboard if it still holds the phrase.
@@ -556,7 +570,10 @@ function SeedPhraseBackup() {
             aria-label="Seed phrase words"
             aria-hidden={!revealed}
             translate="no"
-            className="notranslate"
+            className="notranslate sentry-block"
+            data-sentry-mask
+            data-lpignore="true"
+            autoComplete="off"
             spellCheck={false}
             onMouseDown={() => setRevealed(true)}
             onMouseUp={() => setRevealed(false)}
