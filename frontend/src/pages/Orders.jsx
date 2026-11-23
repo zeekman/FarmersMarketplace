@@ -10,6 +10,7 @@ import { useNetwork } from '../context/NetworkContext';
 import OrderStatusTimeline from '../components/orders/OrderStatusTimeline';
 import CarbonOffsetBadge from '../components/CarbonOffsetBadge';
 import { useModalA11y } from '../hooks/useModalA11y';
+import { useIdempotencyKey } from '../hooks/useIdempotencyKey';
 import OpenDisputeModal from '../components/disputes/OpenDisputeModal';
 import DisputeDetail from '../components/disputes/DisputeDetail';
 
@@ -239,6 +240,8 @@ export default function Orders() {
   const returnDialogRef = useModalA11y(returnModal != null, () => setReturnModal(null));
   const [disputeTarget, setDisputeTarget] = useState(null); // order being disputed
   const [disputeViewId, setDisputeViewId] = useState(null); // order id whose dispute is shown
+  const claimAttempt = useIdempotencyKey();
+  const returnAttempt = useIdempotencyKey();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -358,9 +361,11 @@ export default function Orders() {
     setClaimingId(orderId);
     setClaimError((prev) => ({ ...prev, [orderId]: '' }));
     try {
-      await api.claimPreorder(orderId);
+      await api.claimPreorder(orderId, claimAttempt.keyFor({ orderId }));
+      claimAttempt.settle();
       load();
     } catch (e) {
+      claimAttempt.settle(e);
       setClaimError((prev) => ({ ...prev, [orderId]: getErrorMessage(e) }));
     } finally {
       setClaimingId(null);
@@ -370,8 +375,10 @@ export default function Orders() {
   async function handleFileReturn(orderId) {
     if (!returnReason.trim()) return;
     setReturnLoading(true);
+    const reason = returnReason.trim();
     try {
-      await api.fileReturn(orderId, returnReason.trim());
+      await api.fileReturn(orderId, reason, returnAttempt.keyFor({ orderId, reason }));
+      returnAttempt.settle();
       setReturnModal(null);
       setReturnReason('');
       setReturnMsg((prev) => ({
@@ -380,6 +387,7 @@ export default function Orders() {
       }));
       load();
     } catch (e) {
+      returnAttempt.settle(e);
       setReturnMsg((prev) => ({ ...prev, [orderId]: { type: 'err', text: getErrorMessage(e) } }));
     } finally {
       setReturnLoading(false);

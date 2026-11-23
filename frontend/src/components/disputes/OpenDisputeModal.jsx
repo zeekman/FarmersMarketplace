@@ -1,6 +1,7 @@
 import React, { useId, useState } from 'react';
 import { api } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorMessages';
+import { useIdempotencyKey } from '../../hooks/useIdempotencyKey';
 
 export const DISPUTE_REASONS = [
   { value: 'not_received', label: 'Item not received' },
@@ -49,6 +50,7 @@ export default function OpenDisputeModal({ order, onClose, onOpened }) {
   const [files, setFiles] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const openAttempt = useIdempotencyKey();
 
   const descriptionOk = description.trim().length >= MIN_DESCRIPTION;
 
@@ -67,10 +69,13 @@ export default function OpenDisputeModal({ order, onClose, onOpened }) {
     setError('');
     try {
       const label = DISPUTE_REASONS.find((r) => r.value === reason)?.label || reason;
-      const created = await api.openDispute({ order_id: order.id, reason: `${label}: ${description.trim()}` });
+      const body = { order_id: order.id, reason: `${label}: ${description.trim()}` };
+      const created = await api.openDispute(body, openAttempt.keyFor(body));
+      openAttempt.settle();
       if (files.length > 0) await api.submitDisputeEvidence(created.id, files);
       onOpened?.(created);
     } catch (err) {
+      openAttempt.settle(err);
       setError(getErrorMessage(err));
       setBusy(false);
     }

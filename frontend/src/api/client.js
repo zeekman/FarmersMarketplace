@@ -367,8 +367,15 @@ export const api = {
 
   fundEscrow: (orderId) => (requireOnline(), request(`/orders/${orderId}/escrow`, { method: 'POST' })),
   claimEscrow: (orderId) => request(`/orders/${orderId}/claim`, { method: 'POST' }),
-  claimPreorder: (orderId) => request(`/orders/${orderId}/claim-preorder`, { method: 'POST' }),
-  fileReturn: (orderId, reason) => request(`/orders/${orderId}/return`, { method: 'POST', body: { reason } }),
+  claimPreorder: (orderId, idempotencyKey) => request(`/orders/${orderId}/claim-preorder`, {
+    method: 'POST',
+    headers: { 'X-Idempotency-Key': requireIdempotencyKey(idempotencyKey) },
+  }),
+  fileReturn: (orderId, reason, idempotencyKey) => request(`/orders/${orderId}/return`, {
+    method: 'POST',
+    body: { reason },
+    headers: { 'X-Idempotency-Key': requireIdempotencyKey(idempotencyKey) },
+  }),
   downloadReceipt: async (orderId) => {
     const headers = {};
     if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -512,7 +519,11 @@ export const api = {
   adminGetStats: () => request('/admin/stats'),
   adminGetDisputes: () => request('/disputes'),
   adminResolveDispute: (id, body) => request(`/disputes/${id}/resolve`, { method: 'PATCH', body }),
-  openDispute: (body) => request('/disputes', { method: 'POST', body }),
+  openDispute: (body, idempotencyKey) => request('/disputes', {
+    method: 'POST',
+    body,
+    headers: { 'X-Idempotency-Key': requireIdempotencyKey(idempotencyKey) },
+  }),
   getDispute: (id) => request(`/disputes/${id}`),
   getDisputeByOrder: (orderId) => request(`/disputes/order/${orderId}`, { silent: true }),
   submitDisputeEvidence: (disputeId, files) => {
