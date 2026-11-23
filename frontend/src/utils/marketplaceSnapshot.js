@@ -11,6 +11,10 @@
 export const SNAPSHOT_KEY = 'marketplace_scroll';
 export const SNAPSHOT_TTL_MS = 2 * 60 * 1000;
 
+// Mirror kept in memory so back-navigation still restores within this SPA
+// session when sessionStorage is unavailable (blocked, sandboxed, private mode).
+let memorySnapshot = null;
+
 function getStorage() {
   try {
     return typeof window !== 'undefined' ? window.sessionStorage : null;
@@ -22,13 +26,14 @@ function getStorage() {
 function safeRead() {
   try {
     const raw = getStorage()?.getItem(SNAPSHOT_KEY);
-    return raw ? JSON.parse(raw) : null;
+    return raw ? JSON.parse(raw) : memorySnapshot;
   } catch {
-    return null;
+    return memorySnapshot;
   }
 }
 
 function safeWrite(value) {
+  memorySnapshot = value;
   try {
     getStorage()?.setItem(SNAPSHOT_KEY, JSON.stringify(value));
     return true;
@@ -87,6 +92,7 @@ export function readSnapshot(now = Date.now()) {
 }
 
 export function clearSnapshot() {
+  memorySnapshot = null;
   try {
     const storage = getStorage();
     storage?.removeItem(SNAPSHOT_KEY);

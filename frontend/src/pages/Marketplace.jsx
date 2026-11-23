@@ -8,7 +8,8 @@ import { useCompare } from "../context/CompareContext";
 import { useXlmRate } from "../utils/useXlmRate";
 import { useDebounce } from "../utils/useDebounce";
 import { getRecentlyViewed } from "../utils/recentlyViewed";
-import { saveSnapshot, saveScrollPosition, readSnapshot, clearSnapshot } from "../utils/marketplaceSnapshot";
+import { saveSnapshot, saveScrollPosition, readSnapshot, clearSnapshot, SNAPSHOT_TTL_MS } from "../utils/marketplaceSnapshot";
+import { queryClient } from "../lib/queryClient";
 import StarRating from "../components/StarRating";
 import SkeletonProductCard from "../components/SkeletonProductCard";
 import Spinner from "../components/Spinner";
@@ -20,7 +21,7 @@ import { useTranslation } from "react-i18next";
 import { buildSrcSet } from "../utils/imageUtils";
 
 import { getErrorMessage } from '../utils/errorMessages';
-import { filtersFromParams, filtersToParams } from '../utils/marketplaceUrl';
+import { filtersFromParams, filtersToParams, roundCoord } from '../utils/marketplaceUrl';
 const MapView = lazy(() => import("../components/MapView"));
 
 // Fallback when GET /categories is unavailable.
@@ -384,11 +385,13 @@ function getFreshnessBadge(bestBefore) {
 const SCROLL_SAVE_THROTTLE_MS = 250;
 
 // Stable key for the filters that affect the fetched product list.
+// Numbers and strings are normalised: URL-parsed values are strings while
+// slider/geolocation values are numbers, which otherwise never match.
 function filtersKey(f) {
   return JSON.stringify([
-    f.search || '', f.seller || '', f.category || '', f.minPrice || '', f.maxPrice || '',
-    f.available || '', f.excludeAllergens || [], f.sort || '', f.grade || '',
-    f.lat || '', f.lng || '', f.radius || '',
+    f.search || '', f.seller || '', f.category || '', String(f.minPrice || ''), String(f.maxPrice || ''),
+    f.available || '', [...(f.excludeAllergens || [])].sort(), f.sort || '', f.grade || '',
+    String(f.lat || ''), String(f.lng || ''), String(f.radius || ''),
   ]);
 }
 
@@ -460,10 +463,18 @@ export default function Marketplace() {
     });
   }
 
-  async function fetchPage(f, p) {
+  // staleTime 0 always hits the network and writes the React Query cache; a
+  // back-navigation restore passes SNAPSHOT_TTL_MS so cached pages are reused.
+  async function fetchPage(f, p, staleTime = 0) {
     let data, totalPages = 1, res;
+    const cached = (request) => queryClient.fetchQuery({
+      queryKey: ['marketplace', 'products', filtersKey(f), p],
+      queryFn: request,
+      staleTime,
+      retry: false,
+    });
     if (f.search && f.search.trim()) {
-      res = await api.searchProducts(f.search.trim());
+      res = await cached(() => api.searchProducts(f.search.trim()));
       data = res.data ?? res;
       totalPages = 1;
     } else {
@@ -476,7 +487,7 @@ export default function Marketplace() {
       if (f.grade) params.grade = f.grade;
       if (f.sort && f.sort !== "newest") params.sort = f.sort;
       if (f.lat && f.lng && f.radius) { params.lat = f.lat; params.lng = f.lng; params.radius = f.radius; }
-      res = await api.getProducts(params);
+      res = await cached(() => api.getProducts(params));
       data = res.data ?? [];
       totalPages = res.totalPages ?? 1;
     }
@@ -561,7 +572,7 @@ export default function Marketplace() {
     try {
       const pages = [];
       for (let p = snap.startPage; p <= snap.page; p++) pages.push(p);
-      const results = await Promise.all(pages.map((p) => fetchPage(f, p)));
+      const results = await Promise.all(pages.map((p) => fetchPage(f, p, SNAPSHOT_TTL_MS)));
       if (controller.signal.aborted) return;
       const data = results.flatMap((r) => r.data);
       const last = results[results.length - 1] ?? { totalPages: 1, total: 0 };
@@ -826,8 +837,8 @@ export default function Marketplace() {
       (pos) => {
         setFilters(f => ({
           ...f,
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
+          lat: roundCoord(pos.coords.latitude),
+          lng: roundCoord(pos.coords.longitude),
           radius: f.radius || 50,
         }));
         setGeoLoading(false);
