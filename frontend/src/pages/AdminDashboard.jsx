@@ -10,6 +10,8 @@ import ResolveDisputeModal from '../components/admin/ResolveDisputeModal';
 import AdminAnnouncementsPanel from '../components/admin/AdminAnnouncementsPanel';
 
 import { getErrorMessage } from '../utils/errorMessages';
+import styles from './AdminDashboard.module.css';
+
 function DeactivateModal({ user, onConfirm, onCancel }) {
   const confirmRef = useRef(null);
   useEffect(() => { confirmRef.current?.focus(); }, []);
@@ -22,20 +24,20 @@ function DeactivateModal({ user, onConfirm, onCancel }) {
       aria-modal="true"
       aria-labelledby="deactivate-modal-title"
       onKeyDown={handleKeyDown}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+      className={styles.modalOverlay}
     >
-      <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 400, width: '90%', boxShadow: '0 4px 24px #0003' }}>
-        <div id="deactivate-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 10, color: '#333' }}>
+      <div className={styles.modalCard}>
+        <div id="deactivate-modal-title" className={styles.modalTitle}>
           Deactivate {user.name}?
         </div>
-        <p style={{ fontSize: 14, color: '#555', marginBottom: 20 }}>
+        <p className={styles.modalText}>
           They will lose access immediately.
         </p>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onCancel} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+        <div className={styles.modalActions}>
+          <button onClick={onCancel} className={styles.cancelBtn}>
             Cancel
           </button>
-          <button ref={confirmRef} onClick={onConfirm} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#c0392b', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+          <button ref={confirmRef} onClick={onConfirm} className={styles.dangerBtn}>
             Confirm Deactivate
           </button>
         </div>
@@ -57,13 +59,13 @@ function BanModal({ user, onConfirm, onCancel, loading }) {
       aria-modal="true"
       aria-labelledby="ban-modal-title"
       onKeyDown={handleKeyDown}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+      className={styles.modalOverlay}
     >
-      <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 400, width: '90%', boxShadow: '0 4px 24px #0003' }}>
-        <div id="ban-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 10, color: '#333' }}>
+      <div className={styles.modalCard}>
+        <div id="ban-modal-title" className={styles.modalTitle}>
           Ban {user.name}?
         </div>
-        <p style={{ fontSize: 14, color: '#555', marginBottom: 14 }}>
+        <p className={styles.modalTextWithField}>
           This user will be unable to access the platform.
         </p>
         <textarea
@@ -71,13 +73,13 @@ function BanModal({ user, onConfirm, onCancel, loading }) {
           value={reason}
           onChange={e => setReason(e.target.value)}
           placeholder="Optional ban reason (visible to user)…"
-          style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, resize: 'vertical', minHeight: 60, boxSizing: 'border-box', marginBottom: 16 }}
+          className={styles.reasonInput}
         />
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onCancel} disabled={loading} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 600, color: loading ? '#aaa' : '#333' }}>
+        <div className={styles.modalActions}>
+          <button onClick={onCancel} disabled={loading} className={loading ? styles.cancelBtnBusy : styles.cancelBtn}>
             Cancel
           </button>
-          <button onClick={() => onConfirm(reason)} disabled={loading} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: loading ? '#ccc' : '#c0392b', color: '#fff', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
+          <button onClick={() => onConfirm(reason)} disabled={loading} className={loading ? styles.dangerBtnBusy : styles.dangerBtn}>
             {loading ? 'Banning…' : 'Ban User'}
           </button>
         </div>
@@ -85,32 +87,6 @@ function BanModal({ user, onConfirm, onCancel, loading }) {
     </div>
   );
 }
-
-const s = {
-  page: { maxWidth: 1000, margin: '0 auto', padding: 24 },
-  title: { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 24 },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 },
-  stat: { background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 8px #0001', textAlign: 'center' },
-  statVal: { fontSize: 28, fontWeight: 700, color: '#2d6a4f' },
-  statLabel: { fontSize: 13, color: '#666', marginTop: 4 },
-  card: { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 14 },
-  th: { textAlign: 'left', padding: '10px 12px', borderBottom: '2px solid #eee', color: '#555', fontWeight: 600 },
-  td: { padding: '10px 12px', borderBottom: '1px solid #f0f0f0' },
-  badge: (role) => ({
-    display: 'inline-block', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600,
-    background: role === 'admin' ? '#ffeaa7' : role === 'farmer' ? '#d8f3dc' : '#dfe6e9',
-    // #7a5800 on #ffeaa7 → 5.45:1 (was #b8860b → 2.72:1, failed WCAG AA)
-    color: role === 'admin' ? '#7a5800' : role === 'farmer' ? '#2d6a4f' : '#555',
-  }),
-  deactivate: { background: '#fee', color: '#c0392b', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 },
-  inactive: { color: '#aaa', fontSize: 12, fontStyle: 'italic' },
-  pagination: { display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' },
-  pgBtn: (disabled) => ({ padding: '6px 14px', borderRadius: 6, border: '1px solid #ddd', cursor: disabled ? 'not-allowed' : 'pointer', background: disabled ? '#f5f5f5' : '#fff', color: disabled ? '#aaa' : '#333' }),
-  err: { color: '#c0392b', fontSize: 14, marginBottom: 12 },
-  input: { padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 },
-  btn: (loading) => ({ padding: '8px 20px', borderRadius: 8, border: 'none', background: '#2d6a4f', color: '#fff', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer' }),
-};
 
 export default function AdminDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -173,8 +149,6 @@ export default function AdminDashboard() {
     return WASM_HASH_RE.test(value) ? '' : 'WASM hash must be a 64-character hex string.';
   }
 
-  const inputStyle = { padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 };
-  const monoInputStyle = { ...inputStyle, fontFamily: 'monospace' };
   // Contract event log
   const [evtContractId, setEvtContractId] = useState('');
   const [evtFilters, setEvtFilters] = useState({ type: '', from: '', to: '' });
@@ -501,7 +475,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="admin-dashboard" style={s.page}>
+    <div className={`admin-dashboard ${styles.page}`}>
       {deactivateTarget && (
         <DeactivateModal
           user={deactivateTarget}
@@ -528,8 +502,8 @@ export default function AdminDashboard() {
           loading={banBusy}
         />
       )}
-      <div style={s.title}>🛡️ Admin Dashboard</div>
-      {error && <div style={s.err}>{error}</div>}
+      <div className={styles.title}>🛡️ Admin Dashboard</div>
+      {error && <div className={styles.err}>{error}</div>}
 
       <AdminAnalyticsSummary stats={stats} />
 
@@ -565,7 +539,7 @@ export default function AdminDashboard() {
       />
 
             {/* Contract Deployment */}
-      <div style={{ ...s.card, marginTop: 32 }}>
+      <div className={styles.card} style={{marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>🚀 Deploy Soroban Contract</h3>
         {deployMsg && (
           <div style={{
@@ -577,14 +551,14 @@ export default function AdminDashboard() {
         )}
         <form onSubmit={handleDeployContract} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
           <input
-            style={{ ...inputStyle, flex: '1 1 140px' }}
+            className={styles.input} style={{flex: '1 1 140px' }}
             placeholder="Display name"
             value={deployForm.name}
             onChange={e => setDeployForm(f => ({ ...f, name: e.target.value }))}
             required
           />
           <select
-            style={{ ...inputStyle }}
+            className={styles.input}
             value={deployForm.type}
             onChange={e => setDeployForm(f => ({ ...f, type: e.target.value }))}
           >
@@ -596,7 +570,7 @@ export default function AdminDashboard() {
             type="file"
             accept=".wasm"
             onChange={e => setDeployForm(f => ({ ...f, wasm: e.target.files[0] }))}
-            style={{ ...inputStyle, flex: '2 1 200px' }}
+            className={styles.input} style={{flex: '2 1 200px' }}
             required
           />
           <button
@@ -621,7 +595,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Contract registry + simulation (registered contracts only) */}
-      <div style={{ ...s.card, marginTop: 32 }}>
+      <div className={styles.card} style={{marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>📜 Registered Soroban contracts</h3>
         {contractMsg && (
           <div style={{
@@ -632,14 +606,14 @@ export default function AdminDashboard() {
           >{contractMsg}</div>
         )}
         <form onSubmit={handleRegisterContract} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-          <input style={{ ...monoInputStyle, flex: '2 1 200px' }} placeholder="Contract ID" value={contractForm.contract_id} onChange={e => setContractForm(f => ({ ...f, contract_id: e.target.value }))} required />
-          <input style={{ ...inputStyle, flex: '1 1 140px' }} placeholder="Display name" value={contractForm.name} onChange={e => setContractForm(f => ({ ...f, name: e.target.value }))} required />
-          <select style={{ ...inputStyle }} value={contractForm.type} onChange={e => setContractForm(f => ({ ...f, type: e.target.value }))}>
+          <input className={styles.monoInput} style={{flex: '2 1 200px' }} placeholder="Contract ID" value={contractForm.contract_id} onChange={e => setContractForm(f => ({ ...f, contract_id: e.target.value }))} required />
+          <input className={styles.input} style={{flex: '1 1 140px' }} placeholder="Display name" value={contractForm.name} onChange={e => setContractForm(f => ({ ...f, name: e.target.value }))} required />
+          <select className={styles.input} value={contractForm.type} onChange={e => setContractForm(f => ({ ...f, type: e.target.value }))}>
             <option value="escrow">escrow</option>
             <option value="token">token</option>
             <option value="other">other</option>
           </select>
-          <select style={{ ...inputStyle }} value={contractForm.network} onChange={e => setContractForm(f => ({ ...f, network: e.target.value }))}>
+          <select className={styles.input} value={contractForm.network} onChange={e => setContractForm(f => ({ ...f, network: e.target.value }))}>
             <option value="testnet">testnet</option>
             <option value="mainnet">mainnet</option>
           </select>
@@ -647,12 +621,12 @@ export default function AdminDashboard() {
         </form>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
           <span style={{ fontSize: 13, color: '#666' }}>Filter:</span>
-          <select style={inputStyle} value={contractFilter.network} onChange={(e) => { const nf = { ...contractFilter, network: e.target.value }; setContractFilter(nf); loadContracts(nf); }}>
+          <select className={styles.input} value={contractFilter.network} onChange={(e) => { const nf = { ...contractFilter, network: e.target.value }; setContractFilter(nf); loadContracts(nf); }}>
             <option value="">All networks</option>
             <option value="testnet">testnet</option>
             <option value="mainnet">mainnet</option>
           </select>
-          <select style={inputStyle} value={contractFilter.type} onChange={(e) => { const tf = { ...contractFilter, type: e.target.value }; setContractFilter(tf); loadContracts(tf); }}>
+          <select className={styles.input} value={contractFilter.type} onChange={(e) => { const tf = { ...contractFilter, type: e.target.value }; setContractFilter(tf); loadContracts(tf); }}>
             <option value="">All types</option>
             <option value="escrow">escrow</option>
             <option value="token">token</option>
@@ -662,24 +636,25 @@ export default function AdminDashboard() {
         {contracts.length === 0 ? (
           <div style={{ color: '#888', fontSize: 14 }}>No contracts registered. Add one above to enable simulation for this deployment.</div>
         ) : (
-          <table style={s.table}>
+          <div className={styles.tableWrap}>
+          <table className={styles.table}>
             <thead>
               <tr>
-                <th style={s.th}>Name</th>
-                <th style={s.th}>Contract ID</th>
-                <th style={s.th}>Type</th>
-                <th style={s.th}>Network</th>
-                <th style={s.th}>Actions</th>
+                <th className={styles.th}>Name</th>
+                <th className={styles.th}>Contract ID</th>
+                <th className={styles.th}>Type</th>
+                <th className={styles.th}>Network</th>
+                <th className={styles.th}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {contracts.map((c) => (
                 <tr key={c.id}>
-                  <td style={s.td}>{c.name}</td>
-                  <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>{c.contract_id}</td>
-                  <td style={s.td}>{c.type}</td>
-                  <td style={s.td}>{c.network}</td>
-                  <td style={s.td}>
+                  <td className={styles.td}>{c.name}</td>
+                  <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>{c.contract_id}</td>
+                  <td className={styles.td}>{c.type}</td>
+                  <td className={styles.td}>{c.network}</td>
+                  <td className={styles.td}>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <button
                         type="button"
@@ -709,6 +684,7 @@ export default function AdminDashboard() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
 
         {selectedRegistryId != null && (
@@ -732,18 +708,20 @@ export default function AdminDashboard() {
               {contractConfig?.loading ? (
                 <div style={{ color: '#666', fontSize: 13 }}>Loading config…</div>
               ) : contractConfig?.config || contractConfig?.snapshot ? (
-                <table style={{ ...s.table, marginTop: 8 }}>
+                <div className={styles.tableWrap}>
+                <table className={styles.table} style={{marginTop: 8 }}>
                   <tbody>
                     {Object.entries(contractConfig.config || contractConfig.snapshot).map(([k, v]) => (
                       <tr key={k}>
-                        <td style={s.td}>{k}</td>
-                        <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>
+                        <td className={styles.td}>{k}</td>
+                        <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>
                           {v === null || v === undefined ? '—' : String(v)}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
               ) : (
                 <div style={{ color: '#888', fontSize: 13 }}>
                   {contractConfig?.error || 'No get_config() view available for this contract.'}
@@ -756,38 +734,40 @@ export default function AdminDashboard() {
             <p style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>
               Each row is immutable. <code style={{ fontSize: 11 }}>new_wasm_hash</code> must match the hash Soroban RPC reports for the contract after upgrade.
             </p>
-            {upgradeDetailError && <div style={s.err}>{upgradeDetailError}</div>}
+            {upgradeDetailError && <div className={styles.err}>{upgradeDetailError}</div>}
             {upgradeDetailLoading ? (
               <div style={{ color: '#666', fontSize: 14 }}>Loading history…</div>
             ) : contractUpgrades.length === 0 ? (
               <div style={{ color: '#888', fontSize: 14, marginBottom: 16 }}>No upgrades recorded yet.</div>
             ) : (
-              <table style={{ ...s.table, marginBottom: 20 }}>
+              <div className={styles.tableWrap}>
+              <table className={styles.table} style={{marginBottom: 20 }}>
                 <thead>
                   <tr>
-                    <th style={s.th}>When</th>
-                    <th style={s.th}>Old WASM hash</th>
-                    <th style={s.th}>New WASM hash</th>
-                    <th style={s.th}>Recorded by</th>
+                    <th className={styles.th}>When</th>
+                    <th className={styles.th}>Old WASM hash</th>
+                    <th className={styles.th}>New WASM hash</th>
+                    <th className={styles.th}>Recorded by</th>
                   </tr>
                 </thead>
                 <tbody>
                   {contractUpgrades.map((u) => (
                     <tr key={u.id}>
-                      <td style={s.td}>{u.upgraded_at ? new Date(u.upgraded_at).toLocaleString() : '—'}</td>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>{u.old_wasm_hash}</td>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>{u.new_wasm_hash}</td>
-                      <td style={s.td}>{u.upgraded_by_name || `user #${u.upgraded_by}`}</td>
+                      <td className={styles.td}>{u.upgraded_at ? new Date(u.upgraded_at).toLocaleString() : '—'}</td>
+                      <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>{u.old_wasm_hash}</td>
+                      <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>{u.new_wasm_hash}</td>
+                      <td className={styles.td}>{u.upgraded_by_name || `user #${u.upgraded_by}`}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
             <div style={{ fontWeight: 600, marginBottom: 8, color: '#444' }}>Record upgrade</div>
             <form onSubmit={handleRecordUpgrade} style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 560 }}>
               <div>
                 <input
-                  style={{ ...monoInputStyle, borderColor: upgradeHashErrors.old_wasm_hash ? '#c0392b' : '#ddd' }}
+                  className={styles.monoInput} style={{borderColor: upgradeHashErrors.old_wasm_hash ? '#c0392b' : '#ddd' }}
                   placeholder="Previous WASM hash (64 hex chars)"
                   value={upgradeForm.old_wasm_hash}
                   onChange={(e) => {
@@ -803,7 +783,7 @@ export default function AdminDashboard() {
               </div>
               <div>
                 <input
-                  style={{ ...monoInputStyle, borderColor: upgradeHashErrors.new_wasm_hash ? '#c0392b' : '#ddd' }}
+                  className={styles.monoInput} style={{borderColor: upgradeHashErrors.new_wasm_hash ? '#c0392b' : '#ddd' }}
                   placeholder="New WASM hash — must match Soroban RPC (64 hex)"
                   value={upgradeForm.new_wasm_hash}
                   onChange={(e) => {
@@ -848,7 +828,7 @@ export default function AdminDashboard() {
         </p>
         <form onSubmit={handleSimulate} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <select
-            style={monoInputStyle}
+            className={styles.monoInput}
             value={simContractId}
             onChange={(e) => setSimContractId(e.target.value)}
           >
@@ -858,18 +838,18 @@ export default function AdminDashboard() {
             ))}
           </select>
           <input
-            style={inputStyle}
+            className={styles.input}
             placeholder="Method name (e.g. balance, deposit)"
             value={simMethod}
             onChange={(e) => setSimMethod(e.target.value)}
           />
           <textarea
-            style={{ ...monoInputStyle, minHeight: 100, resize: 'vertical' }}
+            className={styles.monoInput} style={{minHeight: 100, resize: 'vertical' }}
             placeholder='[{"type":"u64","value":"1"}]'
             value={simArgsJson}
             onChange={(e) => setSimArgsJson(e.target.value)}
           />
-          {simFormError && <div style={s.err}>{simFormError}</div>}
+          {simFormError && <div className={styles.err}>{simFormError}</div>}
           <button
             type="submit"
             disabled={simBusy || contracts.length === 0}
@@ -900,7 +880,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Soroban Contract State Viewer */}
-      <div style={{ ...s.card, marginTop: 32 }}>
+      <div className={styles.card} style={{marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>🔍 Soroban Contract State</h3>
         <form onSubmit={loadContractState} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
           <input
@@ -922,7 +902,7 @@ export default function AdminDashboard() {
             style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: '#2d6a4f', color: '#fff', fontWeight: 600, cursor: contractLoading ? 'not-allowed' : 'pointer' }}
           >{contractLoading ? 'Loading…' : 'Fetch State'}</button>
         </form>
-        {contractError && <div style={s.err}>{contractError}</div>}
+        {contractError && <div className={styles.err}>{contractError}</div>}
         {contractState && (
           contractState.length === 0
             ? <div style={{ color: '#888', fontSize: 14 }}>No storage entries found{contractPrefix ? ` matching prefix "${contractPrefix}"` : ''}.</div>
@@ -956,20 +936,21 @@ export default function AdminDashboard() {
                     );
                   })()}
                 </div>
-                <table style={s.table}>
+                <div className={styles.tableWrap}>
+              <table className={styles.table}>
                   <thead>
                     <tr>
-                      <th style={s.th}>Key</th>
-                      <th style={s.th}>Value</th>
-                      <th style={s.th}>Durability</th>
+                      <th className={styles.th}>Key</th>
+                      <th className={styles.th}>Value</th>
+                      <th className={styles.th}>Durability</th>
                     </tr>
                   </thead>
                   <tbody>
                     {contractState.map((entry) => (
                       <tr key={`${entry.durability}-${String(entry.key)}`}>
-                        <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{String(entry.key)}</td>
-                        <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{JSON.stringify(entry.val)}</td>
-                        <td style={{ ...s.td, fontSize: 12 }}>
+                        <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{String(entry.key)}</td>
+                        <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{JSON.stringify(entry.val)}</td>
+                        <td className={styles.td} style={{fontSize: 12 }}>
                           <span style={{ padding: '2px 8px', borderRadius: 12, fontWeight: 600, fontSize: 11,
                             background: entry.durability === 'Temporary' ? '#fff3cd' : '#d8f3dc',
                             color: entry.durability === 'Temporary' ? '#856404' : '#2d6a4f' }}>
@@ -980,23 +961,24 @@ export default function AdminDashboard() {
                     ))}
                   </tbody>
                 </table>
+              </div>
               </>
             )
         )}
       </div>
       {/* Soroban Contract Event Log */}
-      <div style={{ ...s.card, marginTop: 32 }}>
+      <div className={styles.card} style={{marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>📋 Soroban Contract Event Log</h3>
         <form onSubmit={(e) => loadContractEvents(e, 1)} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
           <input
-            style={{ ...s.input, flex: '2 1 240px', fontFamily: 'monospace' }}
+            className={styles.input} style={{flex: '2 1 240px', fontFamily: 'monospace' }}
             placeholder="Contract ID (base32 or hex)"
             value={evtContractId}
             onChange={e => setEvtContractId(e.target.value)}
             required
           />
           <select
-            style={{ ...s.input, flex: '1 1 120px' }}
+            className={styles.input} style={{flex: '1 1 120px' }}
             value={evtFilters.type}
             onChange={e => setEvtFilters(f => ({ ...f, type: e.target.value }))}
           >
@@ -1007,62 +989,64 @@ export default function AdminDashboard() {
           </select>
           <input
             type="datetime-local"
-            style={{ ...s.input, flex: '1 1 160px' }}
+            className={styles.input} style={{flex: '1 1 160px' }}
             placeholder="From"
             value={evtFilters.from}
             onChange={e => setEvtFilters(f => ({ ...f, from: e.target.value }))}
           />
           <input
             type="datetime-local"
-            style={{ ...s.input, flex: '1 1 160px' }}
+            className={styles.input} style={{flex: '1 1 160px' }}
             placeholder="To"
             value={evtFilters.to}
             onChange={e => setEvtFilters(f => ({ ...f, to: e.target.value }))}
           />
-          <button type="submit" disabled={evtLoading} style={s.btn(evtLoading)}>
+          <button type="submit" disabled={evtLoading} className={evtLoading ? styles.btnBusy : styles.btn}>
             {evtLoading ? 'Loading…' : 'Fetch Events'}
           </button>
         </form>
-        {evtError && <div style={s.err}>{evtError}</div>}
+        {evtError && <div className={styles.err}>{evtError}</div>}
         {evtData && (
           evtData.events.length === 0
             ? <div style={{ color: '#888', fontSize: 14 }}>No events found for this contract.</div>
             : <>
-              <table style={s.table}>
+              <div className={styles.tableWrap}>
+              <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th style={s.th}>Ledger</th>
-                    <th style={s.th}>Timestamp</th>
-                    <th style={s.th}>Type</th>
-                    <th style={s.th}>Topics</th>
-                    <th style={s.th}>Data</th>
+                    <th className={styles.th}>Ledger</th>
+                    <th className={styles.th}>Timestamp</th>
+                    <th className={styles.th}>Type</th>
+                    <th className={styles.th}>Topics</th>
+                    <th className={styles.th}>Data</th>
                   </tr>
                 </thead>
                 <tbody>
                   {evtData.events.map((ev) => (
                     <tr key={ev.id}>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12 }}>{ev.ledger}</td>
-                      <td style={{ ...s.td, fontSize: 12 }}>{ev.ledgerClosedAt ? new Date(ev.ledgerClosedAt).toLocaleString() : '—'}</td>
-                      <td style={s.td}>
+                      <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 12 }}>{ev.ledger}</td>
+                      <td className={styles.td} style={{fontSize: 12 }}>{ev.ledgerClosedAt ? new Date(ev.ledgerClosedAt).toLocaleString() : '—'}</td>
+                      <td className={styles.td}>
                         <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600,
                           background: ev.type === 'contract' ? '#d8f3dc' : '#dfe6e9',
                           color: ev.type === 'contract' ? '#2d6a4f' : '#555' }}>
                           {ev.type}
                         </span>
                       </td>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 220 }}>
+                      <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 220 }}>
                         {JSON.stringify(ev.topics)}
                       </td>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 200 }}>
+                      <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 200 }}>
                         {JSON.stringify(ev.data)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div style={s.pagination}>
+              </div>
+              <div className={styles.pagination}>
                 <button
-                  style={s.pgBtn(evtPage <= 1)}
+                  className={evtPage <= 1 ? styles.pgBtnDisabled : styles.pgBtn}
                   disabled={evtPage <= 1}
                   onClick={() => loadContractEvents(null, evtPage - 1)}
                 >← Prev</button>
@@ -1070,7 +1054,7 @@ export default function AdminDashboard() {
                   Page {evtData.pagination.page} of {evtData.pagination.pages} ({evtData.pagination.total} events)
                 </span>
                 <button
-                  style={s.pgBtn(evtPage >= evtData.pagination.pages)}
+                  className={evtPage >= evtData.pagination.pages ? styles.pgBtnDisabled : styles.pgBtn}
                   disabled={evtPage >= evtData.pagination.pages}
                   onClick={() => loadContractEvents(null, evtPage + 1)}
                 >Next →</button>
@@ -1147,6 +1131,7 @@ export default function AdminDashboard() {
             {aclEntries.length === 0 ? (
               <div style={{ color: '#888', fontSize: 14 }}>No ACL entries for this contract.</div>
             ) : (
+              <div className={styles.tableWrap}>
               <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid #eee', textAlign: 'left' }}>
@@ -1190,13 +1175,14 @@ export default function AdminDashboard() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </>
         )}
       </div>
 
       {/* Contract Version Comparison */}
-      <div style={{ ...s.card, marginTop: 24 }}>
+      <div className={styles.card} style={{marginTop: 24 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>🔀 Contract Version Comparison</h3>
         <p style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>
           Compare function signatures between two WASM versions of a registered contract.
@@ -1205,18 +1191,18 @@ export default function AdminDashboard() {
         <div className="admin-comparison-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 10, alignItems: 'end', marginBottom: 12 }}>
           <div>
             <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#555' }}>Registry ID</label>
-            <input style={inputStyle} type="number" placeholder="Contract registry ID" value={cmpRegistryId} onChange={(e) => setCmpRegistryId(e.target.value)} />
+            <input className={styles.input} type="number" placeholder="Contract registry ID" value={cmpRegistryId} onChange={(e) => setCmpRegistryId(e.target.value)} />
           </div>
           <div>
             <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#555' }}>v1 WASM Hash (old)</label>
-            <input style={monoInputStyle} placeholder="64-char hex" value={cmpV1} onChange={(e) => setCmpV1(e.target.value)} />
+            <input className={styles.monoInput} placeholder="64-char hex" value={cmpV1} onChange={(e) => setCmpV1(e.target.value)} />
           </div>
           <div>
             <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#555' }}>v2 WASM Hash (new)</label>
-            <input style={monoInputStyle} placeholder="64-char hex" value={cmpV2} onChange={(e) => setCmpV2(e.target.value)} />
+            <input className={styles.monoInput} placeholder="64-char hex" value={cmpV2} onChange={(e) => setCmpV2(e.target.value)} />
           </div>
           <button
-            style={s.btn(cmpLoading)}
+            className={cmpLoading ? styles.btnBusy : styles.btn}
             disabled={cmpLoading}
             onClick={async () => {
               setCmpError('');
@@ -1303,6 +1289,7 @@ export default function AdminDashboard() {
         ) : contractAlerts.length === 0 ? (
           <div style={{ color: '#888', fontSize: 14 }}>No alerts.</div>
         ) : (
+          <div className={styles.tableWrap}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #eee', textAlign: 'left' }}>
@@ -1339,14 +1326,15 @@ export default function AdminDashboard() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
       {/* Contract Invocation History */}
-      <div style={{ ...s.card, marginTop: 32 }}>
+      <div className={styles.card} style={{marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>📑 Contract Invocation History</h3>
         <form onSubmit={(e) => loadContractInvocations(e, 1)} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
           <select
-            style={{ ...s.input, flex: '2 1 200px' }}
+            className={styles.input} style={{flex: '2 1 200px' }}
             value={invocRegistryId}
             onChange={(e) => { setInvocRegistryId(e.target.value); setInvocData(null); }}
             required
@@ -1357,49 +1345,50 @@ export default function AdminDashboard() {
             ))}
           </select>
           <input
-            style={{ ...s.input, flex: '1 1 120px' }}
+            className={styles.input} style={{flex: '1 1 120px' }}
             placeholder="Method filter"
             value={invocFilters.method}
             onChange={(e) => setInvocFilters((f) => ({ ...f, method: e.target.value }))}
           />
           <input
             type="datetime-local"
-            style={{ ...s.input, flex: '1 1 160px' }}
+            className={styles.input} style={{flex: '1 1 160px' }}
             value={invocFilters.from}
             onChange={(e) => setInvocFilters((f) => ({ ...f, from: e.target.value }))}
           />
           <input
             type="datetime-local"
-            style={{ ...s.input, flex: '1 1 160px' }}
+            className={styles.input} style={{flex: '1 1 160px' }}
             value={invocFilters.to}
             onChange={(e) => setInvocFilters((f) => ({ ...f, to: e.target.value }))}
           />
-          <button type="submit" disabled={invocLoading || !invocRegistryId} style={s.btn(invocLoading)}>
+          <button type="submit" disabled={invocLoading || !invocRegistryId} className={invocLoading ? styles.btnBusy : styles.btn}>
             {invocLoading ? 'Loading…' : 'Fetch'}
           </button>
         </form>
-        {invocError && <div style={s.err}>{invocError}</div>}
+        {invocError && <div className={styles.err}>{invocError}</div>}
         {invocData && (
           invocData.data.length === 0
             ? <div style={{ color: '#888', fontSize: 14 }}>No invocations found.</div>
             : <>
-              <table style={s.table}>
+              <div className={styles.tableWrap}>
+              <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th style={s.th}>When</th>
-                    <th style={s.th}>Method</th>
-                    <th style={s.th}>Status</th>
-                    <th style={s.th}>TX Hash</th>
-                    <th style={s.th}>Invoked by</th>
-                    <th style={s.th}>Result / Error</th>
+                    <th className={styles.th}>When</th>
+                    <th className={styles.th}>Method</th>
+                    <th className={styles.th}>Status</th>
+                    <th className={styles.th}>TX Hash</th>
+                    <th className={styles.th}>Invoked by</th>
+                    <th className={styles.th}>Result / Error</th>
                   </tr>
                 </thead>
                 <tbody>
                   {invocData.data.map((inv) => (
                     <tr key={inv.id}>
-                      <td style={{ ...s.td, fontSize: 12 }}>{new Date(inv.invoked_at).toLocaleString()}</td>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 12 }}>{inv.method}</td>
-                      <td style={s.td}>
+                      <td className={styles.td} style={{fontSize: 12 }}>{new Date(inv.invoked_at).toLocaleString()}</td>
+                      <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 12 }}>{inv.method}</td>
+                      <td className={styles.td}>
                         <span style={{
                           padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600,
                           background: inv.success ? '#d8f3dc' : '#fee',
@@ -1408,23 +1397,24 @@ export default function AdminDashboard() {
                           {inv.success ? 'success' : 'failed'}
                         </span>
                       </td>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 160 }}>
+                      <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 160 }}>
                         {inv.tx_hash || '—'}
                       </td>
-                      <td style={{ ...s.td, fontSize: 12 }}>{inv.invoked_by_name || `#${inv.invoked_by || '?'}`}</td>
-                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 200, color: inv.success ? '#333' : '#c0392b' }}>
+                      <td className={styles.td} style={{fontSize: 12 }}>{inv.invoked_by_name || `#${inv.invoked_by || '?'}`}</td>
+                      <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 200, color: inv.success ? '#333' : '#c0392b' }}>
                         {inv.success ? (inv.result ? JSON.stringify(JSON.parse(inv.result)) : '—') : (inv.error || '—')}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div style={s.pagination}>
-                <button style={s.pgBtn(invocPage <= 1)} disabled={invocPage <= 1} onClick={() => loadContractInvocations(null, invocPage - 1)}>← Prev</button>
+              </div>
+              <div className={styles.pagination}>
+                <button className={invocPage <= 1 ? styles.pgBtnDisabled : styles.pgBtn} disabled={invocPage <= 1} onClick={() => loadContractInvocations(null, invocPage - 1)}>← Prev</button>
                 <span style={{ fontSize: 13, color: '#666' }}>
                   Page {invocData.pagination.page} of {invocData.pagination.pages} ({invocData.pagination.total} total)
                 </span>
-                <button style={s.pgBtn(invocPage >= invocData.pagination.pages)} disabled={invocPage >= invocData.pagination.pages} onClick={() => loadContractInvocations(null, invocPage + 1)}>Next →</button>
+                <button className={invocPage >= invocData.pagination.pages ? styles.pgBtnDisabled : styles.pgBtn} disabled={invocPage >= invocData.pagination.pages} onClick={() => loadContractInvocations(null, invocPage + 1)}>Next →</button>
               </div>
             </>
         )}
