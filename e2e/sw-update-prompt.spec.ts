@@ -20,7 +20,7 @@
  * stated in the companion issue.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ import { test, expect } from '@playwright/test';
  *
  * UpdatePrompt listens on navigator.serviceWorker for this exact message.
  */
-async function triggerSwUpdated(page) {
+async function triggerSwUpdated(page: Page) {
   await page.evaluate(() => {
     // Build a MessageEvent that mirrors a real SW postMessage
     const event = new MessageEvent('message', {
@@ -52,7 +52,7 @@ async function triggerSwUpdated(page) {
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
-test.describe('Service-worker update prompt', () => {
+test.describe('Service-worker update prompt', { tag: '@flow' }, () => {
   test.beforeEach(async ({ page }) => {
     // The banner is always rendered by UpdatePrompt regardless of auth state,
     // so we only need a page that mounts the component.  The root route '/'

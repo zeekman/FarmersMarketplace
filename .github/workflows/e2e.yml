@@ -8,8 +8,14 @@ on:
 
 jobs:
   e2e:
-    name: Playwright E2E
+    name: E2E — ${{ matrix.browser }} (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+        shard: [1, 2, 3]
     env:
       NODE_ENV: development
       JWT_SECRET: ci-e2e-secret
@@ -52,7 +58,7 @@ jobs:
         working-directory: e2e
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps ${{ matrix.browser }}
         working-directory: e2e
 
       - name: Build frontend
@@ -83,7 +89,7 @@ jobs:
           ADMIN_PASSWORD: TestPass1!
 
       - name: Run E2E tests
-        run: npx playwright test
+        run: npx playwright test --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         working-directory: e2e
         env:
           BASE_URL: http://localhost:3000
@@ -95,6 +101,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.browser }}-${{ matrix.shard }}
           path: e2e/playwright-report/
           retention-days: 7
