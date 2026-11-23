@@ -6,7 +6,7 @@
  * falls back to its default instead of throwing.
  */
 
-export const SORT_VALUES = ['newest', 'price_asc', 'price_desc', 'popular'];
+export const SORT_VALUES = ['newest', 'price_asc', 'price_desc', 'popular', 'freshest'];
 export const GRADE_VALUES = ['A', 'B', 'C', 'Ungraded'];
 export const ALLERGEN_VALUES = ['gluten', 'nuts', 'dairy', 'eggs', 'soy', 'shellfish'];
 

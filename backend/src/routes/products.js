@@ -123,7 +123,7 @@ async function listProducts(req, res) {
   );
   const total = parseInt(countRows[0].count);
 
-  const VALID_SORTS = { price_asc: 'p.price ASC', price_desc: 'p.price DESC', newest: 'p.created_at DESC', popular: 'order_count DESC' };
+  const VALID_SORTS = { price_asc: 'p.price ASC', price_desc: 'p.price DESC', newest: 'p.created_at DESC', popular: 'order_count DESC', freshest: 'CASE WHEN p.best_before IS NULL THEN 1 ELSE 0 END, p.best_before ASC' };
   const sortKey = VALID_SORTS[req.query.sort] ? req.query.sort : 'newest';
   // Text search results ordered by relevance rank; other sorts apply normally
   const orderBy = tsOrderBy || VALID_SORTS[sortKey];
