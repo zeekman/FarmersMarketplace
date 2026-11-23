@@ -1,4 +1,4 @@
-import { showToast } from '../utils/toast';
+import { toast } from '../utils/toast';
 import { getErrorMessage } from '../utils/errorMessages';
 
 const BASE = '/api/v1';
@@ -168,7 +168,7 @@ function endSession() {
   clearAccessToken();
   if (sessionExpired) return;
   sessionExpired = true;
-  showToast(getErrorMessage(new Error(SESSION_EXPIRED)), 'error');
+  toast.error(getErrorMessage(new Error(SESSION_EXPIRED)));
   if (logoutCallback) logoutCallback();
 }
 

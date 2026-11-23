@@ -9,7 +9,7 @@ import { useIdempotencyKey } from '../hooks/useIdempotencyKey';
 import { useFavorites } from '../context/FavoritesContext';
 import { getStellarErrorMessage } from '../utils/stellarErrors';
 import { getErrorMessage } from '../utils/errorMessages';
-import { showToast } from '../utils/toast';
+import { toast } from '../utils/toast';
 import { useXlmRate } from '../utils/useXlmRate';
 import { calculateHaversineDistance, formatDistanceLabel } from '../utils/distance';
 import { buildSrcSet } from '../utils/imageUtils';
@@ -605,10 +605,10 @@ export default function ProductDetail() {
       const res = await api.joinWaitlist(product.id, { address_id: selectedAddressId });
       setIsOnWaitlist(true);
       setWaitlistPosition(res.position || 1);
-      showToast('Successfully joined waitlist', 'success');
+      toast.success('Successfully joined waitlist');
     } catch (e) {
       setWaitlistError(getErrorMessage(e));
-      showToast(getErrorMessage(e), 'error');
+      toast.error(getErrorMessage(e));
     } finally {
       setWaitlistLoading(false);
     }
@@ -621,10 +621,10 @@ export default function ProductDetail() {
       await api.leaveWaitlist(product.id);
       setIsOnWaitlist(false);
       setWaitlistPosition(null);
-      showToast('Removed from waitlist', 'success');
+      toast.success('Removed from waitlist');
     } catch (e) {
       setWaitlistError(getErrorMessage(e));
-      showToast(getErrorMessage(e), 'error');
+      toast.error(getErrorMessage(e));
     } finally {
       setWaitlistLoading(false);
     }
@@ -709,7 +709,7 @@ export default function ProductDetail() {
       const msg = getStellarErrorMessage(e) || getErrorMessage(e);
       setReviewBody(null);
       setError(msg);
-      showToast(msg, 'error');
+      toast.error(msg);
     } finally {
       setLoading(false);
       submittingRef.current = false;

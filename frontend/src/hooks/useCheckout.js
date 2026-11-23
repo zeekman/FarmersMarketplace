@@ -6,7 +6,7 @@ import { useIdempotencyKey } from './useIdempotencyKey';
 import { useFreighter, signWithFreighter } from '../utils/freighter';
 import { getStellarErrorMessage } from '../utils/stellarErrors';
 import { getErrorMessage } from '../utils/errorMessages';
-import { showToast } from '../utils/toast';
+import { toast } from '../utils/toast';
 import { useNetwork } from '../context/NetworkContext';
 
 /**
@@ -243,7 +243,7 @@ export function useCheckout(product) {
       const msg = getStellarErrorMessage(e) || getErrorMessage(e);
       setReviewBody(null);
       setError(msg);
-      showToast(msg, 'error');
+      toast.error(msg);
     } finally {
       setLoading(false);
       submittingRef.current = false;

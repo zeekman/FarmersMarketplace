@@ -1,11 +1,11 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { validatePassword } from '../utils/validation';
 import TwoFactorAuth from '../components/TwoFactorAuth';
 import { getErrorMessage } from '../utils/errorMessages';
+import { toast } from '../utils/toast';
 
 const s = {
   page:    { maxWidth: 640, margin: '0 auto', padding: 24 },
@@ -47,34 +47,6 @@ const s = {
 };
 
 const CONFIRM_PHRASE = 'delete my account';
-
-function useToast() {
-  const [toast, setToast] = useState(null);
-  const show = useCallback((type, text) => {
-    setToast({ type, text });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
-  return [toast, show];
-}
-
-function Toast({ toast }) {
-  if (!toast) return null;
-  const isOk = toast.type === 'ok';
-  return (
-    <div
-      role={isOk ? 'status' : 'alert'}
-      aria-live={isOk ? 'polite' : 'assertive'}
-      style={{
-        position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
-        background: isOk ? '#2d6a4f' : '#c0392b', color: '#fff',
-        borderRadius: 10, padding: '12px 20px', fontSize: 14,
-        boxShadow: '0 4px 16px #0003', minWidth: 240,
-      }}
-    >
-      {toast.text}
-    </div>
-  );
-}
 
 function PasswordStrengthBar({ password }) {
   if (!password) return null;
@@ -723,7 +695,7 @@ function AccountRecovery() {
 }
 
 // ── Profile / Notification Settings ─────────────────────────────────────────
-function ProfileSettings({ showToast }) {
+function ProfileSettings() {
   const { user } = useAuth();
   const [form, setForm] = useState({ name: user?.name ?? '', email: user?.email ?? '' });
   const [saving, setSaving] = useState(false);
@@ -733,9 +705,9 @@ function ProfileSettings({ showToast }) {
     setSaving(true);
     try {
       await api.updateProfile(form);
-      showToast('ok', 'Settings saved successfully.');
+      toast.success('Settings saved successfully.');
     } catch (err) {
-      showToast('err', getErrorMessage(err));
+      toast.error(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -878,15 +850,13 @@ function PushNotificationSettings() {
 // ── Main Settings Page ────────────────────────────────────────────────────────
 export default function Settings() {
   const { user } = useAuth();
-  const [toast, showToast] = useToast();
 
   return (
     <div style={s.page}>
-      <Toast toast={toast} />
       <div style={s.title}>⚙️ Settings</div>
       {user ? (
         <>
-          <ProfileSettings showToast={showToast} />
+          <ProfileSettings />
           <PushNotificationSettings />
           <SettingsAccountBody />
           <PasswordChangeForm />

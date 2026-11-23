@@ -26,7 +26,6 @@ const ReactQueryDevtools = import.meta.env.DEV
   : () => null;
 import { initSentry } from './utils/sentry';
 import { getLocaleDirection } from './i18n';
-import { showToast } from './utils/toast';
 
 const LoginPage = lazy(() => import('./pages/Auth').then(m => ({ default: m.LoginPage })));
 const RegisterPage = lazy(() => import('./pages/Auth').then(m => ({ default: m.RegisterPage })));
@@ -67,7 +66,7 @@ function PrivateRoute({ children, role }) {
       admin: t('privateRoute.adminOnly'),
     };
     if (roleMessages[role]) {
-      toast(roleMessages[role], { type: 'warning' });
+      toast.warning(roleMessages[role]);
     }
     return <Navigate to="/" replace />;
   }
@@ -75,7 +74,7 @@ function PrivateRoute({ children, role }) {
 
 function RoleMismatch({ role }) {
   useEffect(() => {
-    showToast(`This page is for ${role}s only`, 'error');
+    toast.error(`This page is for ${role}s only`);
   }, [role]);
   return <Navigate to="/" replace />;
 }
