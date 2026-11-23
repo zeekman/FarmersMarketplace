@@ -240,6 +240,7 @@
     "previousImage": "Picha iliyotangulia",
     "nextImage": "Picha inayofuata",
     "thumbnail": "Kijipicha {{n}}",
+    "imageN": "{{name}} picha {{n}}",
     "default": "(Chaguo-msingi)",
     "flashSaleTitle": "Ofa ya Haraka",
     "flashSaleBanner": "Tangazo la ofa ya haraka",

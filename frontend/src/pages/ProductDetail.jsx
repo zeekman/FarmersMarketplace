@@ -959,7 +959,7 @@ export default function ProductDetail() {
                   src={images[safeActiveImg].url}
                   srcSet={buildSrcSet(images[safeActiveImg].url)}
                   sizes="(max-width: 640px) 100vw, 640px"
-                  alt={`${product.name} photo ${safeActiveImg + 1}`}
+                  alt={t('productDetail.imageN', { name: product.name, n: safeActiveImg + 1 })}
                   style={s.galleryMain}
                 />
               </div>
