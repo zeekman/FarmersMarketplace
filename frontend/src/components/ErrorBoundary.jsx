@@ -3,7 +3,7 @@ import { captureException } from '../utils/sentry';
 
 const CHUNK_LOAD_ERROR_PATTERN = /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Loading chunk .* failed|ChunkLoadError/i;
 
-function isChunkLoadError(message) {
+export function isChunkLoadError(message) {
   return CHUNK_LOAD_ERROR_PATTERN.test(message || '');
 }
 
