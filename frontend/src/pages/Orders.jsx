@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import { useSearchParams } from 'react-router-dom';
 import { api, newIdempotencyKey } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import Spinner from '../components/Spinner';
+import { SkeletonOrderRow } from '../components/SkeletonLoaders';
 import Pagination from '../components/Pagination';
 import { normalizePage } from '../hooks/usePaginatedQuery';
 import { useNetwork } from '../context/NetworkContext';
@@ -576,7 +576,11 @@ export default function Orders() {
       )}
 
       {loading && !error ? (
-        <Spinner message="Loading orders..." />
+        <div role="status" aria-busy="true" aria-label="Loading orders">
+          <div style={s.card}>
+            {[0, 1, 2, 3].map((i) => <SkeletonOrderRow key={i} />)}
+          </div>
+        </div>
       ) : (
         <>
           <div style={s.stats}>
