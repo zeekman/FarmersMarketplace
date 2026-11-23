@@ -282,6 +282,15 @@
     "retry": "Retry",
     "currency": "Currency"
   },
+  "freighter": {
+    "switchNetwork": "Switch Freighter to {{network}} to pay. Payments are blocked until then.",
+    "errors": {
+      "rejected": "You rejected the request in Freighter.",
+      "notInstalled": "Freighter isn't installed. Install it from freighter.app.",
+      "locked": "Freighter is locked. Unlock it and try again.",
+      "networkMismatch": "Freighter is on a different network than this app. Switch networks in Freighter and try again."
+    }
+  },
   "common": {
     "loading": "Loading...",
     "errors": "Errors",
