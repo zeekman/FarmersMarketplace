@@ -22,23 +22,38 @@ const s = {
   modalTitle: { fontWeight: 700, fontSize: 17, marginBottom: 16, color: '#2d6a4f' },
 };
 
-const COUNTRY_OPTIONS = [
-  { code: 'US', label: 'United States' },
-  { code: 'GB', label: 'United Kingdom' },
-  { code: 'KE', label: 'Kenya' },
-  { code: 'NG', label: 'Nigeria' },
-  { code: 'ZA', label: 'South Africa' },
-  { code: 'GH', label: 'Ghana' },
-  { code: 'IN', label: 'India' },
-  { code: 'AU', label: 'Australia' },
-  { code: 'CA', label: 'Canada' },
-  { code: 'DE', label: 'Germany' },
-];
+const REGION_NAMES = new Intl.DisplayNames(undefined, { type: 'region' });
+const COUNTRY_CODES = ['US', 'GB', 'KE', 'TZ', 'EG', 'NG', 'ZA', 'GH', 'IN', 'AU', 'CA', 'DE'];
+const COUNTRY_OPTIONS = COUNTRY_CODES
+  .map(code => ({ code, label: REGION_NAMES.of(code) }))
+  .sort((a, b) => a.label.localeCompare(b.label));
+
+// Countries missing from this map have no enforced postal-code format; the field stays optional.
+const POSTAL_CODE_PATTERNS = {
+  US: /^\d{5}(-\d{4})?$/,
+  GB: /^[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}$/i,
+  KE: /^\d{5}$/,
+  TZ: /^\d{5}$/,
+  EG: /^\d{5}$/,
+  NG: /^\d{6}$/,
+  ZA: /^\d{4}$/,
+  IN: /^\d{6}$/,
+  AU: /^\d{4}$/,
+  CA: /^[A-Z]\d[A-Z] ?\d[A-Z]\d$/i,
+  DE: /^\d{5}$/,
+};
+
+function postalCodeError(country, postalCode) {
+  const code = postalCode.trim();
+  const pattern = POSTAL_CODE_PATTERNS[country];
+  return code && pattern && !pattern.test(code) ? 'Postal code is not valid for the selected country' : null;
+}
 
 const EMPTY_FORM = { label: '', street: '', city: '', country: '', postal_code: '', is_default: false };
 
 function AddressFormModal({ initial, onSave, onCancel, loading }) {
   const [form, setForm] = useState(initial || EMPTY_FORM);
+  const [postalError, setPostalError] = useState(null);
   const isEdit = Boolean(initial);
 
   React.useEffect(() => {
@@ -49,7 +64,9 @@ function AddressFormModal({ initial, onSave, onCancel, loading }) {
 
   function handleSubmit(e) {
     e.preventDefault();
-    onSave(form);
+    const error = postalCodeError(form.country, form.postal_code);
+    setPostalError(error);
+    if (!error) onSave(form);
   }
 
   return (
@@ -106,9 +123,16 @@ function AddressFormModal({ initial, onSave, onCancel, loading }) {
             id="addr-postal"
             style={s.input}
             value={form.postal_code}
-            onChange={e => setForm({ ...form, postal_code: e.target.value })}
+            onChange={e => { setForm({ ...form, postal_code: e.target.value }); setPostalError(null); }}
             maxLength={20}
+            aria-invalid={Boolean(postalError)}
+            aria-describedby={postalError ? 'addr-postal-error' : undefined}
           />
+          {postalError && (
+            <div id="addr-postal-error" role="alert" style={{ color: '#c0392b', fontSize: 13, marginTop: -8, marginBottom: 12 }}>
+              {postalError}
+            </div>
+          )}
 
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, cursor: 'pointer' }}>
             <input
