@@ -5,6 +5,7 @@
  */
 
 import i18n from 'i18next';
+import { captureException } from './sentry';
 
 export const EN_API_ERRORS = {
   generic: 'An unexpected error occurred. Please try again.',
@@ -21,6 +22,12 @@ export const EN_API_ERRORS = {
   invalid_code: 'That verification code is incorrect.',
   totp_required: 'Enter your two-factor authentication code to continue.',
   not_found: "We couldn't find what you were looking for.",
+  escrow_timeout_not_reached: 'You cannot request a refund yet. Please wait until the escrow timeout has passed.',
+  escrow_refund_after: 'You can request a refund after {{date}}.',
+  escrow_in_dispute: 'This order is in dispute and cannot be settled until the dispute is resolved.',
+  escrow_not_yet_releasable: 'This payment cannot be released yet. Please try again once delivery is confirmed.',
+  escrow_submission_window_closed: 'The window to submit this order has closed.',
+  escrow_already_settled: 'This payment has already been settled.',
 };
 
 const CODE_FALLBACKS = EN_API_ERRORS;
@@ -121,6 +128,11 @@ export const CODE_TO_I18N_KEY = {
   invalid_code: 'apiErrors.invalid_code',
   totp_required: 'apiErrors.totp_required',
   not_found: 'apiErrors.not_found',
+  escrow_timeout_not_reached: 'apiErrors.escrow_timeout_not_reached',
+  escrow_in_dispute: 'apiErrors.escrow_in_dispute',
+  escrow_not_yet_releasable: 'apiErrors.escrow_not_yet_releasable',
+  escrow_submission_window_closed: 'apiErrors.escrow_submission_window_closed',
+  escrow_already_settled: 'apiErrors.escrow_already_settled',
 };
 
 const GENERIC_KEY = 'apiErrors.generic';
@@ -162,6 +174,18 @@ export function getFieldErrors(err) {
 }
 
 /**
+ * Formats `retry_after` (ISO string, or Unix seconds/ms) in the user's locale and
+ * timezone. Returns null when the value is missing or unparseable.
+ */
+function formatRetryDate(value) {
+  if (value == null || value === '') return null;
+  const ms = typeof value === 'number' ? (value < 1e12 ? value * 1000 : value) : Date.parse(value);
+  if (!Number.isFinite(ms)) return null;
+  return new Intl.DateTimeFormat(i18n?.language || undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    .format(new Date(ms));
+}
+
+/**
  * Returns a human-friendly error message for any error thrown by the API.
  * Maps by `err.code` first, then by known message patterns, and otherwise
  * falls back to a generic message so server internals are never shown.
@@ -171,6 +195,10 @@ export function getFieldErrors(err) {
  */
 export function getErrorMessage(err) {
   const code = err?.code;
+  if (code === 'escrow_timeout_not_reached') {
+    const date = formatRetryDate(err.retry_after ?? err.details?.retry_after);
+    if (date) return translate('apiErrors.escrow_refund_after', EN_API_ERRORS.escrow_refund_after, { date });
+  }
   if (code && CODE_TO_I18N_KEY[code]) {
     const key = CODE_TO_I18N_KEY[code];
     if (code === 'rate_limited') {
@@ -180,6 +208,10 @@ export function getErrorMessage(err) {
       }
     }
     return translate(key, CODE_FALLBACKS[code] || GENERIC_FALLBACK);
+  }
+  if (typeof code === 'string' && code.startsWith('escrow_')) {
+    captureException(new Error(`Unmapped escrow error code: ${code}`), { extra: { code } });
+    return translate(GENERIC_KEY, GENERIC_FALLBACK);
   }
   const raw = err?.message || String(err || '');
   for (const { match, message } of ERROR_MAP) {

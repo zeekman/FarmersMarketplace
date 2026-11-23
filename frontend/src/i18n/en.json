@@ -338,7 +338,13 @@
     "invalid_destination": "Invalid destination address. Please double-check the Stellar address.",
     "invalid_code": "That verification code is incorrect.",
     "totp_required": "Enter your two-factor authentication code to continue.",
-    "not_found": "We couldn't find what you were looking for."
+    "not_found": "We couldn't find what you were looking for.",
+    "escrow_timeout_not_reached": "You cannot request a refund yet. Please wait until the escrow timeout has passed.",
+    "escrow_refund_after": "You can request a refund after {{date}}.",
+    "escrow_in_dispute": "This order is in dispute and cannot be settled until the dispute is resolved.",
+    "escrow_not_yet_releasable": "This payment cannot be released yet. Please try again once delivery is confirmed.",
+    "escrow_submission_window_closed": "The window to submit this order has closed.",
+    "escrow_already_settled": "This payment has already been settled."
   },
   "notFound": {
     "title": "404 - Page Not Found",
