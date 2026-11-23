@@ -30,6 +30,8 @@
       {
         "selector": "JSXAttribute[name.name='style'] ObjectExpression Property[key.name=/^(marginLeft|marginRight|paddingLeft|paddingRight|left|right)$/]",
         "message": "Use logical properties (marginInlineStart/End, paddingInlineStart/End, insetInlineStart/End) instead of physical properties for RTL support"
+      }
+    ],
     "no-restricted-globals": [
       "error",
       {
@@ -43,6 +45,22 @@
     ]
   },
   "overrides": [
+    {
+      "files": ["src/pages/ProductDetail.jsx", "src/pages/Settings.jsx", "src/pages/Auth.jsx", "src/pages/AdminDashboard.jsx"],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "JSXAttribute[name.name='style'] ObjectExpression Property[key.name=/^(marginLeft|marginRight|paddingLeft|paddingRight|left|right)$/]",
+            "message": "Use logical properties (marginInlineStart/End, paddingInlineStart/End, insetInlineStart/End) instead of physical properties for RTL support"
+          },
+          {
+            "selector": "Property > Literal[value=/#[0-9a-fA-F]{3,8}\\b/]",
+            "message": "Use a theme token (var(--color-*) from styles/tokens.css) instead of a hex colour so dark mode works"
+          }
+        ]
+      }
+    },
     {
       "files": ["src/pages/**/*.jsx", "src/components/**/*.jsx"],
       "rules": {

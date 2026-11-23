@@ -9,30 +9,30 @@ import { getErrorMessage } from '../utils/errorMessages';
 
 const s = {
   page:    { maxWidth: 640, margin: '0 auto', padding: 24 },
-  title:   { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 8 },
-  sub:     { color: '#888', fontSize: 14, marginBottom: 32 },
-  card:    { background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 },
-  section: { fontSize: 16, fontWeight: 700, color: '#333', marginBottom: 4 },
-  desc:    { fontSize: 13, color: '#888', marginBottom: 16, lineHeight: 1.5 },
-  btnDanger: { background: '#c0392b', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', cursor: 'pointer', fontWeight: 600, fontSize: 14 },
-  btnGhost:  { background: '#fff', color: '#555', border: '1px solid #ddd', borderRadius: 8, padding: '10px 22px', cursor: 'pointer', fontWeight: 600, fontSize: 14 },
+  title:   { fontSize: 24, fontWeight: 700, color: 'var(--color-primary)', marginBottom: 8 },
+  sub:     { color: 'var(--color-text-muted)', fontSize: 14, marginBottom: 32 },
+  card:    { background: 'var(--color-bg-primary)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-md)', marginBottom: 24 },
+  section: { fontSize: 16, fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 4 },
+  desc:    { fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16, lineHeight: 1.5 },
+  btnDanger: { background: 'var(--color-danger)', color: 'var(--color-text-inverse)', border: 'none', borderRadius: 8, padding: '10px 22px', cursor: 'pointer', fontWeight: 600, fontSize: 14 },
+  btnGhost:  { background: 'var(--color-bg-primary)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 8, padding: '10px 22px', cursor: 'pointer', fontWeight: 600, fontSize: 14 },
   overlay:   { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 },
-  modal:     { background: '#fff', borderRadius: 14, padding: 28, maxWidth: 440, width: '100%', boxShadow: '0 8px 32px #0003' },
-  modalTitle:{ fontSize: 18, fontWeight: 700, color: '#c0392b', marginBottom: 12 },
-  warning:   { background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 8, padding: '12px 14px', marginBottom: 16, fontSize: 13, color: '#856404', lineHeight: 1.5 },
-  balanceBox:{ background: '#fee', border: '1px solid #f5c6cb', borderRadius: 8, padding: '12px 14px', marginBottom: 16, fontSize: 13, color: '#721c24', lineHeight: 1.5 },
-  input:     { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, boxSizing: 'border-box', marginBottom: 4 },
-  label:     { display: 'block', fontSize: 13, color: '#555', marginBottom: 6 },
+  modal:     { background: 'var(--color-bg-primary)', borderRadius: 14, padding: 28, maxWidth: 440, width: '100%', boxShadow: 'var(--shadow-xl)' },
+  modalTitle:{ fontSize: 18, fontWeight: 700, color: 'var(--color-danger)', marginBottom: 12 },
+  warning:   { background: 'var(--color-warning-lightest)', border: '1px solid var(--color-warning-light)', borderRadius: 8, padding: '12px 14px', marginBottom: 16, fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.5 },
+  balanceBox:{ background: 'var(--color-error-lightest)', border: '1px solid var(--color-error-light)', borderRadius: 8, padding: '12px 14px', marginBottom: 16, fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.5 },
+  input:     { width: '100%', padding: '9px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14, boxSizing: 'border-box', marginBottom: 4 },
+  label:     { display: 'block', fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 6 },
   row:       { display: 'flex', gap: 10, marginTop: 20 },
-  errMsg:    { color: '#c0392b', fontSize: 13, marginTop: 8 },
-  btn:     { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, marginTop: 14 },
-  btnSm:   { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
-  btnGray: { background: '#888', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13, marginLeft: 8 },
-  err:     { color: '#c0392b', fontSize: 13, marginTop: 8, padding: '8px 12px', background: '#fff0f0', borderRadius: 6 },
-  ok:      { color: '#2d6a4f', fontSize: 13, marginTop: 8, padding: '8px 12px', background: '#d8f3dc', borderRadius: 6 },
-  warn:    { background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#5d4037', marginBottom: 14 },
+  errMsg:    { color: 'var(--color-danger)', fontSize: 13, marginTop: 8 },
+  btn:     { background: 'var(--color-primary)', color: 'var(--color-text-inverse)', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, marginTop: 14 },
+  btnSm:   { background: 'var(--color-primary)', color: 'var(--color-text-inverse)', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
+  btnGray: { background: 'var(--color-text-muted)', color: 'var(--color-text-inverse)', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13, marginLeft: 8 },
+  err:     { color: 'var(--color-danger)', fontSize: 13, marginTop: 8, padding: '8px 12px', background: 'var(--color-error-lightest)', borderRadius: 6 },
+  ok:      { color: 'var(--color-primary)', fontSize: 13, marginTop: 8, padding: '8px 12px', background: 'var(--color-primary-lightest)', borderRadius: 6 },
+  warn:    { background: 'var(--color-warning-lightest)', border: '1px solid var(--color-warning-light)', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: 'var(--color-text-primary)', marginBottom: 14 },
   mnemonic: {
-    background: '#1a1a2e', color: '#e0e0e0', borderRadius: 10, padding: 20,
+    background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)', borderRadius: 10, padding: 20,
     fontFamily: 'monospace', fontSize: 15, lineHeight: 2, letterSpacing: 0.5,
     wordBreak: 'break-word', marginTop: 14, userSelect: 'all',
   },
@@ -40,10 +40,10 @@ const s = {
     display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 12px', marginTop: 14,
   },
   wordChip: {
-    background: '#1a1a2e', color: '#e0e0e0', borderRadius: 6, padding: '6px 10px',
+    background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)', borderRadius: 6, padding: '6px 10px',
     fontFamily: 'monospace', fontSize: 13, display: 'flex', gap: 6, alignItems: 'center',
   },
-  wordNum: { color: '#888', fontSize: 11, minWidth: 18 },
+  wordNum: { color: 'var(--color-text-muted)', fontSize: 11, minWidth: 18 },
 };
 
 const CONFIRM_PHRASE = 'delete my account';
@@ -66,9 +66,9 @@ function Toast({ toast }) {
       aria-live={isOk ? 'polite' : 'assertive'}
       style={{
         position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
-        background: isOk ? '#2d6a4f' : '#c0392b', color: '#fff',
+        background: isOk ? 'var(--color-primary)' : 'var(--color-danger)', color: 'var(--color-text-inverse)',
         borderRadius: 10, padding: '12px 20px', fontSize: 14,
-        boxShadow: '0 4px 16px #0003', minWidth: 240,
+        boxShadow: 'var(--shadow-lg)', minWidth: 240,
       }}
     >
       {toast.text}
@@ -80,18 +80,18 @@ function PasswordStrengthBar({ password }) {
   if (!password) return null;
   const issues = validatePassword(password);
   const score = 4 - issues.length; // 0–4
-  const colors = ['#c0392b', '#e67e22', '#f1c40f', '#27ae60', '#2d6a4f'];
+  const colors = ['var(--color-danger)', 'var(--color-warning)', 'var(--color-accent-light)', 'var(--color-success-light)', 'var(--color-primary)'];
   const labels = ['Weak', 'Weak', 'Fair', 'Good', 'Strong'];
   return (
     <div style={{ marginTop: 6 }}>
       <div style={{ display: 'flex', gap: 3 }}>
         {[0, 1, 2, 3].map(i => (
-          <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i < score ? colors[score] : '#e0e0e0' }} />
+          <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i < score ? colors[score] : 'var(--color-border)' }} />
         ))}
       </div>
       <div style={{ fontSize: 11, color: colors[score], marginTop: 3 }}>{labels[score]}</div>
       {issues.length > 0 && (
-        <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Needs: {issues.join(', ')}</div>
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>Needs: {issues.join(', ')}</div>
       )}
     </div>
   );
@@ -138,17 +138,17 @@ function PasswordChangeForm() {
 
         <label style={{ ...s.label, marginTop: 12 }} htmlFor="cp-confirm">Confirm New Password</label>
         <input id="cp-confirm"
-          style={{ ...s.input, ...(form.confirm && form.newPw !== form.confirm ? { border: '1px solid #c0392b' } : {}) }}
+          style={{ ...s.input, ...(form.confirm && form.newPw !== form.confirm ? { border: '1px solid var(--color-danger)' } : {}) }}
           type="password" value={form.confirm}
           onChange={e => setForm(f => ({ ...f, confirm: e.target.value }))} autoComplete="new-password"
           aria-invalid={!!(form.confirm && form.newPw !== form.confirm)}
           aria-describedby={form.confirm && form.newPw !== form.confirm ? 'cp-confirm-err' : undefined} />
         {form.confirm && form.newPw !== form.confirm && (
-          <div id="cp-confirm-err" style={{ fontSize: 12, color: '#c0392b', marginTop: 3 }} role="alert">Passwords do not match</div>
+          <div id="cp-confirm-err" style={{ fontSize: 12, color: 'var(--color-danger)', marginTop: 3 }} role="alert">Passwords do not match</div>
         )}
 
         {msg && (
-          <div role={msg.type === 'ok' ? 'status' : 'alert'} style={{ ...s.err, ...(msg.type === 'ok' ? { color: '#2d6a4f', background: '#d8f3dc' } : {}), marginTop: 10 }}>
+          <div role={msg.type === 'ok' ? 'status' : 'alert'} style={{ ...s.err, ...(msg.type === 'ok' ? { color: 'var(--color-primary)', background: 'var(--color-primary-lightest)' } : {}), marginTop: 10 }}>
             {msg.text}
           </div>
         )}
@@ -245,19 +245,19 @@ function SettingsAccountBody() {
 
       <div style={s.card}>
         <div style={s.section}>Account Information</div>
-        <div style={{ fontSize: 14, color: '#555', marginBottom: 4 }}>
+        <div style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
           <strong>Name:</strong> {user?.name}
         </div>
-        <div style={{ fontSize: 14, color: '#555', marginBottom: 4 }}>
+        <div style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
           <strong>Email:</strong> {user?.email}
         </div>
-        <div style={{ fontSize: 14, color: '#555' }}>
+        <div style={{ fontSize: 14, color: 'var(--color-text-secondary)' }}>
           <strong>Role:</strong> {user?.role}
         </div>
       </div>
 
-      <div style={{ ...s.card, border: '1px solid #f5c6cb' }}>
-        <div style={{ ...s.section, color: '#c0392b' }}>Danger Zone</div>
+      <div style={{ ...s.card, border: '1px solid var(--color-error-light)' }}>
+        <div style={{ ...s.section, color: 'var(--color-danger)' }}>Danger Zone</div>
         <div style={s.desc}>
           Permanently delete your account and all associated data including orders, products, and profile information.
           Your Stellar wallet will be abandoned — make sure to withdraw any funds first.
@@ -267,12 +267,12 @@ function SettingsAccountBody() {
         </button>
       </div>
 
-      <div style={{ ...s.card, border: '1px solid #ffc107' }}>
+      <div style={{ ...s.card, border: '1px solid var(--color-warning-light)' }}>
         <div style={s.section}>Wallet Consolidation</div>
         <div style={s.desc}>
           Merge this account's Stellar wallet into another address. All XLM will be transferred and the source account will be permanently closed on the ledger. This action is irreversible.
         </div>
-        <button style={{ ...s.btnDanger, background: '#e67e22' }} onClick={openMergeModal}>
+        <button style={{ ...s.btnDanger, background: 'var(--color-warning)' }} onClick={openMergeModal}>
           Merge Wallet
         </button>
       </div>
@@ -286,7 +286,7 @@ function SettingsAccountBody() {
             </div>
             {mergeSuccess ? (
               <>
-                <div style={{ color: '#2d6a4f', fontSize: 13, background: '#d8f3dc', borderRadius: 6, padding: '10px 12px', wordBreak: 'break-all' }}>{mergeSuccess}</div>
+                <div style={{ color: 'var(--color-primary)', fontSize: 13, background: 'var(--color-primary-lightest)', borderRadius: 6, padding: '10px 12px', wordBreak: 'break-all' }}>{mergeSuccess}</div>
                 <div style={s.row}>
                   <button style={s.btnGhost} onClick={closeMergeModal}>Close</button>
                 </div>
@@ -314,7 +314,7 @@ function SettingsAccountBody() {
                 <div style={s.row}>
                   <button style={s.btnGhost} onClick={closeMergeModal} disabled={merging}>Cancel</button>
                   <button
-                    style={{ ...s.btnDanger, background: '#e67e22', opacity: mergeDestination && mergePassword ? 1 : 0.5 }}
+                    style={{ ...s.btnDanger, background: 'var(--color-warning)', opacity: mergeDestination && mergePassword ? 1 : 0.5 }}
                     disabled={!mergeDestination || !mergePassword || merging}
                     onClick={handleMerge}
                   >
@@ -337,7 +337,7 @@ function SettingsAccountBody() {
                 <div style={s.warning}>
                   <strong>This action is permanent and cannot be undone.</strong> All your data will be deleted including orders, listings, and your profile.
                 </div>
-                <p style={{ fontSize: 13, color: '#555', marginBottom: 16, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
                   Your Stellar wallet (<code style={{ fontSize: 11 }}>{user?.publicKey?.slice(0, 10)}...</code>) will be abandoned on the ledger.
                   Please withdraw any remaining XLM before proceeding.
                 </p>
@@ -373,17 +373,17 @@ function SettingsAccountBody() {
                   Your Stellar wallet still holds <strong>{balanceInfo.balance.toFixed(4)} XLM</strong>.
                   If you delete your account now, these funds will be permanently inaccessible.
                 </div>
-                <p style={{ fontSize: 13, color: '#555', marginBottom: 8, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 8, lineHeight: 1.5 }}>
                   We recommend withdrawing your funds first. Go to your{' '}
                   <span
-                    style={{ color: '#2d6a4f', cursor: 'pointer', textDecoration: 'underline' }}
+                    style={{ color: 'var(--color-primary)', cursor: 'pointer', textDecoration: 'underline' }}
                     onClick={() => { closeModal(); navigate('/wallet'); }}
                   >
                     Wallet
                   </span>{' '}
                   to send XLM to another address.
                 </p>
-                <p style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
+                <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 16 }}>
                   Public key: <code style={{ wordBreak: 'break-all' }}>{balanceInfo.publicKey}</code>
                 </p>
                 {error && <div style={s.errMsg}>{error}</div>}
@@ -503,8 +503,8 @@ function SeedPhraseBackup() {
 
   return (
     <div style={s.card}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, color: '#333', marginBottom: 4 }}>🔑 Seed Phrase Backup</h2>
-      <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 4 }}>🔑 Seed Phrase Backup</h2>
+      <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 14 }}>
         Your 24-word seed phrase lets you recover your Stellar wallet if you ever lose access to this account.
         Keep it somewhere safe and never share it with anyone.
       </p>
@@ -546,7 +546,7 @@ function SeedPhraseBackup() {
         </form>
       ) : (
         <div>
-          <div style={{ ...s.warn, background: '#fdecea', border: '1px solid #e57373', color: '#b71c1c' }}>
+          <div style={{ ...s.warn, background: 'var(--color-error-lightest)', border: '1px solid var(--color-error-light)', color: 'var(--color-danger)' }}>
             🚨 Write these words down in order and store them offline. They hide automatically after 60 seconds.
             Never screenshot or share them.
           </div>
@@ -574,7 +574,7 @@ function SeedPhraseBackup() {
               </div>
             ))}
           </div>
-          <p style={{ fontSize: 12, color: '#888', marginTop: 6 }}>Press and hold the words, or use “Show”, to reveal them.</p>
+          <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 6 }}>Press and hold the words, or use “Show”, to reveal them.</p>
 
           <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
@@ -608,7 +608,7 @@ function SeedPhraseBackup() {
 
           {verifying && (
             <form onSubmit={handleVerify} noValidate autoComplete="off" style={{ marginTop: 14 }}>
-              <p style={{ fontSize: 13, color: '#555', marginBottom: 8 }}>Enter words {VERIFY_POSITIONS.join(', ')} to confirm your backup.</p>
+              <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 8 }}>Enter words {VERIFY_POSITIONS.join(', ')} to confirm your backup.</p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {VERIFY_POSITIONS.map(pos => (
                   <input
@@ -673,8 +673,8 @@ function AccountRecovery() {
 
   return (
     <div style={s.card}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, color: '#333', marginBottom: 4 }}>🔄 Recover Account from Seed Phrase</h2>
-      <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 4 }}>🔄 Recover Account from Seed Phrase</h2>
+      <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 14 }}>
         Lost access? Enter your email, password, and seed phrase to restore your wallet.
       </p>
       <form onSubmit={handleRecover} noValidate>

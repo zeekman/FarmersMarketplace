@@ -45,7 +45,7 @@ function LazyMapView(props) {
   return (
     <div ref={ref} style={{ minHeight: 300 }}>
       {visible && (
-        <Suspense fallback={<div style={{ height: 300, background: '#f0faf4', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Loading map…</div>}>
+        <Suspense fallback={<div style={{ height: 300, background: 'var(--color-surface-subtle)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)' }}>Loading map…</div>}>
           <MapView {...props} />
         </Suspense>
       )}
@@ -56,10 +56,10 @@ function LazyMapView(props) {
 const s = {
   page: { maxWidth: 640, margin: "40px auto", padding: 16 },
   card: {
-    background: "#fff",
+    background: "var(--color-bg-primary)",
     borderRadius: 12,
     padding: 24,
-    boxShadow: "0 1px 8px #0001",
+    boxShadow: "var(--shadow-md)",
     marginBottom: 24,
   },
   header: {
@@ -71,36 +71,36 @@ const s = {
   },
   headerContent: { flex: 1 },
   favoriteBtn: { background: 'none', border: 'none', fontSize: 32, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 48, height: 48, flexShrink: 0 },
-  name:       { fontSize: 28, fontWeight: 700, color: '#2d6a4f', marginBottom: 4 },
-  farmer:     { color: '#888', marginBottom: 8 },
-  desc:       { color: '#555', marginBottom: 24, lineHeight: 1.6 },
-  price:      { fontSize: 24, fontWeight: 700, color: '#2d6a4f', marginBottom: 8 },
+  name:       { fontSize: 28, fontWeight: 700, color: 'var(--color-primary)', marginBottom: 4 },
+  farmer:     { color: 'var(--color-text-muted)', marginBottom: 8 },
+  desc:       { color: 'var(--color-text-secondary)', marginBottom: 24, lineHeight: 1.6 },
+  price:      { fontSize: 24, fontWeight: 700, color: 'var(--color-primary)', marginBottom: 8 },
   row:        { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 },
-  input:      { width: 80, padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, textAlign: 'center' },
-  btn:        { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '12px 28px', cursor: 'pointer', fontWeight: 600, fontSize: 16, minHeight: 44 },
-  btnSm:      { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', cursor: 'pointer', fontWeight: 600, fontSize: 14, minHeight: 44 },
-  total:      { background: '#f0faf4', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 15 },
-  err:        { color: '#c0392b', fontSize: 14, marginTop: 8 },
-  success:    { background: '#d8f3dc', borderRadius: 8, padding: 16, color: '#2d6a4f' },
-  sectionTitle: { fontSize: 18, fontWeight: 700, color: '#2d6a4f', marginBottom: 16 },
-  reviewCard: { borderBottom: '1px solid #f0f0f0', paddingBottom: 14, marginBottom: 14 },
-  reviewName: { fontWeight: 600, fontSize: 14, color: '#333' },
-  reviewDate: { fontSize: 12, color: '#aaa', marginLeft: 8 },
-  reviewText: { fontSize: 14, color: '#555', marginTop: 6, lineHeight: 1.5 },
-  textarea:   { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, resize: 'vertical', minHeight: 80, boxSizing: 'border-box' },
-  label:      { fontSize: 13, color: '#555', marginBottom: 6, display: 'block' },
-  empty:      { color: '#aaa', fontSize: 14, textAlign: 'center', padding: '24px 0' },
+  input:      { width: 80, padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 16, textAlign: 'center' },
+  btn:        { background: 'var(--color-primary)', color: 'var(--color-text-inverse)', border: 'none', borderRadius: 8, padding: '12px 28px', cursor: 'pointer', fontWeight: 600, fontSize: 16, minHeight: 44 },
+  btnSm:      { background: 'var(--color-primary)', color: 'var(--color-text-inverse)', border: 'none', borderRadius: 8, padding: '9px 20px', cursor: 'pointer', fontWeight: 600, fontSize: 14, minHeight: 44 },
+  total:      { background: 'var(--color-surface-subtle)', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 15 },
+  err:        { color: 'var(--color-danger)', fontSize: 14, marginTop: 8 },
+  success:    { background: 'var(--color-primary-lightest)', borderRadius: 8, padding: 16, color: 'var(--color-primary)' },
+  sectionTitle: { fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', marginBottom: 16 },
+  reviewCard: { borderBottom: '1px solid var(--color-border-light)', paddingBottom: 14, marginBottom: 14 },
+  reviewName: { fontWeight: 600, fontSize: 14, color: 'var(--color-text-primary)' },
+  reviewDate: { fontSize: 12, color: 'var(--color-text-muted)', marginLeft: 8 },
+  reviewText: { fontSize: 14, color: 'var(--color-text-secondary)', marginTop: 6, lineHeight: 1.5 },
+  textarea:   { width: '100%', padding: '10px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14, resize: 'vertical', minHeight: 80, boxSizing: 'border-box' },
+  label:      { fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 6, display: 'block' },
+  empty:      { color: 'var(--color-text-muted)', fontSize: 14, textAlign: 'center', padding: '24px 0' },
   badge:      { display: 'inline-block', fontSize: 11, borderRadius: 4, padding: '2px 7px' },
-  select:     { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 12 },
+  select:     { width: '100%', padding: '9px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14, marginBottom: 12 },
   galleryMain:   { width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 10, marginBottom: 10, display: 'block', transition: 'transform 0.3s ease' },
   galleryMainContainer: { overflow: 'hidden', borderRadius: 10, marginBottom: 10, cursor: 'zoom-in' },
   thumbRow:      { display: 'flex', gap: 8, marginBottom: 16, overflowX: 'auto' },
   thumb:         { width: 64, height: 64, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', border: '2px solid transparent', flexShrink: 0 },
-  thumbActive:   { border: '2px solid #2d6a4f' },
-  navBtn:        { background: 'rgba(0,0,0,0.35)', color: '#fff', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  thumbActive:   { border: '2px solid var(--color-primary)' },
+  navBtn:        { background: 'rgba(0,0,0,0.35)', color: 'var(--color-text-on-media)', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   dotRow:        { display: 'flex', justifyContent: 'center', gap: 6, marginTop: 8 },
-  dot:           { width: 8, height: 8, borderRadius: '50%', background: '#ccc', border: 'none', padding: 0, cursor: 'pointer' },
-  dotActive:     { background: '#2d6a4f' },
+  dot:           { width: 8, height: 8, borderRadius: '50%', background: 'var(--color-border)', border: 'none', padding: 0, cursor: 'pointer' },
+  dotActive:     { background: 'var(--color-primary)' },
 };
 
 function CopyButton({ url }) {
@@ -113,7 +113,7 @@ function CopyButton({ url }) {
   }
   return (
     <button
-      style={{ ...{ background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', cursor: 'pointer', fontWeight: 600, fontSize: 14, width: '100%' } }}
+      style={{ ...{ background: 'var(--color-primary)', color: 'var(--color-text-inverse)', border: 'none', borderRadius: 8, padding: '9px 20px', cursor: 'pointer', fontWeight: 600, fontSize: 14, width: '100%' } }}
       onClick={handleCopy}
     >
       {copied ? 'Copied!' : 'Copy link'}
@@ -839,13 +839,13 @@ export default function ProductDetail() {
                 <strong>{t('productDetail.escrowSuccess')}</strong>
                 <p style={{ marginTop: 8, fontSize: 14 }}>{t('productDetail.escrowOrderInfo', { id: result.orderId, price: result.totalPrice })}</p>
                 {(result.claimableBalanceId || result.balanceId) && (
-                  <p style={{ marginTop: 4, fontSize: 12, color: '#555' }}>
+                  <p style={{ marginTop: 4, fontSize: 12, color: 'var(--color-text-secondary)' }}>
                     {result.sorobanEscrow ? 'Escrow' : 'Balance'}:{' '}
                     <a
                       href={explorerUrl('claimable-balance', result.claimableBalanceId || result.balanceId)}
                       target="_blank"
                       rel="noreferrer"
-                      style={{ color: '#2d6a4f', wordBreak: 'break-all' }}
+                      style={{ color: 'var(--color-primary)', wordBreak: 'break-all' }}
                     >
                       {result.claimableBalanceId || result.balanceId}
                     </a>
@@ -855,43 +855,43 @@ export default function ProductDetail() {
                   {t('productDetail.escrowOrderInfo', { id: result.orderId, price: result.totalPrice })}
                 </p>
                 {result.balanceId ? (
-                  <p style={{ marginTop: 4, fontSize: 12, color: '#555' }}>
+                  <p style={{ marginTop: 4, fontSize: 12, color: 'var(--color-text-secondary)' }}>
                     Balance ID: <a href={explorerUrl('claimable-balance', result.balanceId)}
-                      target="_blank" rel="noreferrer" style={{ color: '#2d6a4f', wordBreak: 'break-all' }}>{result.balanceId}</a>
+                      target="_blank" rel="noreferrer" style={{ color: 'var(--color-primary)', wordBreak: 'break-all' }}>{result.balanceId}</a>
                   </p>
                 ) : null}
-                <p style={{ marginTop: 4, fontSize: 12, color: '#888' }}>{t('productDetail.escrowNote')}</p>
+                <p style={{ marginTop: 4, fontSize: 12, color: 'var(--color-text-muted)' }}>{t('productDetail.escrowNote')}</p>
               </>
             ) : (
               <>
                 <strong>{t('productDetail.paymentSuccess')}</strong>
                 <p style={{ marginTop: 8, fontSize: 14 }}>{t('productDetail.orderInfo', { id: result.orderId, price: result.totalPrice })}</p>
                 {result.sourceAsset && result.sourceAsset !== 'XLM' && (
-                  <p style={{ marginTop: 4, fontSize: 13, color: '#555' }}>Paid via path payment using <strong>{result.sourceAsset}</strong></p>
+                  <p style={{ marginTop: 4, fontSize: 13, color: 'var(--color-text-secondary)' }}>Paid via path payment using <strong>{result.sourceAsset}</strong></p>
                 )}
-                <p style={{ marginTop: 4, fontSize: 12, wordBreak: 'break-all', color: '#555' }}>TX: {result.txHash}</p>
+                <p style={{ marginTop: 4, fontSize: 12, wordBreak: 'break-all', color: 'var(--color-text-secondary)' }}>TX: {result.txHash}</p>
                 {result.rewardRedemption && (
-                  <p style={{ marginTop: 4, fontSize: 13, color: '#2d6a4f' }} data-testid="receipt-reward-discount">
+                  <p style={{ marginTop: 4, fontSize: 13, color: 'var(--color-primary)' }} data-testid="receipt-reward-discount">
                     🎁 Reward tokens redeemed: {result.rewardRedemption.tokens} (−{Number(result.rewardRedemption.discount).toFixed(2)} XLM)
                   </p>
                 )}
-                <p style={{ marginTop: 4, fontSize: 12, wordBreak: 'break-all', color: '#555' }}>
+                <p style={{ marginTop: 4, fontSize: 12, wordBreak: 'break-all', color: 'var(--color-text-secondary)' }}>
                   TX:{' '}
                   {result.txHash ? (
-                    <a href={explorerUrl('tx', result.txHash)} target="_blank" rel="noreferrer" style={{ color: '#2d6a4f' }}>
+                    <a href={explorerUrl('tx', result.txHash)} target="_blank" rel="noreferrer" style={{ color: 'var(--color-primary)' }}>
                       {result.txHash}
                     </a>
                   ) : '—'}
                 </p>
                 {result.bundleDiscount && (
-                  <p style={{ marginTop: 4, fontSize: 13, color: '#2d6a4f' }}>
+                  <p style={{ marginTop: 4, fontSize: 13, color: 'var(--color-primary)' }}>
                     🏷️ Bundle discount applied: −{result.bundleDiscount.amount.toFixed(4)} XLM ({result.bundleDiscount.percent}% off for {result.bundleDiscount.minProducts}+ products)
                   </p>
                 )}
               </>
             )}
           </div>
-          <button style={{ ...s.btn, marginTop: 20, background: '#555' }} onClick={() => navigate('/marketplace')}>
+          <button style={{ ...s.btn, marginTop: 20, background: 'var(--color-text-secondary)' }} onClick={() => navigate('/marketplace')}>
             {t('productDetail.backToMarketplace')}
           </button>
         </div>
@@ -934,7 +934,7 @@ export default function ProductDetail() {
           <video
             controls
             src={product.video_url}
-            style={{ width: '100%', maxHeight: 280, borderRadius: 10, marginBottom: 16, background: '#000' }}
+            style={{ width: '100%', maxHeight: 280, borderRadius: 10, marginBottom: 16, background: 'var(--color-media-bg)' }}
           />
         ) : null}
 
@@ -1011,20 +1011,20 @@ export default function ProductDetail() {
             <div style={s.name}>{product.name}</div>
             <div style={s.farmer}>
               {t('productDetail.soldBy')}{' '}
-              <span style={{ cursor: 'pointer', textDecoration: 'underline', color: '#2d6a4f' }}
+              <span style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--color-primary)' }}
                 onClick={() => navigate(`/farmer/${product.farmer_id}`)}>
                 {product.farmer_name}
               </span>{' '}
               <button
                 type="button"
                 onClick={() => navigate(`/messages?to=${encodeURIComponent(product.farmer_id)}`)}
-                style={{ marginLeft: 8, background: 'none', border: '1px solid #2d6a4f', color: '#2d6a4f', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 13 }}
+                style={{ marginLeft: 8, background: 'none', border: '1px solid var(--color-primary)', color: 'var(--color-primary)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 13 }}
               >
                 {t('inbox.messageFarmer')}
               </button>
             </div>
             {product.farm_lat != null && product.farm_lng != null && (
-              <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>
+              <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 4 }}>
                 {distanceLabel ? (
                   <span>{distanceLabel}</span>
                 ) : (
@@ -1035,7 +1035,7 @@ export default function ProductDetail() {
                     style={{
                       background: 'none',
                       border: 'none',
-                      color: '#2d6a4f',
+                      color: 'var(--color-primary)',
                       textDecoration: 'underline',
                       cursor: 'pointer',
                       padding: 0,
@@ -1046,13 +1046,13 @@ export default function ProductDetail() {
                   </button>
                 )}
                 {distanceError && (
-                  <span style={{ color: '#c0392b', marginLeft: 10 }}>{distanceError}</span>
+                  <span style={{ color: 'var(--color-danger)', marginLeft: 10 }}>{distanceError}</span>
                 )}
               </div>
             )}
             {product.harvest_batch_code && (
-              <div style={{ fontSize: 14, color: '#555', marginTop: 6 }}>
-                <span style={{ fontWeight: 600, color: '#2d6a4f' }}>Harvest batch:</span>{' '}
+              <div style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginTop: 6 }}>
+                <span style={{ fontWeight: 600, color: 'var(--color-primary)' }}>Harvest batch:</span>{' '}
                 {product.harvest_batch_code}
                 {product.harvest_batch_date ? ` · ${product.harvest_batch_date}` : ''}
               </div>
@@ -1076,11 +1076,11 @@ export default function ProductDetail() {
 
         {product.farm_lat != null && product.farm_lng != null ? (
           <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#2d6a4f', marginBottom: 12 }}>Farm Location</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-primary)', marginBottom: 12 }}>Farm Location</div>
           <LazyMapView lat={product.farm_lat} lng={product.farm_lng} farmerName={product.farmer_name} />
           </div>
         ) : (
-          <div style={{ marginBottom: 20, padding: '16px', borderRadius: 10, background: '#f8fdf9', color: '#555' }}>
+          <div style={{ marginBottom: 20, padding: '16px', borderRadius: 10, background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)' }}>
             Location not provided
           </div>
         )}
@@ -1100,7 +1100,7 @@ export default function ProductDetail() {
               style={{
                 background: 'none',
                 border: 'none',
-                color: '#2d6a4f',
+                color: 'var(--color-primary)',
                 cursor: 'pointer',
                 fontSize: 16,
                 fontWeight: 600,
@@ -1113,7 +1113,7 @@ export default function ProductDetail() {
               Nutritional Information {nutritionExpanded ? '▼' : '▶'}
             </button>
             {nutritionExpanded && (
-              <div style={{ marginTop: 8, padding: 12, background: '#f8fdf9', border: '1px solid #b7e4c7', borderRadius: 8 }}>
+              <div style={{ marginTop: 8, padding: 12, background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-accent)', borderRadius: 8 }}>
                 {(() => {
                   try {
                     const nutrition = JSON.parse(product.nutrition);
@@ -1139,7 +1139,7 @@ export default function ProductDetail() {
                             <strong>Vitamins:</strong>
                             <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                               {Object.entries(nutrition.vitamins).map(([vitamin, amount]) => (
-                                <span key={vitamin} style={{ fontSize: 13, background: '#e8f5e8', padding: '2px 6px', borderRadius: 4 }}>
+                                <span key={vitamin} style={{ fontSize: 13, background: 'var(--color-primary-lightest)', padding: '2px 6px', borderRadius: 4 }}>
                                   {vitamin}: {amount}
                                 </span>
                               ))}
@@ -1149,7 +1149,7 @@ export default function ProductDetail() {
                       </div>
                     );
                   } catch {
-                    return <div style={{ color: '#888', fontSize: 14 }}>Invalid nutritional data</div>;
+                    return <div style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>Invalid nutritional data</div>;
                   }
                 })()}
               </div>
@@ -1158,7 +1158,7 @@ export default function ProductDetail() {
         )}
 
         {product.is_preorder ? (
-          <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 600, color: '#856404', background: '#fff3cd', display: 'inline-block', padding: '4px 10px', borderRadius: 20 }}>
+          <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', background: 'var(--color-warning-lightest)', display: 'inline-block', padding: '4px 10px', borderRadius: 20 }}>
             Pre-Order{product.preorder_delivery_date ? ` · Expected delivery ${product.preorder_delivery_date}` : ''}
           </div>
         ) : null}
@@ -1169,8 +1169,8 @@ export default function ProductDetail() {
               role="region"
               aria-label={t('productDetail.flashSaleBanner')}
               style={{
-                background: '#fbbf24',
-                border: '2px solid #f59e0b',
+                background: 'var(--color-warning-lightest)',
+                border: '2px solid var(--color-warning)',
                 borderRadius: 10,
                 padding: '14px 18px',
                 marginBottom: 16,
@@ -1180,18 +1180,18 @@ export default function ProductDetail() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 15, fontWeight: 800, color: '#78350f' }}>
+                <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-text-primary)' }}>
                   ⚡ {t('productDetail.flashSaleTitle')}
                 </span>
-                <span style={{ fontSize: 22, fontWeight: 800, color: '#78350f' }}>
+                <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--color-text-primary)' }}>
                   {unitPrice.toFixed(2)} XLM
                 </span>
-                <span style={{ fontSize: 14, textDecoration: 'line-through', color: '#92400e', fontWeight: 500 }}>
+                <span style={{ fontSize: 14, textDecoration: 'line-through', color: 'var(--color-text-primary)', fontWeight: 500 }}>
                   {baseUnitPrice.toFixed(2)} XLM
                 </span>
                 <span style={{
-                  background: '#ef4444',
-                  color: '#fff',
+                  background: 'var(--color-danger)',
+                  color: 'var(--color-text-inverse)',
                   borderRadius: 20,
                   padding: '2px 10px',
                   fontSize: 13,
@@ -1215,7 +1215,7 @@ export default function ProductDetail() {
             {unitPrice.toFixed(2)} XLM{' '}
             <span style={{ fontSize: 14, fontWeight: 400 }}>/ {product.unit}</span>
             {tiers.length > 0 && (
-              <span style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>(bulk pricing available)</span>
+              <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginLeft: 8 }}>(bulk pricing available)</span>
             )}
           </div>
         )}
@@ -1232,10 +1232,10 @@ export default function ProductDetail() {
                 onChange={e => { setCustomPrice(e.target.value); setCouponResult(null); setCouponError(''); }}
                 placeholder={product.pricing_model === 'pwyw' ? `Min ${product.min_price}` : 'Amount'}
               />
-              <span style={{ fontSize: 13, color: '#888' }}>XLM / {product.unit}</span>
+              <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>XLM / {product.unit}</span>
             </div>
             {product.pricing_model === 'pwyw' && (
-              <div style={{ fontSize: 13, color: '#888' }}>
+              <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
                 Suggested price: {product.price} XLM · Minimum: {product.min_price} XLM
               </div>
             )}
@@ -1248,13 +1248,13 @@ export default function ProductDetail() {
           try { allergens = product.allergens ? JSON.parse(product.allergens) : []; } catch {}
           return (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6 }}>Allergens</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 6 }}>Allergens</div>
               {allergens.length === 0 ? (
-                <span style={{ fontSize: 12, color: '#888', background: '#f5f5f5', borderRadius: 4, padding: '3px 8px' }}>No known allergens</span>
+                <span style={{ fontSize: 12, color: 'var(--color-text-muted)', background: 'var(--color-bg-tertiary)', borderRadius: 4, padding: '3px 8px' }}>No known allergens</span>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {allergens.map(a => (
-                    <span key={a} style={{ fontSize: 12, fontWeight: 600, background: '#fff3cd', color: '#856404', border: '1px solid #f0c040', borderRadius: 4, padding: '3px 8px' }}>
+                    <span key={a} style={{ fontSize: 12, fontWeight: 600, background: 'var(--color-warning-lightest)', color: 'var(--color-text-primary)', border: '1px solid var(--color-warning-light)', borderRadius: 4, padding: '3px 8px' }}>
                       ⚠️ {a.charAt(0).toUpperCase() + a.slice(1)}
                     </span>
                   ))}
@@ -1266,24 +1266,24 @@ export default function ProductDetail() {
 
         <PriceHistoryChart data={priceHistory} />
         {usd(unitPrice) && (
-          <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
-            {usd(unitPrice)} {t('productDetail.perUnit', { unit: product.unit })} <span style={{ fontSize: 11, color: '#bbb' }}>{t('productDetail.approxRate')}</span>
+          <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 4 }}>
+            {usd(unitPrice)} {t('productDetail.perUnit', { unit: product.unit })} <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{t('productDetail.approxRate')}</span>
           </div>
         )}
 
         {tiers.length > 0 && (
-          <div style={{ marginBottom: 16, padding: 12, background: '#f8fdf9', border: '1px solid #b7e4c7', borderRadius: 8 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#2d6a4f', marginBottom: 8 }}>Bulk Pricing Tiers</div>
+          <div style={{ marginBottom: 16, padding: 12, background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-accent)', borderRadius: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-primary)', marginBottom: 8 }}>Bulk Pricing Tiers</div>
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid #ddd' }}>
+                <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
                   <th style={{ textAlign: 'left', padding: '4px 0', fontWeight: 600 }}>Min Quantity</th>
                   <th style={{ textAlign: 'left', padding: '4px 0', fontWeight: 600 }}>Price per Unit</th>
                 </tr>
               </thead>
               <tbody>
                 {tiers.map((tier, index) => (
-                  <tr key={tier.id} style={{ borderBottom: index < tiers.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
+                  <tr key={tier.id} style={{ borderBottom: index < tiers.length - 1 ? '1px solid var(--color-border-light)' : 'none' }}>
                     <td style={{ padding: '4px 0' }}>{tier.min_quantity}+ {product.unit}</td>
                     <td style={{ padding: '4px 0' }}>{tier.price_per_unit} XLM</td>
                   </tr>
@@ -1293,31 +1293,31 @@ export default function ProductDetail() {
           </div>
         )}
 
-        <div style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
+        <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20 }}>
           {t('productDetail.inStock', { qty: currentStock, unit: product.unit })}
           {currentStock > 0 && currentStock <= 5 && (
-            <span style={{ marginLeft: 8, color: '#c0392b', fontWeight: 700 }}>
+            <span style={{ marginLeft: 8, color: 'var(--color-danger)', fontWeight: 700 }}>
               ⚠️ Only {currentStock} left!
             </span>
           )}
           {product.min_order_quantity > 1 && (
-            <span style={{ marginLeft: 10, color: '#e67e22', fontWeight: 600 }}>
+            <span style={{ marginLeft: 10, color: 'var(--color-warning)', fontWeight: 600 }}>
               Min. order: {product.min_order_quantity} {product.unit}
             </span>
           )}
         </div>
         {product.harvest_date && (
-          <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
+          <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 4 }}>
             Harvested: {new Date(product.harvest_date).toLocaleDateString()}
           </div>
         )}
         {product.best_before && (
-          <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
+          <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 4 }}>
             Best before: {new Date(product.best_before).toLocaleDateString()}
           </div>
         )}
         {(product.available_from || product.available_until) && (
-          <div style={{ fontSize: 13, color: '#2d6a4f', background: '#f0faf4', border: '1px solid #b7e4c7', borderRadius: 6, padding: '6px 10px', marginBottom: 12, display: 'inline-block' }}>
+          <div style={{ fontSize: 13, color: 'var(--color-primary)', background: 'var(--color-surface-subtle)', border: '1px solid var(--color-border-accent)', borderRadius: 6, padding: '6px 10px', marginBottom: 12, display: 'inline-block' }}>
             🗓 Availability window:
             {product.available_from ? ` from ${new Date(product.available_from).toLocaleString()}` : ''}
             {product.available_until ? ` until ${new Date(product.available_until).toLocaleString()}` : ''}
@@ -1338,9 +1338,9 @@ export default function ProductDetail() {
                 onChange={e => { setWeight(e.target.value); setCouponResult(null); setCouponError(''); }}
                 placeholder={`${product.min_weight}–${product.max_weight}`}
               />
-              <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
+              <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{product.unit}</span>
             </div>
-            <div style={{ fontSize: 13, color: '#888' }}>
+            <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
               {product.price} XLM / {product.unit} · range: {product.min_weight}–{product.max_weight} {product.unit}
             </div>
           </div>
@@ -1353,7 +1353,7 @@ export default function ProductDetail() {
                 setCouponResult(null);
                 setCouponError('');
               }} />
-            <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
+            <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{product.unit}</span>
           </div>
         )}
 
@@ -1367,13 +1367,13 @@ export default function ProductDetail() {
                 </option>
               ))}
             </select>
-            <button style={{ background: 'none', border: 'none', color: '#2d6a4f', cursor: 'pointer', fontSize: 13, padding: 0 }}
+            <button style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', fontSize: 13, padding: 0 }}
               type="button"
               onClick={() => navigate('/addresses')}>
               {t('productDetail.manageAddresses')}
             </button>
             {isOutOfDeliveryZone && (
-              <div style={{ background: '#fee', border: '1px solid #f5a5a5', borderRadius: 8, padding: 12, marginTop: 12, fontSize: 14, color: '#c0392b' }}>
+              <div style={{ background: 'var(--color-error-lightest)', border: '1px solid var(--color-error-light)', borderRadius: 8, padding: 12, marginTop: 12, fontSize: 14, color: 'var(--color-danger)' }}>
                 ⚠️ This product does not deliver to your selected address location.
               </div>
             )}
@@ -1396,7 +1396,7 @@ export default function ProductDetail() {
             </div>
             {couponError && <div style={{ ...s.err, marginTop: 4 }}>{couponError}</div>}
             {couponResult && (
-              <div style={{ color: '#2d6a4f', fontSize: 13, marginTop: 4 }}>
+              <div style={{ color: 'var(--color-primary)', fontSize: 13, marginTop: 4 }}>
                 ✅ Coupon applied — {couponResult.discount_type === 'percent' ? `${couponResult.discount_value}% off` : `${couponResult.discount_value} XLM off`} (−{couponResult.discount.toFixed(2)} XLM)
               </div>
             )}
@@ -1406,7 +1406,7 @@ export default function ProductDetail() {
         <div style={s.total}>
           {couponResult ? (
             <>
-              <span style={{ textDecoration: 'line-through', color: '#aaa', marginRight: 8 }}>{subtotal} XLM</span>
+              <span style={{ textDecoration: 'line-through', color: 'var(--color-text-muted)', marginRight: 8 }}>{subtotal} XLM</span>
               Total: <strong>{total} XLM</strong>
             </>
           ) : (
@@ -1424,7 +1424,7 @@ export default function ProductDetail() {
                   <input id="reward-slider" type="range" min={0} max={rewardInfo.maxRedeemable} step={1} value={rewardTokens}
                     onChange={e => setRewardTokens(Number(e.target.value))} style={{ width: '100%' }}
                     aria-valuetext={`${rewardTokens} ${rewardInfo.symbol}, ${(rewardTokens * rewardInfo.xlmPerToken).toFixed(2)} XLM off`} />
-                  <div style={{ color: '#2d6a4f' }}>
+                  <div style={{ color: 'var(--color-primary)' }}>
                     Reward discount: −{(rewardTokens * rewardInfo.xlmPerToken).toFixed(2)} XLM ({rewardTokens} {rewardInfo.symbol}, max {rewardInfo.maxRedeemable})
                   </div>
                 </>
@@ -1432,13 +1432,13 @@ export default function ProductDetail() {
             </div>
           )}
           {feeInfo && feeInfo.feeAmount > 0 && (
-            <div style={{ marginTop: 8, fontSize: 12, color: '#888', borderTop: '1px solid #e0e0e0', paddingTop: 6 }}>
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-muted)', borderTop: '1px solid var(--color-border)', paddingTop: 6 }}>
               <div>Subtotal: {total} XLM</div>
               <div>Platform fee ({feeInfo.feePercent}%): −{feeInfo.feeAmount.toFixed(7)} XLM</div>
-              <div style={{ fontWeight: 600, color: '#2d6a4f' }}>Farmer receives: {feeInfo.farmerAmount.toFixed(7)} XLM</div>
+              <div style={{ fontWeight: 600, color: 'var(--color-primary)' }}>Farmer receives: {feeInfo.farmerAmount.toFixed(7)} XLM</div>
             </div>
           )}
-          <div style={{ marginTop: 6, fontSize: 12, color: '#2d6a4f' }}>
+          <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-primary)' }}>
             🏷️ Bundle discount may apply if you order multiple products from this farmer
           </div>
         </div>
@@ -1470,12 +1470,12 @@ export default function ProductDetail() {
             </select>
             {sourceAsset && (
               <div style={{ fontSize: 13, marginTop: 6 }}>
-                {pathEstimateLoading && <span style={{ color: '#888' }}>Estimating path...</span>}
-                {pathEstimateError && <span style={{ color: '#c0392b' }}>{pathEstimateError}</span>}
+                {pathEstimateLoading && <span style={{ color: 'var(--color-text-muted)' }}>Estimating path...</span>}
+                {pathEstimateError && <span style={{ color: 'var(--color-danger)' }}>{pathEstimateError}</span>}
                 {pathEstimate && !pathEstimateError && (
-                  <span style={{ color: '#2d6a4f', fontWeight: 600 }}>
+                  <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>
                     Estimated cost: ~{pathEstimate.sourceAmount.toFixed(4)} {pathEstimate.sourceCode}
-                    <span style={{ color: '#888', fontWeight: 400 }}> (farmer receives {total} XLM)</span>
+                    <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}> (farmer receives {total} XLM)</span>
                   </span>
                 )}
               </div>
@@ -1490,7 +1490,7 @@ export default function ProductDetail() {
           try { regions = product.allowed_regions ? JSON.parse(product.allowed_regions) : []; } catch {}
           if (!regions.length) return null;
           return (
-            <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 8, fontSize: 13, color: '#5d4037' }}>
+            <div style={{ marginBottom: 12, padding: '8px 12px', background: 'var(--color-warning-lightest)', border: '1px solid var(--color-warning-light)', borderRadius: 8, fontSize: 13, color: 'var(--color-text-primary)' }}>
               🌍 Available in: <strong>{regions.join(', ')}</strong>
             </div>
           );
@@ -1523,10 +1523,10 @@ export default function ProductDetail() {
           for (let d = 1; d <= daysInMonth; d++) cells.push(d);
           return (
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#333', marginBottom: 8 }}>📅 Availability — {monthLabel}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 8 }}>📅 Availability — {monthLabel}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, maxWidth: 280 }}>
                 {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
-                  <div key={d} style={{ textAlign: 'center', fontSize: 11, color: '#888', fontWeight: 600, padding: '2px 0' }}>{d}</div>
+                  <div key={d} style={{ textAlign: 'center', fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600, padding: '2px 0' }}>{d}</div>
                 ))}
                 {cells.map((day, i) => {
                   // Leading blank cells are static spacers for a fixed calendar grid.
@@ -1543,35 +1543,35 @@ export default function ProductDetail() {
                       title={isAvail ? `Week of ${weekKey}` : 'Unavailable'}
                       style={{
                         padding: '4px 0', borderRadius: 4, fontSize: 12, cursor: isAvail ? 'pointer' : 'default',
-                        border: isSelected ? '2px solid #2d6a4f' : '1px solid transparent',
-                        background: !isAvail ? '#f5f5f5' : isSelected ? '#d8f3dc' : '#e8f5e9',
-                        color: !isAvail ? '#ccc' : isSelected ? '#1b4332' : '#2d6a4f',
+                        border: isSelected ? '2px solid var(--color-primary)' : '1px solid transparent',
+                        background: !isAvail ? 'var(--color-bg-tertiary)' : isSelected ? 'var(--color-primary-lightest)' : 'var(--color-primary-lightest)',
+                        color: !isAvail ? 'var(--color-text-muted)' : isSelected ? 'var(--color-primary)' : 'var(--color-primary)',
                         fontWeight: isSelected ? 700 : 400,
                       }}
                     >{day}</button>
                   );
                 })}
               </div>
-              <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: '#888' }}>
-                <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#e8f5e9', border: '1px solid #b7e4c7', borderRadius: 2, marginRight: 4 }} />Available</span>
-                <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#f5f5f5', borderRadius: 2, marginRight: 4 }} />Unavailable</span>
+              <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: 'var(--color-text-muted)' }}>
+                <span><span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--color-primary-lightest)', border: '1px solid var(--color-border-accent)', borderRadius: 2, marginRight: 4 }} />Available</span>
+                <span><span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--color-bg-tertiary)', borderRadius: 2, marginRight: 4 }} />Unavailable</span>
               </div>
-              {selectedWeek && <div style={{ fontSize: 12, color: '#2d6a4f', marginTop: 4 }}>Week of {selectedWeek} selected</div>}
+              {selectedWeek && <div style={{ fontSize: 12, color: 'var(--color-primary)', marginTop: 4 }}>Week of {selectedWeek} selected</div>}
             </div>
           );
         })()}
 
         {product?.type === 'auction' && auctionData ? (
-          <div style={{ border: '2px solid #2d6a4f', borderRadius: 12, padding: 20, marginBottom: 20, background: '#f8fdf9' }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#2d6a4f', marginBottom: 16 }}>🏆 Active Auction</div>
+          <div style={{ border: '2px solid var(--color-primary)', borderRadius: 12, padding: 20, marginBottom: 20, background: 'var(--color-bg-secondary)' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-primary)', marginBottom: 16 }}>🏆 Active Auction</div>
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>Current Highest Bid</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#2d6a4f' }}>{(auctionData.current_bid || 0).toFixed(2)} XLM</div>
-              {auctionData.highest_bidder && <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>by {auctionData.highest_bidder}</div>}
+              <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 4 }}>Current Highest Bid</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--color-primary)' }}>{(auctionData.current_bid || 0).toFixed(2)} XLM</div>
+              {auctionData.highest_bidder && <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>by {auctionData.highest_bidder}</div>}
             </div>
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>Time Remaining</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: auctionCountdown?.ended ? '#c0392b' : '#2d6a4f' }}>
+              <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 4 }}>Time Remaining</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: auctionCountdown?.ended ? 'var(--color-danger)' : 'var(--color-primary)' }}>
                 {auctionCountdown?.ended ? 'Auction Ended' : `${auctionCountdown?.days}d ${auctionCountdown?.hours}h ${auctionCountdown?.mins}m ${auctionCountdown?.secs}s`}
               </div>
             </div>
@@ -1596,22 +1596,22 @@ export default function ProductDetail() {
               </div>
             )}
             {bidError && <div style={{ ...s.err, marginBottom: 12 }}>{bidError}</div>}
-            {bidSuccess && <div style={{ background: '#d8f3dc', color: '#2d6a4f', padding: 12, borderRadius: 8, marginBottom: 12 }}>✅ Bid placed successfully!</div>}
+            {bidSuccess && <div style={{ background: 'var(--color-primary-lightest)', color: 'var(--color-primary)', padding: 12, borderRadius: 8, marginBottom: 12 }}>✅ Bid placed successfully!</div>}
           </div>
         ) : currentStock === 0 ? (
           <div>
-            <div style={{ color: '#c0392b', fontWeight: 600, marginBottom: 12 }}>{t('productDetail.outOfStock')}</div>
+            <div style={{ color: 'var(--color-danger)', fontWeight: 600, marginBottom: 12 }}>{t('productDetail.outOfStock')}</div>
             {user?.role === 'buyer' && (
               <>
                 {isOnWaitlist ? (
                   <>
-                    {waitlistPosition && <div style={{ fontSize: 14, color: '#2d6a4f', marginBottom: 12 }}>You're #{waitlistPosition} on the waitlist</div>}
-                    <button style={{ ...s.btn, background: '#888', marginBottom: 8 }} onClick={handleLeaveWaitlist} disabled={waitlistLoading}>
+                    {waitlistPosition && <div style={{ fontSize: 14, color: 'var(--color-primary)', marginBottom: 12 }}>You're #{waitlistPosition} on the waitlist</div>}
+                    <button style={{ ...s.btn, background: 'var(--color-text-muted)', marginBottom: 8 }} onClick={handleLeaveWaitlist} disabled={waitlistLoading}>
                       {waitlistLoading ? '...' : 'Leave Waitlist'}
                     </button>
                   </>
                 ) : (
-                  <button style={{ ...s.btn, background: '#2d6a4f', marginBottom: 8 }} onClick={handleJoinWaitlist} disabled={waitlistLoading}>
+                  <button style={{ ...s.btn, background: 'var(--color-primary)', marginBottom: 8 }} onClick={handleJoinWaitlist} disabled={waitlistLoading}>
                     {waitlistLoading ? '...' : 'Join Waitlist'}
                   </button>
                 )}
@@ -1633,7 +1633,7 @@ export default function ProductDetail() {
               aria-disabled={loading}
               aria-busy={loading}
               data-testid="buy-now-btn">
-              {loading && <div className="spinner-sm" style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />}
+              {loading && <div className="spinner-sm" style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'var(--color-bg-primary)', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />}
               {loading ? t('productDetail.processing') : `${useEscrow ? t('productDetail.payToEscrow') : t('productDetail.buyNow')} · ${sourceAsset && pathEstimate ? `~${pathEstimate.sourceAmount.toFixed(4)} ${pathEstimate.sourceCode}` : `${total} XLM`}`}
             </button>
             {reviewBody && (
@@ -1659,20 +1659,20 @@ export default function ProductDetail() {
               />
             )}
             {user?.role === 'buyer' && (
-              <button style={{ ...s.btn, background: '#1e40af', marginBottom: 12 }} onClick={handleWalletPay} disabled={walletLoading || currentStock === 0}>
+              <button style={{ ...s.btn, background: 'var(--color-secondary)', marginBottom: 12 }} onClick={handleWalletPay} disabled={walletLoading || currentStock === 0}>
                 {walletLoading ? '...' : `💳 Pay with Stellar Wallet · ${total} XLM`}
               </button>
             )}
-            <button style={{ ...s.btn, marginTop: 12, background: '#006d77', fontSize: 14 }} onClick={handleGeneratePaymentLink} disabled={paymentLinkLoading || loading}>
+            <button style={{ ...s.btn, marginTop: 12, background: 'var(--color-secondary-light)', fontSize: 14 }} onClick={handleGeneratePaymentLink} disabled={paymentLinkLoading || loading}>
               {paymentLinkLoading ? '...' : 'Pay with Stellar Wallet (SEP-0007)'}
             </button>
             {paymentLinkError && <div style={{ ...s.err, marginTop: 8 }}>{paymentLinkError}</div>}
             {paymentLinkData && (
               <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                <div ref={paymentLinkDialogRef} role="dialog" aria-modal="true" aria-labelledby="sep7-modal-title" tabIndex={-1} style={{ background: '#fff', borderRadius: 12, padding: 24, maxWidth: 360, width: '90%', boxShadow: '0 4px 24px #0003' }}>
+                <div ref={paymentLinkDialogRef} role="dialog" aria-modal="true" aria-labelledby="sep7-modal-title" tabIndex={-1} style={{ background: 'var(--color-bg-primary)', borderRadius: 12, padding: 24, maxWidth: 360, width: '90%', boxShadow: 'var(--shadow-lg)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                    <h2 id="sep7-modal-title" style={{ fontWeight: 700, fontSize: 16, color: '#2d6a4f', margin: 0 }}>SEP-0007 Payment Link</h2>
-                    <button onClick={() => setPaymentLinkData(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#595959' }} aria-label="Close">✕</button>
+                    <h2 id="sep7-modal-title" style={{ fontWeight: 700, fontSize: 16, color: 'var(--color-primary)', margin: 0 }}>SEP-0007 Payment Link</h2>
+                    <button onClick={() => setPaymentLinkData(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--color-text-secondary)' }} aria-label="Close">✕</button>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
                     <QRCodeSVG 
@@ -1685,7 +1685,7 @@ export default function ProductDetail() {
                     />
                   </div>
                   <CopyButton url={paymentLinkData.paymentLink} />
-                  <div style={{ marginTop: 8, fontSize: 12, color: '#888', textAlign: 'center' }}>
+                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-muted)', textAlign: 'center' }}>
                     Expires: {new Date(paymentLinkData.expiresAt).toLocaleString()}
                   </div>
                 </div>
@@ -1714,12 +1714,12 @@ export default function ProductDetail() {
         )}
 
          {user?.role === 'buyer' && paidOrders.length > 0 && !review.reviewSuccess && (
-           <form onSubmit={handleReviewSubmit} style={{ marginTop: 24, borderTop: '1px solid #f0f0f0', paddingTop: 20 }}>
+           <form onSubmit={handleReviewSubmit} style={{ marginTop: 24, borderTop: '1px solid var(--color-border-light)', paddingTop: 20 }}>
              <div style={{ ...s.sectionTitle, fontSize: 15, marginBottom: 12 }}>{t('productDetail.leaveReview')}</div>
              {paidOrders.length > 1 && (
                <div style={{ marginBottom: 12 }}>
                  <label style={s.label}>{t('productDetail.order')}</label>
-                 <select style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}
+                 <select style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: 14 }}
                    value={review.reviewOrderId} onChange={e => review.setReviewOrderId(e.target.value)}>
                    {paidOrders.map(o => <option key={o.id} value={o.id}>Order #{o.id} — {o.quantity} {o.unit}</option>)}
                  </select>
