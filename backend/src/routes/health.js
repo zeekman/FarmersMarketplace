@@ -245,6 +245,16 @@ router.get(
         checkSoroban(TIMEOUT_MS),
       ]);
 
+      // Get PostgreSQL pool stats if available
+      let poolStats = null;
+      if (db.isPostgres && typeof db.getStats === 'function') {
+        try {
+          poolStats = db.getStats();
+        } catch (e) {
+          logger.warn('Failed to get pool stats:', { error: e.message });
+        }
+      }
+
       const overallResponseTime = Date.now() - startTime;
       const isDbHealthy = dbHealth.status === 'healthy';
       const isRedisOk = redisHealth.status !== 'unhealthy';
@@ -273,6 +283,7 @@ router.get(
         redis: redisHealth,
         horizon: horizonHealth,
         soroban: sorobanHealth,
+        ...(poolStats && { poolStats }),
       };
 
       const statusCode = isHealthy ? 200 : 503;

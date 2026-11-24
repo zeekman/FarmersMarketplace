@@ -11,10 +11,11 @@
 
 const router = require('express').Router();
 const db = require('../db/schema');
-const adminAuth = require('../middleware/adminAuth');
+const auth = require('../middleware/auth');
+const requireAdmin = require('../middleware/requireAdmin');
 const { err } = require('../middleware/error');
 
-router.get('/', adminAuth, async (req, res) => {
+router.get('/', auth, requireAdmin, async (req, res) => {
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 100));
   const params = [];
   let where = '';
@@ -50,7 +51,7 @@ async function acknowledge(req, res) {
   res.json({ success: true });
 }
 
-router.patch('/:id/acknowledge', adminAuth, acknowledge);
-router.post('/:id/acknowledge', adminAuth, acknowledge);
+router.patch('/:id/acknowledge', auth, requireAdmin, acknowledge);
+router.post('/:id/acknowledge', auth, requireAdmin, acknowledge);
 
 module.exports = router;

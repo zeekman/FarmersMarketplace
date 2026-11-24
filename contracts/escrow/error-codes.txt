@@ -34,3 +34,4 @@
 29 InvalidParties
 30 InvalidCoopConfig
 31 NotInDispute
+# NEXT_CODE: 32
