@@ -431,7 +431,7 @@ export const api = {
   getWalletAssets: () => request('/wallet/assets'),
   getPathEstimate: (params) => request(`/wallet/path-estimate${toQs(params)}`),
   mergeWallet: (body) => request('/wallet/merge', { method: 'POST', body }),
-  deleteAccount: (force) => request(`/auth/account${force ? '?force=true' : ''}`, { method: 'DELETE' }),
+  deleteAccount: (body) => request('/auth/account', { method: 'DELETE', body }),
   // Streams need a short-lived, stream-scoped token in the URL (EventSource can't
   // send an Authorization header) instead of the long-lived access token, so it
   // doesn't leak into server/proxy logs, browser history, or Referer (#1170).

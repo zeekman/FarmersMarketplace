@@ -100,6 +100,7 @@ if (USE_POSTGRES) {
     isPostgres: true,
     placeholder: (i) => `$${i}`,
     getClient: () => pg.connect(),
+    getStats: () => pg.getStats(),
     close: () => pg.end(),
   };
 

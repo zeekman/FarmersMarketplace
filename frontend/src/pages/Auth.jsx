@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { validateLogin, validateRegister, validatePassword } from '../utils/validation';
 import { getErrorMessage, getFieldErrors } from '../utils/errorMessages';
 import { useTranslation } from 'react-i18next';
+import { PasswordStrength } from '../components/PasswordStrength';
 
 const s = {
   wrap: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 },
@@ -27,7 +28,6 @@ const s = {
 
 export const authStyles = s;
 
-export function PasswordStrength({ password }) {
 // Returns the path the user was trying to reach before being sent to login,
 // falling back to the role's home page. Only same-origin paths are honoured.
 function getPostLoginPath(state, user) {
@@ -37,28 +37,6 @@ function getPostLoginPath(state, user) {
     if (path.startsWith('/') && !path.startsWith('//')) return path;
   }
   return user.role === 'farmer' ? '/dashboard' : '/marketplace';
-}
-
-function PasswordStrength({ password }) {
-  const { t } = useTranslation();
-  const issues = validatePassword(password);
-  const score = 4 - issues.length;
-  const colors = ['#c0392b', '#e67e22', '#f1c40f', '#27ae60', '#2d6a4f'];
-  const labelKeys = ['auth.passwordStrength.veryWeak', 'auth.passwordStrength.weak', 'auth.passwordStrength.fair', 'auth.passwordStrength.good', 'auth.passwordStrength.strong'];
-  if (!password) return null;
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 3, marginTop: 6 }}>
-        {[0, 1, 2, 3].map(i => (
-          <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i < score ? colors[score] : '#e0e0e0' }} />
-        ))}
-      </div>
-      <div style={{ ...s.strengthHint, color: colors[score] }}>{t(labelKeys[score])}</div>
-      {issues.length > 0 && (
-        <div style={s.strengthHint}>{t('auth.passwordStrength.needs', { issues: issues.join(', ') })}</div>
-      )}
-    </div>
-  );
 }
 
 // Maps a failed second-factor attempt to copy. 429/423 mean rate-limited or locked out,

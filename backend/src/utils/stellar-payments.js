@@ -552,6 +552,66 @@ async function sendWithdrawal({ senderSecret, destination, amount, memo, memoTyp
   return { hash: result.hash, created: !exists };
 }
 
+/**
+ * Merge (consolidate) a Stellar account into another address.
+ * All XLM balance will be transferred, and the source account will be closed permanently on the ledger.
+ * @param {{ sourceSecret: string, destination: string }} params
+ * @returns {Promise<string>} Transaction hash
+ * @throws {Error} if the account cannot be merged
+ */
+async function mergeAccount({ sourceSecret, destination }) {
+  const sourceKeypair = StellarSdk.Keypair.fromSecret(sourceSecret);
+  
+  let sourceAccount;
+  try {
+    sourceAccount = await server.loadAccount(sourceKeypair.publicKey());
+  } catch (error) {
+    if (error.response && error.response.status === 404) {
+      const err = new Error('Source account not found on ledger');
+      err.code = 'account_not_found';
+      throw err;
+    }
+    throw error;
+  }
+
+  // Validate destination exists or can receive the merge
+  try {
+    await server.loadAccount(destination);
+  } catch (error) {
+    if (error.response && error.response.status === 404) {
+      const err = new Error('Destination account does not exist. Create and fund it first.');
+      err.code = 'destination_not_found';
+      throw err;
+    }
+    throw error;
+  }
+
+  // Build and sign accountMerge transaction
+  const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(
+      StellarSdk.Operation.accountMerge({
+        destination,
+      })
+    )
+    .addMemo(StellarSdk.Memo.text('Account merge'))
+    .setTimeout(30)
+    .build();
+
+  transaction.sign(sourceKeypair);
+
+  const result = await server.submitTransaction(transaction);
+  logger.info('[mergeAccount] Account merged successfully', {
+    source: sourceKeypair.publicKey(),
+    destination,
+    txHash: result.hash,
+  });
+
+  return result.hash;
+}
+
 module.exports = {
   sendPayment,
   sendWithdrawal,
@@ -571,4 +631,5 @@ module.exports = {
   burnRewardTokens,
   getMemo,
   getOrderBook,
+  mergeAccount,
 };
