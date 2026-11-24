@@ -1,5 +1,5 @@
 import { api } from '../api/client';
-import { showToast } from './toast';
+import { toast } from './toast';
 import i18n from '../i18n';
 
 // IndexedDB-backed product draft autosave + offline outbox (FE-24).
@@ -53,11 +53,11 @@ export async function flushOutbox() {
       try {
         await api.createProduct(item.body);
         await removeOutbox(item.id);
-        showToast(i18n.t('offline.publishedQueued', { name: item.body.name }), 'success');
+        toast.success(i18n.t('offline.publishedQueued', { name: item.body.name }));
       } catch (e) {
         // Client errors will never succeed, so drop them instead of retrying forever.
         if (e.status >= 400 && e.status < 500) await removeOutbox(item.id);
-        showToast(i18n.t('offline.publishFailed', { name: item.body.name, error: e.message }), 'error');
+        toast.error(i18n.t('offline.publishFailed', { name: item.body.name, error: e.message }));
       }
     }
   } finally {

@@ -129,17 +129,6 @@
     min-width: 640px;
   }
 
-  .wallet-toast-container {
-    left: 12px !important;
-    right: 12px !important;
-    bottom: 12px !important;
-    align-items: stretch;
-  }
-
-  .wallet-toast {
-    width: 100%;
-    max-width: none;
-  }
 }
 
 /* ── Print layout (Compare page) ── */

@@ -90,12 +90,33 @@ function PrivateRoute({ children, role }) {
   }
   
   if (role && user.role !== role) {
+    const roleMessages = {
+      farmer: t('privateRoute.farmerOnly'),
+      buyer: t('privateRoute.buyerOnly'),
+      admin: t('privateRoute.adminOnly'),
+    };
+    if (roleMessages[role]) {
+      toast.warning(roleMessages[role]);
     if (shouldRedirect) {
       return <Navigate to="/" replace />;
     }
     return <PageLoader />;
   }
   
+
+function RoleMismatch({ role }) {
+  useEffect(() => {
+    toast.error(`This page is for ${role}s only`);
+  }, [role]);
+  return <Navigate to="/" replace />;
+}
+
+function PrivateRoute({ children, role }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+  if (loading) return <PageLoader />;
+  if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
+  if (role && user.role !== role) return <RoleMismatch role={role} />;
   return children;
 }
 

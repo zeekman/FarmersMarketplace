@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import Spinner from '../components/Spinner';
 import { getStellarErrorMessage } from '../utils/stellarErrors';
 import { getErrorMessage } from '../utils/errorMessages';
-import { showToast } from '../utils/toast';
+import { toast } from '../utils/toast';
 import { useConfirm } from '../hooks/useConfirm';
 import { useXlmRate } from '../utils/useXlmRate';
 import { useNetwork } from '../context/NetworkContext';
@@ -43,10 +43,6 @@ const s = {
   label:            { display: 'block', fontSize: 13, color: '#555', marginBottom: 4, marginTop: 14 },
   input:            { width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
   row:              { display: 'flex', gap: 12, alignItems: 'flex-end', marginTop: 16 },
-  toastContainer:   { position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 10, pointerEvents: 'none' },
-  toast:            { background: '#2d6a4f', color: '#fff', borderRadius: 10, padding: '12px 18px', boxShadow: '0 4px 16px #0003', fontSize: 14, minWidth: 260, maxWidth: 360, pointerEvents: 'auto' },
-  toastTitle:       { fontWeight: 700, marginBottom: 3 },
-  toastSub:         { fontSize: 12, opacity: 0.85 },
   assetRow:         { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0' },
   assetCode:        { fontWeight: 700, fontSize: 15, color: '#2d6a4f' },
   assetBal:         { fontSize: 14, color: '#333', fontWeight: 600 },
@@ -60,20 +56,6 @@ if (typeof document !== 'undefined' && !document.getElementById('wallet-toast-st
   document.head.appendChild(style);
 }
 
-function Toast({ toasts, usd }) {
-  return (
-    <div style={s.toastContainer} aria-live="polite">
-      {toasts.map(t => (
-        <div key={t.id} style={s.toast} role="status">
-          <div style={s.toastTitle}>Payment received</div>
-          <div style={s.toastSub}>
-            +{parseFloat(t.amount).toFixed(2)} XLM {usd(parseFloat(t.amount)) && <span style={{ fontSize: 11, color: '#bbb' }}>({usd(parseFloat(t.amount))})</span>} from {t.from.slice(0, 8)}...{t.from.slice(-4)}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 import { useWalletData } from '../hooks/useWalletData';
 import { useWalletAlerts } from '../hooks/useWalletAlerts';
 import { useClaimableBalances } from '../hooks/useClaimableBalances';
@@ -83,7 +65,6 @@ import { useTrustlines } from '../hooks/useTrustlines';
 import { useWalletSend } from '../hooks/useWalletSend';
 import { useWalletBudget } from '../hooks/useWalletBudget';
 import { s } from '../components/wallet/walletStyles';
-import WalletToast from '../components/wallet/WalletToast';
 import TestnetDisclaimer from '../components/wallet/TestnetDisclaimer';
 import WalletBalanceCard from '../components/wallet/WalletBalanceCard';
 import RewardTokenCard from '../components/wallet/RewardTokenCard';
@@ -104,6 +85,19 @@ export default function Wallet() {
   const [disclaimerVisible, setDisclaimerVisible] = useState(() => safeStorage.get(DISCLAIMER_KEY) !== 'true');
   const [funding, setFunding]     = useState(false);
   const [fundMsg, setFundMsg]     = useState(null);
+  const [alerts, setAlerts] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [budget, setBudget] = useState(null);
+  const [budgetInput, setBudgetInput] = useState('');
+  const [budgetMsg, setBudgetMsg] = useState(null);
+
+  const EMPTY_SEND = { destination: '', amount: '', memo: '', memoType: 'text', totp: '' };
+  const [sendForm, setSendForm]   = useState(EMPTY_SEND);
+  const [sending, setSending]     = useState(false);
+  const [sendMsg, setSendMsg]     = useState(null);
+  // Review step: { publicKey, federation, exists, memo, memoType, amount }
+  const [sendReview, setSendReview] = useState(null);
+  const [reviewing, setReviewing] = useState(false);
   const [toasts, setToasts]       = useState([]);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
 
@@ -127,12 +121,6 @@ export default function Wallet() {
   const availableBalance = wallet ? (wallet.availableBalance ?? Math.max(0, wallet.balance - 1)) : 0;
   const send = useWalletSend({ availableBalance, onSent: load, twoFactorEnabled, onTwoFactorRequired: () => setTwoFactorEnabled(true) });
 
-  const addToast = useCallback((payment) => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, ...payment }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
-  }, []);
-
   const handlePayment = useCallback((payload) => {
     if (payload.balance !== null) {
       handleBalance(payload.balance);
@@ -140,8 +128,10 @@ export default function Wallet() {
       load();
     }
     refreshTransactions();
-    addToast({ amount: payload.amount, from: payload.from });
-  }, [handleBalance, load, refreshTransactions, addToast]);
+    const xlm = parseFloat(payload.amount);
+    const fiat = usd(xlm);
+    toast.success(`Payment received: +${xlm.toFixed(2)} XLM${fiat ? ` (${fiat})` : ''} from ${payload.from.slice(0, 8)}...${payload.from.slice(-4)}`);
+  }, [handleBalance, load, refreshTransactions, usd]);
 
   const { reconnecting, sseConnected } = useWalletStream({ onPayment: handlePayment });
 
@@ -160,7 +150,7 @@ export default function Wallet() {
     } catch (e) {
       const msg = getStellarErrorMessage(e) || getErrorMessage(e);
       setFundMsg({ type: 'err', text: msg });
-      showToast(msg, 'error');
+      toast.error(msg);
     } finally {
       setFunding(false);
     }
@@ -261,7 +251,7 @@ export default function Wallet() {
     setClaimingId(balanceId);
     try {
       const res = await api.claimBalance(balanceId);
-      showToast('Balance claimed successfully!', 'success');
+      toast.success('Balance claimed successfully!');
       // Update wallet balance immediately with the returned value
       if (res.balance != null) {
         setWallet(prev => prev ? { ...prev, balance: res.balance } : prev);
@@ -270,7 +260,7 @@ export default function Wallet() {
       setClaimableBalances(prev => prev.filter(b => b.id !== balanceId));
     } catch (e) {
       const msg = getErrorMessage(e);
-      showToast(msg, 'error');
+      toast.error(msg);
     } finally {
       setClaimingId(null);
     }
@@ -303,7 +293,6 @@ export default function Wallet() {
         <title>My Wallet – Farmers Marketplace</title>
         <meta name="description" content="Manage your Stellar XLM wallet, view balance and transaction history." />
       </Helmet>
-      <WalletToast toasts={toasts} usd={usd} />
       <div style={s.title}>My Wallet</div>
 
       {reconnecting && (

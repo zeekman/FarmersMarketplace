@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api/client';
 import { getErrorMessage } from '../utils/errorMessages';
-import { showToast } from '../utils/toast';
+import { toast } from '../utils/toast';
 
 const LOW_STOCK_THRESHOLD = Number(import.meta.env.VITE_LOW_STOCK_THRESHOLD || 5);
 
@@ -147,7 +147,7 @@ export function useDashboardData(userId) {
           const prevQty = prev ? Number(prev.quantity ?? 0) : LOW_STOCK_THRESHOLD + 1;
 
           if (prev && latestQty <= LOW_STOCK_THRESHOLD && prevQty > LOW_STOCK_THRESHOLD) {
-            showToast(`Low stock: ${latest.name} has only ${latestQty} left.`, 'warning', 8000);
+            toast.warning(`Low stock: ${latest.name} has only ${latestQty} left.`, { duration: 8000 });
           }
         });
 

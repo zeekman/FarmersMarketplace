@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { queryKeys } from '../lib/queryClient';
-import { showToast } from '../utils/toast';
+import { toast } from '../utils/toast';
 import { getErrorMessage } from '../utils/errorMessages';
 
 /**
@@ -94,10 +94,10 @@ export function useUpdateProduct() {
       if (context?.previous) {
         qc.setQueryData(queryKeys.products.mine, context.previous);
       }
-      showToast(getErrorMessage(err), 'error');
+      toast.error(getErrorMessage(err));
     },
     onSuccess: () => {
-      showToast('Product updated', 'success');
+      toast.success('Product updated');
     },
     onSettled: () => {
       // Always refetch after error or success
@@ -133,10 +133,10 @@ export function useDeleteProduct() {
       if (context?.previous) {
         qc.setQueryData(queryKeys.products.mine, context.previous);
       }
-      showToast(getErrorMessage(err), 'error');
+      toast.error(getErrorMessage(err));
     },
     onSuccess: () => {
-      showToast('Product deleted', 'success');
+      toast.success('Product deleted');
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: queryKeys.products.mine });
@@ -155,10 +155,10 @@ export function useUpdateOrderStatus() {
     onSuccess: () => {
       // Invalidate all sales pages
       qc.invalidateQueries({ queryKey: queryKeys.sales.all });
-      showToast('Order status updated', 'success');
+      toast.success('Order status updated');
     },
     onError: (err) => {
-      showToast(getErrorMessage(err), 'error');
+      toast.error(getErrorMessage(err));
     },
   });
 }
@@ -194,10 +194,10 @@ export function useRestockProduct() {
       if (context?.previous) {
         qc.setQueryData(queryKeys.products.mine, context.previous);
       }
-      showToast(getErrorMessage(err), 'error');
+      toast.error(getErrorMessage(err));
     },
     onSuccess: () => {
-      showToast('Stock updated', 'success');
+      toast.success('Stock updated');
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: queryKeys.products.mine });
@@ -215,10 +215,10 @@ export function useCreateProduct() {
     mutationFn: (productData) => api.createProduct(productData),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.products.mine });
-      showToast('Product created', 'success');
+      toast.success('Product created');
     },
     onError: (err) => {
-      showToast(getErrorMessage(err), 'error');
+      toast.error(getErrorMessage(err));
     },
   });
 }

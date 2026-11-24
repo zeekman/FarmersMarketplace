@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { api } from '../api/client';
 import { getStellarErrorMessage } from '../utils/stellarErrors';
 import { getErrorMessage } from '../utils/errorMessages';
-import { showToast } from '../utils/toast';
+import { toast } from '../utils/toast';
 
 /** Wallet balance and transaction history. */
 export function useWalletData() {
@@ -21,7 +21,7 @@ export function useWalletData() {
     } catch (e) {
       const msg = getStellarErrorMessage(e) || getErrorMessage(e);
       setLoadError(msg);
-      showToast(msg, 'error');
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
