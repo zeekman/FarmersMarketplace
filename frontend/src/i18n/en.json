@@ -555,6 +555,15 @@
     "recipientWarning": "⚠️ This address does not exist on Stellar. It will be created when you send, with a 1-XLM activation fee (refundable if the account is later deleted).",
     "toastTitle": "Payment received"
   },
+  "freighter": {
+    "switchNetwork": "Switch Freighter to {{network}} to pay. Payments are blocked until then.",
+    "errors": {
+      "rejected": "You rejected the request in Freighter.",
+      "notInstalled": "Freighter isn't installed. Install it from freighter.app.",
+      "locked": "Freighter is locked. Unlock it and try again.",
+      "networkMismatch": "Freighter is on a different network than this app. Switch networks in Freighter and try again."
+    }
+  },
   "common": {
     "loading": "Loading...",
     "errors": "Errors",
