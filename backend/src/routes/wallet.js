@@ -20,13 +20,16 @@ const {
   server,
 } = require('../utils/stellar');
 const { resolveFederationAddress, FederationError } = require('../utils/stellar-accounts');
-const { claimBalance, sendWithdrawal, accountExists } = require('../utils/stellar-payments');
+const { claimBalance, sendWithdrawal, getDestinationInfo } = require('../utils/stellar-payments');
+const { claimIdempotencyKey, releaseIdempotencyKey, cacheResponse, hashRequestBody } = require('../utils/idempotency');
+const logger = require('../logger');
 const speakeasy = require('speakeasy');
 const { err } = require('../middleware/error');
 const config = require('../config');
 const signerService = require('../services/signerService');
 
 const BASE_RESERVE_XLM = 1;
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * @swagger
@@ -300,6 +303,35 @@ router.post('/withdraw', auth, async (req, res) => {
     return err(res, 400, 'memo_type must be text, id or hash', 'validation_error');
   }
 
+  // --- Idempotency (same pattern as orders #1027): a retried request must never send twice ---
+  const idempotencyKey = req.headers['x-idempotency-key'];
+  if (!idempotencyKey || !UUID_V4_RE.test(idempotencyKey)) {
+    return err(res, 400, 'X-Idempotency-Key header must be a valid UUID v4', 'invalid_idempotency_key');
+  }
+  let claim;
+  try {
+    claim = await claimIdempotencyKey(req.user.id, idempotencyKey, undefined, hashRequestBody(req.body));
+  } catch (claimErr) {
+    logger.error('[wallet] idempotency cache error', { error: claimErr.message });
+    return res.status(503).json({ success: false, error: 'Service temporarily unavailable', code: 'idempotency_unavailable' });
+  }
+  if (claim.status === 'reused') {
+    return err(res, 422, 'Idempotency-Key was already used with a different request body', 'idempotency_key_reused');
+  }
+  if (claim.status === 'cached') {
+    res.set('Idempotent-Replayed', 'true');
+    return res.status(claim.response._status || 200).json(claim.response);
+  }
+  if (claim.status === 'in_progress') {
+    return err(res, 409, 'A withdrawal with this idempotency key is still processing', 'request_in_progress');
+  }
+  // Failed attempts free the key again; only a successful withdrawal is cached for replay.
+  res.once('finish', () => {
+    releaseIdempotencyKey(idempotencyKey, req.user.id).catch((error) => {
+      logger.error('[wallet] Failed to release pending idempotency key', { error: error.message });
+    });
+  });
+
   try {
     const { rows } = await db.query(
       'SELECT stellar_public_key FROM users WHERE id = $1',
@@ -323,6 +355,15 @@ router.post('/withdraw', auth, async (req, res) => {
 
     if (destination === user.stellar_public_key) {
       return err(res, 400, 'Cannot withdraw to your own platform wallet', 'same_destination');
+    }
+
+    // SEP-29: a destination that sets config.memo_required must receive a memo or the funds are at risk.
+    const destPublicKey = StellarSdk.StrKey.isValidMed25519PublicKey(destination)
+      ? StellarSdk.MuxedAccount.fromAddress(destination, '0').baseAccount().accountId()
+      : destination;
+    const dest = await getDestinationInfo(destPublicKey);
+    if (dest.memoRequired && !memo) {
+      return err(res, 400, 'This account requires a memo (SEP-29). Add a memo before sending.', 'memo_required');
     }
 
     const balance = await getBalance(user.stellar_public_key);
@@ -357,7 +398,7 @@ router.post('/withdraw', auth, async (req, res) => {
       },
     });
 
-    return res.json({
+    const response = {
       success: true,
       txHash,
       type: 'withdrawal',
@@ -368,7 +409,9 @@ router.post('/withdraw', auth, async (req, res) => {
       memo_type: memo ? memoType : null,
       baseReserve: BASE_RESERVE_XLM,
       availableAfter: Number((available - amount).toFixed(7)),
-    });
+    };
+    await cacheResponse(idempotencyKey, { ...response, _status: 200 }, undefined, req.user.id);
+    return res.json(response);
   } catch (e) {
     if (['invalid_memo', 'create_account_min', 'destination_not_found'].includes(e.code)) {
       return err(res, 400, e.message, e.code);
@@ -395,7 +438,8 @@ router.get('/account-exists', auth, async (req, res) => {
     return err(res, 400, 'Invalid Stellar address', 'invalid_destination');
   }
   try {
-    return res.json({ success: true, exists: await accountExists(address) });
+    const { exists, memoRequired } = await getDestinationInfo(address);
+    return res.json({ success: true, exists, memoRequired });
   } catch (e) {
     return err(res, 502, 'Could not check destination account', 'horizon_error');
   }
