@@ -219,6 +219,7 @@ async function request(path, options = {}, retry = true, csrfRetry = true) {
       err.code = data.code;
       err.status = res.status;
       if (data.details) err.details = data.details;
+      if (data.retry_after != null) err.retry_after = data.retry_after;
       const reset = res.headers?.get?.('RateLimit-Reset') || res.headers?.get?.('Retry-After');
       if (reset != null && !Number.isNaN(Number(reset))) err.retryAfter = Number(reset);
       // Seconds until a rate-limited or locked-out request may be retried.
