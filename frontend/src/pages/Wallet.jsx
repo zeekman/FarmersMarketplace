@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import Spinner from '../components/Spinner';
+import { SkeletonBalanceCard, SkeletonTxRow } from '../components/SkeletonLoaders';
 import { getStellarErrorMessage } from '../utils/stellarErrors';
 import { getErrorMessage } from '../utils/errorMessages';
 import { toast } from '../utils/toast';
@@ -341,7 +341,14 @@ export default function Wallet() {
         </div>
       )}
 
-      {loading && !loadError ? <Spinner /> : (
+      {loading && !loadError ? (
+        <div role="status" aria-busy="true" aria-label="Loading wallet">
+          <SkeletonBalanceCard />
+          <div style={s.card}>
+            {[0, 1, 2].map((i) => <SkeletonTxRow key={i} />)}
+          </div>
+        </div>
+      ) : (
         <>
           {user?.role === 'buyer' && <RewardTokenCard />}
           <WalletBalanceCard
