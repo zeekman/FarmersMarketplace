@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 import { clearDraft, queueProduct } from '../utils/draftOutbox';
-import { compressCanvas, isImageFile } from '../utils/imageCompression';
+import { compressCanvas, compressImage, isImageFile } from '../utils/imageCompression';
 import { useXlmRate } from '../utils/useXlmRate';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
@@ -991,8 +991,10 @@ export default function Dashboard() {
         continue;
       }
       try {
-        const res = await api.uploadProductImage(galleryProductId, file);
-        setGalleryImages((prev) => [...prev, res.data]);
+        const blob = await compressImage(file);
+        const ext = blob.type === 'image/webp' ? 'webp' : 'jpg';
+        const res = await api.uploadProductImages(galleryProductId, [new File([blob], `image.${ext}`, { type: blob.type })]);
+        setGalleryImages(res.data);
       } catch (err) {
         setGalleryErr(getErrorMessage(err));
       }
@@ -1481,7 +1483,7 @@ export default function Dashboard() {
                       >
                         <img
                           src={img.url}
-                          alt={`Photo ${i + 1}`}
+                          alt={t('productDetail.imageN', { name: products.find(p => p.id === galleryProductId)?.name ?? '', n: i + 1 })}
                           style={{
                             ...s.galleryThumb,
                             ...(i === 0 ? s.galleryThumbFirst : {}),
@@ -1858,7 +1860,7 @@ export default function Dashboard() {
             {avatarPreview ? (
               <img
                 src={avatarPreview}
-                alt="Avatar"
+                alt={t('dashboard.avatar')}
                 style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover' }}
               />
             ) : (

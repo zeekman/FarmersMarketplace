@@ -240,6 +240,7 @@
     "previousImage": "Picha iliyotangulia",
     "nextImage": "Picha inayofuata",
     "thumbnail": "Kijipicha {{n}}",
+    "imageN": "{{name}} picha {{n}}",
     "default": "(Chaguo-msingi)",
     "flashSaleTitle": "Ofa ya Haraka",
     "flashSaleBanner": "Tangazo la ofa ya haraka",
@@ -281,6 +282,15 @@
     "view": "Angalia â†—",
     "retry": "Jaribu tena",
     "currency": "Sarafu"
+  },
+  "freighter": {
+    "switchNetwork": "Badilisha Freighter kuwa {{network}} ili kulipa. Malipo yamezuiwa hadi hapo.",
+    "errors": {
+      "rejected": "Umekataa ombi kwenye Freighter.",
+      "notInstalled": "Freighter haijasakinishwa. Isakinishe kutoka freighter.app.",
+      "locked": "Freighter imefungwa. Ifungue kisha ujaribu tena.",
+      "networkMismatch": "Freighter iko kwenye mtandao tofauti na programu hii. Badilisha mtandao kwenye Freighter kisha ujaribu tena."
+    }
   },
   "common": {
     "loading": "Inapakia...",
@@ -400,5 +410,8 @@
     "retry": "Jaribu tena",
     "loadError": "Imeshindwa kupakia vipengee zaidi.",
     "empty": "Hakuna kitu bado."
+  },
+  "starRating": {
+    "ratedOutOf": "Imekadiriwa {{value}} kati ya {{max}}"
   }
 }

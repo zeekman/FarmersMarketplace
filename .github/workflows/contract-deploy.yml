@@ -18,7 +18,7 @@ on:
     branches: [main]
     paths:
       - 'contracts/escrow/**'
-      - 'contract/reward-token/**'
+      - 'contracts/reward-token/**'
       - 'contracts/creator-earnings/**'
       - 'contracts/scripts/deploy.sh'
       - 'contracts/deploy.*.toml'
@@ -50,7 +50,6 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/target
-            contract/reward-token/target
           key: ${{ runner.os }}-cargo-escrow-${{ hashFiles('contracts/**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-escrow-

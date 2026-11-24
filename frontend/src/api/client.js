@@ -219,6 +219,7 @@ async function request(path, options = {}, retry = true, csrfRetry = true) {
       err.code = data.code;
       err.status = res.status;
       if (data.details) err.details = data.details;
+      if (data.retry_after != null) err.retry_after = data.retry_after;
       const reset = res.headers?.get?.('RateLimit-Reset') || res.headers?.get?.('Retry-After');
       if (reset != null && !Number.isNaN(Number(reset))) err.retryAfter = Number(reset);
       // Seconds until a rate-limited or locked-out request may be retried.
@@ -367,8 +368,15 @@ export const api = {
 
   fundEscrow: (orderId) => (requireOnline(), request(`/orders/${orderId}/escrow`, { method: 'POST' })),
   claimEscrow: (orderId) => request(`/orders/${orderId}/claim`, { method: 'POST' }),
-  claimPreorder: (orderId) => request(`/orders/${orderId}/claim-preorder`, { method: 'POST' }),
-  fileReturn: (orderId, reason) => request(`/orders/${orderId}/return`, { method: 'POST', body: { reason } }),
+  claimPreorder: (orderId, idempotencyKey) => request(`/orders/${orderId}/claim-preorder`, {
+    method: 'POST',
+    headers: { 'X-Idempotency-Key': requireIdempotencyKey(idempotencyKey) },
+  }),
+  fileReturn: (orderId, reason, idempotencyKey) => request(`/orders/${orderId}/return`, {
+    method: 'POST',
+    body: { reason },
+    headers: { 'X-Idempotency-Key': requireIdempotencyKey(idempotencyKey) },
+  }),
   downloadReceipt: async (orderId) => {
     const headers = {};
     if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -431,7 +439,7 @@ export const api = {
   getWalletAssets: () => request('/wallet/assets'),
   getPathEstimate: (params) => request(`/wallet/path-estimate${toQs(params)}`),
   mergeWallet: (body) => request('/wallet/merge', { method: 'POST', body }),
-  deleteAccount: (force) => request(`/auth/account${force ? '?force=true' : ''}`, { method: 'DELETE' }),
+  deleteAccount: (body) => request('/auth/account', { method: 'DELETE', body }),
   // Streams need a short-lived, stream-scoped token in the URL (EventSource can't
   // send an Authorization header) instead of the long-lived access token, so it
   // doesn't leak into server/proxy logs, browser history, or Referer (#1170).
@@ -512,7 +520,11 @@ export const api = {
   adminGetStats: () => request('/admin/stats'),
   adminGetDisputes: () => request('/disputes'),
   adminResolveDispute: (id, body) => request(`/disputes/${id}/resolve`, { method: 'PATCH', body }),
-  openDispute: (body) => request('/disputes', { method: 'POST', body }),
+  openDispute: (body, idempotencyKey) => request('/disputes', {
+    method: 'POST',
+    body,
+    headers: { 'X-Idempotency-Key': requireIdempotencyKey(idempotencyKey) },
+  }),
   getDispute: (id) => request(`/disputes/${id}`),
   getDisputeByOrder: (orderId) => request(`/disputes/order/${orderId}`, { silent: true }),
   submitDisputeEvidence: (disputeId, files) => {

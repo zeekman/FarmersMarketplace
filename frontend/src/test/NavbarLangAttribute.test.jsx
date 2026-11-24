@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('react-router-dom', () => ({
   NavLink: ({ children, to, ...props }) => <a href={to} {...props}>{children}</a>,
@@ -43,7 +44,7 @@ describe('Navbar lang attribute update (#1066)', () => {
   });
 
   it('updates document.documentElement.lang when language is switched via Navbar', () => {
-    const { container } = render(<Navbar />);
+    const { container } = render(<QueryClientProvider client={new QueryClient()}><Navbar /></QueryClientProvider>);
 
     // Initial lang should be set
     expect(document.documentElement.getAttribute('lang')).toBe('en');
@@ -62,7 +63,7 @@ describe('Navbar lang attribute update (#1066)', () => {
 
   it('sets initial lang attribute on component mount', () => {
     document.documentElement.setAttribute('lang', '');
-    render(<Navbar />);
+    render(<QueryClientProvider client={new QueryClient()}><Navbar /></QueryClientProvider>);
 
     // After i18n initialization, lang should be set
     // This is handled by i18n/index.js on initial load

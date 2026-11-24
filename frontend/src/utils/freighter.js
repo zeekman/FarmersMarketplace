@@ -15,10 +15,15 @@ function writeStored(value) {
   } catch { /* storage unavailable */ }
 }
 
+// Freighter API v6 reports failures as `{ error }` instead of throwing; turn them back into exceptions.
+function unwrap(res) {
+  if (res?.error) throw new Error(res.error.message ?? res.error);
+  return res;
+}
+
 export async function isFreighterInstalled() {
   try {
-    const res = await freighterApi.isConnected();
-    return typeof res === 'object' ? Boolean(res?.isConnected) : Boolean(res);
+    return Boolean(unwrap(await freighterApi.isConnected()).isConnected);
   } catch {
     return false;
   }
@@ -31,22 +36,39 @@ export function toFreighterNetwork(appNetwork) {
 
 export async function connectFreighter() {
   if (!(await isFreighterInstalled())) throw new Error('Freighter extension is not installed');
-  const access = freighterApi.requestAccess ? await freighterApi.requestAccess() : await freighterApi.getPublicKey();
-  const publicKey = typeof access === 'object' ? access?.address || access?.publicKey : access;
+  const { address: publicKey } = unwrap(await freighterApi.requestAccess());
   if (!publicKey) throw new Error('Freighter did not return a public key');
-  const details = await freighterApi.getNetworkDetails();
+  const details = unwrap(await freighterApi.getNetworkDetails());
   writeStored(publicKey);
-  return { publicKey, network: details?.network, networkPassphrase: details?.networkPassphrase };
+  return { publicKey, network: details.network, networkPassphrase: details.networkPassphrase };
 }
 
 export function disconnectFreighter() {
   writeStored(null);
 }
 
+/** Maps a Freighter failure to an i18n key under `freighter.errors`, or null if unrecognised. */
+export function freighterErrorKey(err) {
+  const msg = String(err?.message || err || '');
+  if (/reject|declin|denied|cancel/i.test(msg)) return 'rejected';
+  if (/not installed/i.test(msg)) return 'notInstalled';
+  if (/locked|password/i.test(msg)) return 'locked';
+  if (/different network|network mismatch|wrong network/i.test(msg)) return 'networkMismatch';
+  return null;
+}
+
 export async function signWithFreighter(xdr, networkPassphrase) {
-  const res = await freighterApi.signTransaction(xdr, { networkPassphrase });
-  const signed = typeof res === 'object' ? res?.signedTxXdr : res;
+  const { signedTxXdr: signed } = unwrap(await freighterApi.signTransaction(xdr, { networkPassphrase }));
   if (!signed) throw new Error('Transaction was not signed');
+  const tag = (e) => Object.assign(e, { freighterKey: freighterErrorKey(e) });
+  let res;
+  try {
+    res = await freighterApi.signTransaction(xdr, { networkPassphrase });
+  } catch (e) {
+    throw tag(e);
+  }
+  const signed = typeof res === 'object' ? res?.signedTxXdr : res;
+  if (!signed) throw tag(new Error(String(res?.error?.message || res?.error || 'Transaction was not signed')));
   return signed;
 }
 
@@ -69,8 +91,8 @@ export function useFreighter(appNetwork) {
       setInstalled(ok);
       if (ok && readStored()) {
         try {
-          const details = await freighterApi.getNetworkDetails();
-          if (!cancelled) setNetwork(details?.network || null);
+          const details = unwrap(await freighterApi.getNetworkDetails());
+          if (!cancelled) setNetwork(details.network || null);
         } catch { /* ignore */ }
       }
     })();
@@ -96,6 +118,19 @@ export function useFreighter(appNetwork) {
   }, []);
 
   const connected = Boolean(installed && publicKey);
+
+  // Users switch networks inside the extension; re-read it whenever the tab regains focus.
+  useEffect(() => {
+    if (!connected) return undefined;
+    const recheck = () => {
+      freighterApi.getNetworkDetails()
+        .then(details => setNetwork(details?.network || null))
+        .catch(() => {});
+    };
+    window.addEventListener('focus', recheck);
+    return () => window.removeEventListener('focus', recheck);
+  }, [connected]);
+
   const mismatch = Boolean(connected && network && appNetwork && network !== toFreighterNetwork(appNetwork));
   return { installed, connected, publicKey: connected ? publicKey : null, network, mismatch, error, connect, disconnect };
 }

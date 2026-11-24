@@ -16,7 +16,7 @@ const dns = require('dns').promises;
 const net = require('net');
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
-const adminAuth = require('../middleware/adminAuth');
+const requireAdmin = require('../middleware/requireAdmin');
 const cache = require('../cache');
 const { err } = require('../middleware/error');
 
@@ -144,7 +144,7 @@ async function validatePeerUrl(peerUrl) {
 // POST /api/network/peers  (admin only)
 // Body: { url }
 // ---------------------------------------------------------------------------
-router.post('/peers', adminAuth, async (req, res) => {
+router.post('/peers', auth, requireAdmin, async (req, res) => {
   const { url } = req.body || {};
   if (!url || typeof url !== 'string') {
     return err(res, 400, 'url is required', 'validation_error');

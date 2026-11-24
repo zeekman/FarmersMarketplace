@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useMarkNotificationsRead, useNotificationCount } from '../hooks/queries';
 import { notificationLink, isUnread } from '../utils/notifications';
 
 const DROPDOWN_LIMIT = 10;
@@ -22,20 +23,12 @@ export default function NotificationBell() {
   const { user } = useAuth();
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [unread, setUnread] = useState(0);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const wrapRef = useRef(null);
   const buttonRef = useRef(null);
-
-  const refreshCount = useCallback(() => {
-    if (!user || typeof api.getUnreadNotificationCount !== 'function') return;
-    api.getUnreadNotificationCount()
-      .then(res => setUnread(Number(res?.count ?? res?.data?.count ?? 0) || 0))
-      .catch(() => {});
-  }, [user]);
-
-  useEffect(() => { refreshCount(); }, [refreshCount]);
+  const unread = useNotificationCount({ enabled: Boolean(user) && typeof api.getUnreadNotificationCount === 'function' }).data ?? 0;
+  const { mutate: markReadRemote } = useMarkNotificationsRead();
 
   useEffect(() => {
     if (!open || typeof api.getNotifications !== 'function') return undefined;
@@ -64,18 +57,16 @@ export default function NotificationBell() {
     };
   }, [open]);
 
-  async function markRead(n) {
+  function markRead(n) {
     if (!isUnread(n)) return;
     setItems(prev => prev.map(i => (i.id === n.id ? { ...i, read_at: new Date().toISOString() } : i)));
-    setUnread(c => Math.max(0, c - 1));
-    try { await api.markNotificationRead(n.id); } catch { refreshCount(); }
+    markReadRemote(n.id);
   }
 
-  async function markAll() {
+  function markAll() {
     const now = new Date().toISOString();
     setItems(prev => prev.map(i => ({ ...i, read_at: i.read_at || now })));
-    setUnread(0);
-    try { await api.markAllNotificationsRead(); } catch { refreshCount(); }
+    markReadRemote(undefined);
   }
 
   if (!user) return null;

@@ -7,7 +7,7 @@ import { CompareProvider } from './context/CompareContext';
 import { NetworkProvider } from './context/NetworkContext';
 import { LoadingProvider, LoadingContext } from './context/LoadingContext';
 import { ThemeProvider } from './context/ThemeContext';
-import { toast } from './utils/toast';
+import { showToast } from './utils/toast';
 import { setLoadingCallback, setLogoutCallback, setEmailNotVerifiedCallback } from './api/client';
 import ErrorBoundary from './components/ErrorBoundary';
 import Navbar from './components/Navbar';
@@ -20,13 +20,13 @@ import OfflineBanner from './components/OfflineBanner';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient';
 import { startOutboxSync } from './utils/draftOutbox';
+import { getLocaleDirection } from './i18n';
 
 const ReactQueryDevtools = import.meta.env.DEV
   ? lazy(() => import('@tanstack/react-query-devtools').then(m => ({ default: m.ReactQueryDevtools })))
   : () => null;
 import { initSentry } from './utils/sentry';
 import { getLocaleDirection } from './i18n';
-import { showToast } from './utils/toast';
 
 const LoginPage = lazy(() => import('./pages/Auth').then(m => ({ default: m.LoginPage })));
 const RegisterPage = lazy(() => import('./pages/Auth').then(m => ({ default: m.RegisterPage })));
@@ -49,30 +49,6 @@ const Messages = lazy(() => import('./pages/Messages'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
-function PrivateRoute({ children, role }) {
-  const { user, loading } = useAuth();
-  const { t } = useTranslation();
-  const location = useLocation();
-
-  if (loading) return <PageLoader />;
-  
-  if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-  
-  if (role && user.role !== role) {
-    const roleMessages = {
-      farmer: t('privateRoute.farmerOnly'),
-      buyer: t('privateRoute.buyerOnly'),
-      admin: t('privateRoute.adminOnly'),
-    };
-    if (roleMessages[role]) {
-      toast(roleMessages[role], { type: 'warning' });
-    }
-    return <Navigate to="/" replace />;
-  }
-  
-
 function RoleMismatch({ role }) {
   useEffect(() => {
     showToast(`This page is for ${role}s only`, 'error');
@@ -86,6 +62,40 @@ function PrivateRoute({ children, role }) {
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
   if (role && user.role !== role) return <RoleMismatch role={role} />;
+function PrivateRoute({ children, role }) {
+  const { user, loading } = useAuth();
+  const { t } = useTranslation();
+  const location = useLocation();
+  const [shouldRedirect, setShouldRedirect] = React.useState(false);
+
+  // Fire toast from effect, not during render, to avoid React 19 "setState in render" warning
+  React.useEffect(() => {
+    if (user && role && user.role !== role) {
+      const roleMessages = {
+        farmer: t('privateRoute.farmerOnly'),
+        buyer: t('privateRoute.buyerOnly'),
+        admin: t('privateRoute.adminOnly'),
+      };
+      if (roleMessages[role]) {
+        toast(roleMessages[role], { type: 'warning' });
+      }
+      setShouldRedirect(true);
+    }
+  }, [user, role, t]);
+
+  if (loading) return <PageLoader />;
+  
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  
+  if (role && user.role !== role) {
+    if (shouldRedirect) {
+      return <Navigate to="/" replace />;
+    }
+    return <PageLoader />;
+  }
+  
   return children;
 }
 
@@ -175,7 +185,6 @@ function AppContent() {
 
 export default function App() {
   React.useEffect(() => {
-    initSentry();
     return startOutboxSync();
   }, []);
 
@@ -195,7 +204,11 @@ export default function App() {
           </FavoritesProvider>
         </AuthProvider>
       </ThemeProvider>
-      <Suspense fallback={null}><ReactQueryDevtools initialIsOpen={false} /></Suspense>
+      {import.meta.env.DEV && (
+        <Suspense fallback={null}>
+          <ReactQueryDevtools initialIsOpen={false} />
+        </Suspense>
+      )}
       </QueryClientProvider>
     </ErrorBoundary>
   );

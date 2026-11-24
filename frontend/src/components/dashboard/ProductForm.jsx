@@ -1,9 +1,14 @@
 import React, { useState, useRef } from 'react';
 import ImageCropModal from '../ImageCropModal';
+import ImageUploadProgress from '../ImageUploadProgress';
 import { api } from '../../api/client';
 import { useXlmRate } from '../../utils/useXlmRate';
 import { useTranslation } from 'react-i18next';
-import { getErrorMessage } from '../../utils/errorMessages';
+import { getErrorMessage, getFieldErrors } from '../../utils/errorMessages';
+import { validateProductForm } from '../../utils/validation';
+
+// Fields that have an inline error slot; backend details for any other field fall back to the banner.
+const INLINE_FIELDS = ['name', 'price', 'quantity', 'preorder_delivery_date', 'best_before'];
 
 const EMPTY_FORM = {
   name: '',
@@ -43,7 +48,6 @@ const s = {
   btn: { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, minHeight: 44 },
   msg: { padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 14 },
   preview: { width: '100%', maxHeight: 240, objectFit: 'cover', borderRadius: 8, marginBottom: 8, display: 'block' },
-  uploading: { fontSize: 13, color: '#666', marginBottom: 4 },
   removeImg: { background: 'none', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: '#c0392b', marginBottom: 8 },
   uploadZone: { border: '2px dashed #ddd', borderRadius: 8, padding: '24px 16px', textAlign: 'center', cursor: 'pointer', color: '#888', fontSize: 14, marginBottom: 8 },
   uploadZoneActive: { borderColor: '#2d6a4f', background: '#f0faf4' },
@@ -65,7 +69,8 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [imageUrl, setImageUrl] = useState(null);
   const [imageErr, setImageErr] = useState('');
-  const [uploading, setUploading] = useState(false);
+  // Image is still uploading, or its upload failed and needs a retry/removal.
+  const uploading = Boolean(imageFile) && !imageUrl;
   const [dragOver, setDragOver] = useState(false);
   const [cropSrc, setCropSrc] = useState(null);
   // Mirror of cropSrc kept in a ref so callbacks (handleCropConfirm /
@@ -137,6 +142,24 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
     setImageErr('');
   }
 
+  function setFieldError(key, message) {
+    setFormErrors(fe => {
+      const next = { ...fe };
+      if (message) next[key] = message;
+      else delete next[key];
+      return next;
+    });
+  }
+
+  // Runs on blur: re-validate the whole form, but only update the field that lost focus.
+  function checkField(key) {
+    setFieldError(key, validateProductForm(form)[key]);
+  }
+
+  function fieldErr(key) {
+    return formErrors[key] ? <div id={`prod-${key}-err`} style={s.fieldErr} role="alert">{formErrors[key]}</div> : null;
+  }
+
   async function handleCreateBatch(e) {
     e?.preventDefault?.();
     setBatchMsg(null);
@@ -159,30 +182,15 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
   async function handleAdd(e) {
     e.preventDefault();
     setMsg(null);
-    const newErrors = {};
-    if (form.is_preorder) {
-      if (!form.preorder_delivery_date) {
-        newErrors.preorder_delivery_date = 'Date must be in YYYY-MM-DD format';
-      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(form.preorder_delivery_date)) {
-        newErrors.preorder_delivery_date = 'Date must be in YYYY-MM-DD format';
-      }
-    }
+    const newErrors = validateProductForm(form);
     if (Object.keys(newErrors).length > 0) { setFormErrors(newErrors); return; }
     setFormErrors({});
 
-    let finalImageUrl = imageUrl;
-    if (imageFile) {
-      setUploading(true);
-      try {
-        const res = await api.uploadProductImage(imageFile);
-        finalImageUrl = res.imageUrl;
-      } catch (err) {
-        setUploading(false);
-        setMsg({ type: 'err', text: `Image upload failed: ${err.message}` });
-        return;
-      }
-      setUploading(false);
+    if (uploading) {
+      setMsg({ type: 'err', text: 'Image upload has not finished. Wait for it, retry, or remove the image.' });
+      return;
     }
+    const finalImageUrl = imageUrl;
 
     try {
       const nutritionData = {};
@@ -219,6 +227,10 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
       removeImage();
       onProductAdded?.();
     } catch (err) {
+      // Put backend zod issues next to their fields; the banner still shows the first message.
+      const backendErrors = getFieldErrors(err);
+      const inline = Object.fromEntries(Object.entries(backendErrors).filter(([k]) => INLINE_FIELDS.includes(k)));
+      if (Object.keys(inline).length > 0) setFormErrors(inline);
       setMsg({ type: 'err', text: err.message });
     }
   }
@@ -231,10 +243,20 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
         {[['name', 'Product Name', 'prod-name'], ['price', 'Price (XLM)', 'prod-price'], ['quantity', 'Quantity', 'prod-qty'], ['unit', 'Unit (kg, bunch, etc.)', 'prod-unit']].map(([key, label, id]) => (
           <div key={key}>
             <label style={s.label} htmlFor={id}>{label}</label>
-            <input id={id} style={s.input} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} required={key !== 'unit'} />
+            <input
+              id={id}
+              style={formErrors[key] ? s.inputErr : s.input}
+              value={form[key]}
+              onChange={e => { setForm({ ...form, [key]: e.target.value }); setFieldError(key, undefined); }}
+              onBlur={() => checkField(key)}
+              required={key !== 'unit'}
+              aria-invalid={!!formErrors[key]}
+              aria-describedby={formErrors[key] ? `prod-${key}-err` : undefined}
+            />
             {key === 'price' && usd(parseFloat(form.price)) && (
               <div style={{ fontSize: 12, color: '#2d6a4f', marginBottom: 4 }}>{usd(parseFloat(form.price))} USD</div>
             )}
+            {fieldErr(key)}
           </div>
         ))}
 
@@ -406,11 +428,12 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
               style={formErrors.preorder_delivery_date ? s.inputErr : s.input}
               type="date"
               value={form.preorder_delivery_date}
-              onChange={e => { setForm({ ...form, preorder_delivery_date: e.target.value }); if (formErrors.preorder_delivery_date) setFormErrors(fe => ({ ...fe, preorder_delivery_date: '' })); }}
+              onChange={e => { setForm({ ...form, preorder_delivery_date: e.target.value }); setFieldError('preorder_delivery_date', undefined); }}
+              onBlur={() => checkField('preorder_delivery_date')}
               aria-invalid={!!formErrors.preorder_delivery_date}
-              aria-describedby={formErrors.preorder_delivery_date ? 'prod-preorder-date-err' : undefined}
+              aria-describedby={formErrors.preorder_delivery_date ? 'prod-preorder_delivery_date-err' : undefined}
             />
-            {formErrors.preorder_delivery_date && <div id="prod-preorder-date-err" style={s.fieldErr} role="alert">{formErrors.preorder_delivery_date}</div>}
+            {fieldErr('preorder_delivery_date')}
           </>
         )}
 
@@ -418,7 +441,16 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
         <input style={s.input} type="date" value={form.harvest_date} onChange={e => setForm({ ...form, harvest_date: e.target.value })} />
 
         <label style={s.label}>Best Before Date (optional)</label>
-        <input style={s.input} type="date" value={form.best_before} onChange={e => setForm({ ...form, best_before: e.target.value })} />
+        <input
+          style={formErrors.best_before ? s.inputErr : s.input}
+          type="date"
+          value={form.best_before}
+          onChange={e => { setForm({ ...form, best_before: e.target.value }); setFieldError('best_before', undefined); }}
+          onBlur={() => checkField('best_before')}
+          aria-invalid={!!formErrors.best_before}
+          aria-describedby={formErrors.best_before ? 'prod-best_before-err' : undefined}
+        />
+        {fieldErr('best_before')}
 
         <label style={s.label}>Available From (optional)</label>
         <input style={s.input} type="datetime-local" value={form.available_from} onChange={e => setForm({ ...form, available_from: e.target.value })} />
@@ -431,7 +463,7 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
         {previewUrl ? (
           <>
             <img src={previewUrl} alt="Preview" style={s.preview} />
-            {uploading && <div style={s.uploading}>{t('dashboard.uploading')}</div>}
+            <ImageUploadProgress blob={imageFile} onUploaded={d => setImageUrl(d.imageUrl)} onCancel={removeImage} />
             <button type="button" style={s.removeImg} onClick={removeImage}>{t('dashboard.removeImage')}</button>
           </>
         ) : (

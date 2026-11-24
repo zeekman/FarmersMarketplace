@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import App from "./App";
+import { initSentry } from "./utils/sentry";
 import "./styles/tokens.css";
 import "./browser-compat.css";
 import "./responsive.css";
@@ -15,6 +16,8 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }
+
+initSentry();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <HelmetProvider>

@@ -29,14 +29,16 @@ describe('StarRating (#1184)', () => {
     const stars = [...container.querySelectorAll('span > span')];
     // star 4 (index 3) should be the half star
     const halfStar = stars[3];
-    expect(halfStar.style.color).toBe('#f5a623');
+    expect(halfStar.style.color).toBe('transparent');
+    expect(halfStar.textContent).toBe('★');
   });
 
   it('value=4.9 lights up 4 full stars plus a half at position 5', () => {
     const { container } = render(<StarRating value={4.9} />);
     const stars = [...container.querySelectorAll('span > span')];
     const colored = stars.filter(s => s.style.color === 'rgb(245, 166, 35)' || s.style.color === '#f5a623');
-    expect(colored.length).toBe(5);
+    expect(colored.length).toBe(4);
+    expect(stars[4].style.color).toBe('transparent');
   });
 
   it('shows "No reviews" when count=0', () => {
