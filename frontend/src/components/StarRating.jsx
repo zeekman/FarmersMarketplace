@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Displays a star rating (read-only or interactive).
@@ -14,6 +15,7 @@ import React, { useRef } from 'react';
  * / Home / End move and select, each star is labelled "4 out of 5 stars".
  */
 export default function StarRating({ value = 0, max = 5, size = 16, onChange, count, label = 'Rating' }) {
+  const { t } = useTranslation();
   const stars = Array.from({ length: max }, (_, i) => i + 1);
   const refs = useRef([]);
   const interactive = typeof onChange === 'function';
@@ -55,7 +57,8 @@ export default function StarRating({ value = 0, max = 5, size = 16, onChange, co
   }
 
   const numeric = Number(value) || 0;
-  const summary = `${Number.isInteger(numeric) ? numeric : numeric.toFixed(1)} out of ${max} stars`;
+  const shown = Number.isInteger(numeric) ? numeric : numeric.toFixed(1);
+  const summary = t('starRating.ratedOutOf', { value: shown, max });
   const countText = count === undefined ? '' : count > 0 ? `, ${count} review${count === 1 ? '' : 's'}` : ', no reviews';
 
   const groupProps = interactive
@@ -87,12 +90,18 @@ export default function StarRating({ value = 0, max = 5, size = 16, onChange, co
             style={{
               fontSize: size,
               cursor: interactive ? 'pointer' : 'default',
-              color: filled || half ? '#f5a623' : '#ddd',
+              color: half ? 'transparent' : filled ? '#f5a623' : '#ddd',
+              // Half star: gold left half, grey right half, clipped to the glyph.
+              ...(half && {
+                backgroundImage: 'linear-gradient(90deg, #f5a623 50%, #ddd 50%)',
+                WebkitBackgroundClip: 'text',
+                backgroundClip: 'text',
+              }),
               lineHeight: 1,
               userSelect: 'none',
             }}
           >
-            {half ? '½' : '★'}
+            ★
           </span>
         );
       })}

@@ -400,5 +400,8 @@
     "retry": "Jaribu tena",
     "loadError": "Imeshindwa kupakia vipengee zaidi.",
     "empty": "Hakuna kitu bado."
+  },
+  "starRating": {
+    "ratedOutOf": "Imekadiriwa {{value}} kati ya {{max}}"
   }
 }
