@@ -1481,7 +1481,7 @@ export default function Dashboard() {
                       >
                         <img
                           src={img.url}
-                          alt={`Photo ${i + 1}`}
+                          alt={t('productDetail.imageN', { name: products.find(p => p.id === galleryProductId)?.name ?? '', n: i + 1 })}
                           style={{
                             ...s.galleryThumb,
                             ...(i === 0 ? s.galleryThumbFirst : {}),
@@ -1858,7 +1858,7 @@ export default function Dashboard() {
             {avatarPreview ? (
               <img
                 src={avatarPreview}
-                alt="Avatar"
+                alt={t('dashboard.avatar')}
                 style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover' }}
               />
             ) : (

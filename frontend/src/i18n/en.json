@@ -411,6 +411,7 @@
     "previousImage": "Previous image",
     "nextImage": "Next image",
     "thumbnail": "Thumbnail {{n}}",
+    "imageN": "{{name}} photo {{n}}",
     "default": "(Default)",
     "flashSaleTitle": "Flash Sale",
     "flashSaleBanner": "Flash sale promotion",

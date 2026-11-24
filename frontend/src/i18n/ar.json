@@ -251,6 +251,7 @@
     "previousImage": "الصورة السابقة",
     "nextImage": "الصورة التالية",
     "thumbnail": "الصورة المصغرة {{n}}",
+    "imageN": "{{name}} صورة {{n}}",
     "default": "(افتراضي)",
     "flashSaleTitle": "عرض سريع",
     "flashSaleBanner": "عرض ترويجي سريع",
