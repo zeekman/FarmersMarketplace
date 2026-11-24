@@ -13,6 +13,7 @@ import { useModalA11y } from '../hooks/useModalA11y';
 import { useIdempotencyKey } from '../hooks/useIdempotencyKey';
 import OpenDisputeModal from '../components/disputes/OpenDisputeModal';
 import DisputeDetail from '../components/disputes/DisputeDetail';
+import EscrowCountdown from '../components/orders/EscrowCountdown';
 
 import { getErrorMessage } from '../utils/errorMessages';
 // Poll orders stuck in `confirming` until confirmPayments settles them (#1501).
@@ -222,6 +223,8 @@ export default function Orders() {
   const { user } = useAuth();
   const [claimingId, setClaimingId] = useState(null);
   const [claimError, setClaimError] = useState({});
+  const [refundingId, setRefundingId] = useState(null);
+  const [refundError, setRefundError] = useState({});
   const [downloadingReceipt, setDownloadingReceipt] = useState(null);
   const [bundleOrders, setBundleOrders] = useState([]);
   const [returnModal, setReturnModal] = useState(null); // orderId
@@ -369,6 +372,19 @@ export default function Orders() {
       setClaimError((prev) => ({ ...prev, [orderId]: getErrorMessage(e) }));
     } finally {
       setClaimingId(null);
+    }
+  }
+
+  async function handleRefund(orderId) {
+    setRefundingId(orderId);
+    setRefundError((prev) => ({ ...prev, [orderId]: '' }));
+    try {
+      await api.refundEscrow(orderId);
+      load();
+    } catch (e) {
+      setRefundError((prev) => ({ ...prev, [orderId]: getErrorMessage(e) }));
+    } finally {
+      setRefundingId(null);
     }
   }
 
@@ -915,6 +931,25 @@ export default function Orders() {
                               )}
                             </div>
                           )}
+                          {user?.role === 'buyer' &&
+                            o.escrow_status === 'funded' &&
+                            String(o.escrow_balance_id || '').startsWith('soroban:') &&
+                            o.timeout_unix != null && (
+                              <>
+                                <EscrowCountdown
+                                  timeoutUnix={o.timeout_unix}
+                                  autoReleaseUnix={o.auto_release_unix}
+                                  releaseAfterUnix={o.release_after_unix}
+                                  onRefund={() => handleRefund(o.id)}
+                                  refunding={refundingId === o.id}
+                                />
+                                {refundError[o.id] && (
+                                  <div role="alert" style={{ fontSize: 12, color: '#c0392b', marginTop: 4 }}>
+                                    {refundError[o.id]}
+                                  </div>
+                                )}
+                              </>
+                            )}
                         </div>
                       )}
                     </div>
