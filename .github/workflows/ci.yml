@@ -261,7 +261,7 @@ jobs:
             ${{ runner.os }}-cargo-smoke-
 
       - name: Install stellar-cli
-        run: cargo install --locked stellar-cli@22.0.0 --features opt
+        run: cargo install --locked stellar-cli@23.0.0 --features opt
 
       - name: Build escrow contract (release WASM)
         working-directory: contracts
