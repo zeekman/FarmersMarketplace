@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useCompare } from '../context/CompareContext';
 import { useTranslation } from 'react-i18next';
 import StarRating from '../components/StarRating';
+import { formatXlm } from '../utils/money';
 
 const s = {
   page: { maxWidth: 1100, margin: '0 auto', padding: 24 },
@@ -16,10 +17,20 @@ const s = {
   empty: { textAlign: 'center', padding: 80, color: '#666' },
   backBtn: { marginTop: 20, background: '#2d6a4f', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: 8, cursor: 'pointer' },
   productName: { fontWeight: 700, color: '#2d6a4f' },
+  unavailable: { display: 'block', fontSize: 12, fontWeight: 400, color: '#c0392b' },
   actions: { display: 'flex', gap: 10, marginBottom: 16 },
   exportBtn: { background: '#2d6a4f', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600 },
   exportBtnDisabled: { background: '#a8a8a8', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: 8, cursor: 'not-allowed', fontSize: 14, fontWeight: 600 },
 };
+
+// money.js throws on malformed amounts; show "—" rather than crash the page
+function formatPricePerUnit(product) {
+  try {
+    return `${formatXlm(product.price)} XLM / ${product.unit}`;
+  } catch {
+    return '—';
+  }
+}
 
 function buildComparisonCsv(products, t) {
   const rows = [
@@ -47,6 +58,10 @@ export default function Compare() {
 
   const hasEnoughProducts = products.length >= 2;
   const isEmpty = products.length === 0;
+
+  // Price per unit is only meaningful when every available product shares one unit
+  const units = new Set(products.filter(p => !p.unavailable).map(p => (p.unit ?? '').trim().toLowerCase()));
+  const unitsComparable = units.size === 1 && !units.has('');
 
   const handleExportCsv = () => {
     if (isEmpty) return;
@@ -105,7 +120,10 @@ export default function Compare() {
               <tr>
                 <th style={{ ...s.th, ...s.rowLabel }}>{t('compare.attribute')}</th>
                 {products.map(product => (
-                  <th key={product.id} style={s.th}>{product.name}</th>
+                  <th key={product.id} style={s.th}>
+                    {product.name}
+                    {product.unavailable && <span style={s.unavailable}>{t('compare.unavailable')}</span>}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -120,6 +138,14 @@ export default function Compare() {
                 <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.price')}</td>
                 {products.map(product => (
                   <td key={`${product.id}-price`} style={s.td}>{product?.price != null ? `${product.price} XLM` : '—'}</td>
+                ))}
+              </tr>
+              <tr>
+                <td style={{ ...s.td, ...s.rowLabel }}>{t('compare.pricePerUnit')}</td>
+                {products.map(product => (
+                  <td key={`${product.id}-price-per-unit`} style={s.td}>
+                    {unitsComparable && !product.unavailable && product.price != null ? formatPricePerUnit(product) : '—'}
+                  </td>
                 ))}
               </tr>
               <tr>

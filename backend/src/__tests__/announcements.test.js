@@ -11,18 +11,28 @@ const request = require('supertest');
 const express = require('express');
 const db = require('../db/schema');
 
-// Auth middleware stubs — injected before the route under test
+// Auth middleware stub — injects a user so the real requireAdmin runs.
+// buildApp(user) injects a non-admin user to exercise the 403 path.
 jest.mock('../middleware/auth', () => (req, _res, next) => {
-  req.user = { id: 1, role: 'admin' };
+  req.user = req._mockUser || { id: 1, role: 'admin' };
   next();
 });
-jest.mock('../middleware/adminAuth', () => (_req, _res, next) => next());
+// Keep requireAdmin's fire-and-forget audit write from consuming the route's
+// db.query mock. A plain async stub (not jest.fn) survives the global
+// jest.resetAllMocks() in jest.setup.js.
+jest.mock('../utils/auditLog', () => ({ writeAuditLog: async () => undefined }));
 
 const announcementsRouter = require('../routes/announcements');
 
-function buildApp() {
+function buildApp(user) {
   const app = express();
   app.use(express.json());
+  if (user) {
+    app.use((req, _res, next) => {
+      req._mockUser = user;
+      next();
+    });
+  }
   app.use('/api/announcements', announcementsRouter);
   return app;
 }
@@ -156,5 +166,39 @@ describe('GET /api/announcements/admin — admin full listing', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(3);
+  });
+});
+
+describe('admin-only announcement endpoints reject non-admins with 403 (#009)', () => {
+  const buyerApp = () => buildApp({ id: 2, role: 'buyer' });
+
+  test('GET /api/announcements/admin returns 403 for a non-admin', async () => {
+    const res = await request(buyerApp()).get('/api/announcements/admin');
+    expect(res.status).toBe(403);
+  });
+
+  test('POST /api/announcements/admin returns 403 for a non-admin', async () => {
+    const res = await request(buyerApp())
+      .post('/api/announcements/admin')
+      .send({ message: 'nope', type: 'info' });
+    expect(res.status).toBe(403);
+  });
+
+  test('PATCH /api/announcements/admin/:id returns 403 for a non-admin', async () => {
+    const res = await request(buyerApp())
+      .patch('/api/announcements/admin/1')
+      .send({ message: 'nope' });
+    expect(res.status).toBe(403);
+  });
+
+  test('DELETE /api/announcements/admin/:id returns 403 for a non-admin', async () => {
+    const res = await request(buyerApp()).delete('/api/announcements/admin/1');
+    expect(res.status).toBe(403);
+  });
+
+  test('GET /api/announcements stays public (no admin guard)', async () => {
+    db.query.mockResolvedValueOnce({ rows: [] });
+    const res = await request(buyerApp()).get('/api/announcements');
+    expect(res.status).toBe(200);
   });
 });

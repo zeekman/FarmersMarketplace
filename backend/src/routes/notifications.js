@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
-const adminAuth = require('../middleware/adminAuth');
+const requireAdmin = require('../middleware/requireAdmin');
 const { err } = require('../middleware/error');
 const db = require('../db/schema');
 const push = require('../utils/pushNotifications');
@@ -67,7 +67,7 @@ router.delete('/subscribe', auth, async (req, res) => {
 
 // POST /api/admin/rotate-vapid-keys — admin: regenerate VAPID keys
 // All existing push subscriptions become stale after rotation; subscribers must re-subscribe.
-router.post('/admin/rotate-vapid-keys', adminAuth, async (req, res) => {
+router.post('/admin/rotate-vapid-keys', auth, requireAdmin, async (req, res) => {
   try {
     const { publicKey } = await push.rotateVapidKeys();
     res.json({ success: true, message: 'VAPID keys rotated. All existing push subscriptions are now invalid.', publicKey });
