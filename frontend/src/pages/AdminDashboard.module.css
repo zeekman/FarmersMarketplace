@@ -1,0 +1,192 @@
+/* Admin dashboard styles (#1678). Replaces the shared inline `s` style object. */
+
+.page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.title {
+  font-size: var(--font-size-3xl);
+  font-weight: 700;
+  color: var(--color-primary);
+  margin-bottom: 24px;
+}
+
+.card {
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  box-shadow: 0 1px 8px #0001;
+}
+
+/* Tables scroll horizontally below 768px; long tables scroll vertically with a sticky header. */
+.tableWrap {
+  overflow-x: auto;
+  max-height: 70vh;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-base);
+}
+
+.th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-bg-primary);
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 2px solid #eee;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.err {
+  color: var(--color-error);
+  font-size: var(--font-size-base);
+  margin-bottom: 12px;
+}
+
+.input {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-base);
+}
+
+.monoInput {
+  composes: input;
+  font-family: monospace;
+}
+
+.btn {
+  padding: 8px 20px;
+  border-radius: var(--radius-lg);
+  border: none;
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btnBusy {
+  composes: btn;
+  cursor: not-allowed;
+}
+
+.pagination {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  align-items: center;
+}
+
+.pgBtn {
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  background: var(--color-bg-primary);
+  color: #333;
+}
+
+.pgBtnDisabled {
+  composes: pgBtn;
+  cursor: not-allowed;
+  background: #f5f5f5;
+  color: #aaa;
+}
+
+/* Modals (DeactivateModal, BanModal) */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modalCard {
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-xl);
+  padding: 28px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 4px 24px #0003;
+}
+
+.modalTitle {
+  font-weight: 700;
+  font-size: var(--font-size-xl);
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.modalText {
+  font-size: var(--font-size-base);
+  color: var(--color-text-secondary);
+  margin-bottom: 20px;
+}
+
+.modalTextWithField {
+  composes: modalText;
+  margin-bottom: 14px;
+}
+
+.reasonInput {
+  composes: input;
+  width: 100%;
+  resize: vertical;
+  min-height: 60px;
+  box-sizing: border-box;
+  margin-bottom: 16px;
+}
+
+.modalActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.cancelBtn {
+  padding: 8px 18px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+  cursor: pointer;
+  font-weight: 600;
+  color: #333;
+}
+
+.cancelBtnBusy {
+  composes: cancelBtn;
+  cursor: not-allowed;
+  color: #aaa;
+}
+
+.dangerBtn {
+  padding: 8px 18px;
+  border-radius: var(--radius-lg);
+  border: none;
+  background: var(--color-error);
+  color: var(--color-text-inverse);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.dangerBtnBusy {
+  composes: dangerBtn;
+  background: #ccc;
+  cursor: not-allowed;
+}

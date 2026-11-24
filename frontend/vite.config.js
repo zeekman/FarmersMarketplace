@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react';
 import { visualizer } from 'rollup-plugin-visualizer';
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'));
+// Unique per build, so every deploy gets a new service worker cache name even without a version bump.
+const BUILD_ID = Date.now().toString(36);
 // Bundle size budgets (kB, uncompressed).
 // Raise these deliberately and document the reason — do not bump silently.
 const INITIAL_CHUNK_BUDGET_KB = 500;   // vendor + index combined initial load
@@ -28,7 +30,7 @@ function serviceWorkerVersion() {
       }
       const stamped = sw.replace(
         /self\.__APP_VERSION__\s*\|\|\s*'[^']*'/,
-        JSON.stringify(pkg.version),
+        JSON.stringify(`${pkg.version}-${BUILD_ID}`),
       );
       if (stamped !== sw) {
         writeFileSync(swPath, stamped);
@@ -85,6 +87,10 @@ export default defineConfig({
           }
           if (/\/node_modules\/(leaflet|react-leaflet|@react-leaflet\/core)\//.test(normalizedId)) {
             return 'maps';
+          }
+          // Stellar SDK / Freighter: only wallet and checkout routes need it, so keep it out of the entry.
+          if (/\/node_modules\/@stellar\//.test(normalizedId)) {
+            return 'stellar-vendor';
           }
         },
       },

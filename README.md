@@ -69,6 +69,8 @@ Runs on http://localhost:3000
 
 The Vite dev server proxies backend paths (`/api`, `/uploads`, `/federation`, `/.well-known`, `/sitemap.xml`, `/robots.txt`) to `VITE_API_URL` (default `http://localhost:4000`). Set `VITE_API_URL` in the environment before `npm run dev` if the backend runs elsewhere. The list mirrors `nginx/farmers-marketplace.conf`.
 
+The service worker is only registered in production builds. If a worker from an earlier `npm run build && npm run preview` or a deployed site is still controlling `localhost:3000` and your changes don't show up, clear it: open DevTools → Application → Service Workers → **Unregister**, then Application → Storage → **Clear site data** and hard-reload. Opening `npm run dev` also unregisters any existing worker for that origin on load.
+
 ## Payment Flow
 
 1. Register as a **buyer** and a **farmer** (two separate accounts)
@@ -620,3 +622,19 @@ For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md)
 
 <!-- handsoff-issue-1539 -->
 - #1539: CT-20: Auto-release and timeout refund: define precedence and test the boundaries
+
+<!-- handsoff-issue-1710 -->
+- #1710: Escrow has no pause circuit breaker, but `get_config` always reports `paused: false`
+
+<!-- handsoff-issue-1719 -->
+- #1719: `mint_for_order` is not idempotent per order, so retries double-mint rewards
+<!-- handsoff-issue-1707 -->
+- #1707: `resolve_dispute` is declared twice and the first declaration has no body
+
+<!-- handsoff-issue-1708 -->
+- #1708: `set_coop` is declared twice: per-cooperative (#1297) and global
+<!-- handsoff-issue-1713 -->
+- #1713: Add a time-lock to `upgrade()` in escrow and creator-earnings
+
+<!-- handsoff-issue-1714 -->
+- #1714: `CONTRACT_VERSION` is still 1 after many storage changes; define a versioned migration path

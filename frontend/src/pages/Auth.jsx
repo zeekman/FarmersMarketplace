@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { validateLogin, validateRegister, validatePassword } from '../utils/validation';
 import { getErrorMessage, getFieldErrors } from '../utils/errorMessages';
 import { useTranslation } from 'react-i18next';
+import { PasswordStrength } from '../components/PasswordStrength';
 
 const s = {
   wrap: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 },
@@ -27,7 +28,6 @@ const s = {
 
 export const authStyles = s;
 
-export function PasswordStrength({ password }) {
 // Returns the path the user was trying to reach before being sent to login,
 // falling back to the role's home page. Only same-origin paths are honoured.
 function getPostLoginPath(state, user) {

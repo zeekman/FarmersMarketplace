@@ -15,15 +15,14 @@ async function start() {
   await db.ready;
   const server = app.listen(PORT, () => {
     logger.info(`Backend running on http://localhost:${PORT}`);
-    // Background jobs run only in the process started with RUN_JOBS=true (#1367).
+    // The jobs/index.js registry is the only scheduler, and it only schedules
+    // anything when RUN_JOBS=true (the single jobs leader) — #1367/#011.
     const stopJobs = startJobs();
-    app.locals.startBackgroundJobs();
 
     if (process.send) {
       process.send('ready');
     }
 
-    const shutdown = (signal) => {
     let shuttingDown = false;
     const shutdown = async (signal) => {
       if (shuttingDown) return;

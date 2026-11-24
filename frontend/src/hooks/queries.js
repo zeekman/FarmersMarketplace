@@ -43,6 +43,48 @@ export function useToggleFavorite() {
   });
 }
 
+/** Unread notification count; the bell and the notifications page both read this key. */
+export const useNotificationCount = (options) =>
+  useQuery({
+    queryKey: queryKeys.notificationCount,
+    queryFn: () => api.getUnreadNotificationCount(),
+    select: (res) => Number(res?.count ?? res?.data?.count ?? 0) || 0,
+    ...options,
+  });
+
+/** Mark one notification (pass id) or all (no id) read. Optimistic; rolled back on error. */
+export function useMarkNotificationsRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => (id == null ? api.markAllNotificationsRead() : api.markNotificationRead(id)),
+    onMutate: async (id) => {
+      await Promise.all([
+        qc.cancelQueries({ queryKey: queryKeys.notificationCount }),
+        qc.cancelQueries({ queryKey: ['notificationList'] }),
+      ]);
+      const now = new Date().toISOString();
+      const prevCount = qc.getQueryData(queryKeys.notificationCount);
+      const prevLists = qc.getQueriesData({ queryKey: ['notificationList'] });
+      const markItem = (n) => ((id == null || n.id === id) && !n.read_at ? { ...n, read_at: now } : n);
+      qc.setQueriesData({ queryKey: ['notificationList'] }, (old) => old && {
+        ...old,
+        pages: old.pages.map((p) => ({ ...p, data: (p?.data || []).map(markItem) })),
+      });
+      if (id == null) qc.setQueryData(queryKeys.notificationCount, { count: 0 });
+      return { prevCount, prevLists };
+    },
+    onError: (_err, _id, ctx) => {
+      if (!ctx) return;
+      qc.setQueryData(queryKeys.notificationCount, ctx.prevCount);
+      ctx.prevLists.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.notificationCount });
+      qc.invalidateQueries({ queryKey: ['notificationList'] });
+    },
+  });
+}
+
 /** Replaces the `messages:read` window event: mark-read callers invalidate the count. */
 export function useInvalidateUnreadCount() {
   const qc = useQueryClient();

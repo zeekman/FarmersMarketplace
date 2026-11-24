@@ -29,7 +29,7 @@ GIT_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 CONTRACTS=(
   "escrow|contracts|soroban-escrow|soroban_escrow"
   "creator-earnings|contracts|creator-earnings|creator_earnings"
-  "reward-token|contract/reward-token|reward-token|reward_token"
+  "reward-token|contracts|reward-token|reward_token"
 )
 
 # Print `--key value` init args for a contract from the TOML config.

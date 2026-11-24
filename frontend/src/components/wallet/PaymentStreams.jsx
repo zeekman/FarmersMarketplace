@@ -1,5 +1,6 @@
 import React from 'react';
 import StreamAccrual from '../StreamAccrual';
+import { WidgetErrorBoundary } from '../RouteErrorBoundary';
 import { s, msgTone } from './walletStyles';
 
 /** Active payment streams the user is sending or receiving. */
@@ -33,7 +34,7 @@ export default function PaymentStreams({ streams, streamsMsg, streamActionId, pu
                   Rate: {Number(stream.rate).toFixed(4)} XLM/sec · Deposit remaining: {Number(stream.deposit_remaining ?? stream.depositRemaining ?? 0).toFixed(2)} XLM
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--color-primary)', marginTop: 4, fontWeight: 600 }}>
-                  Accrued: <StreamAccrual accrued={stream.accrued} asOf={stream.as_of ?? stream.asOf} rate={stream.rate} /> XLM
+                  Accrued: <WidgetErrorBoundary name="StreamAccrual"><StreamAccrual accrued={stream.accrued} asOf={stream.as_of ?? stream.asOf} rate={stream.rate} /></WidgetErrorBoundary> XLM
                 </div>
               </div>
               <div style={{ flexShrink: 0, marginLeft: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>

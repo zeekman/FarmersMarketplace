@@ -2,6 +2,7 @@
 members = [
     "escrow",
     "creator-earnings",
+    "carbon-offset",
     "test-utils",
 ]
 exclude = ["escrow/fuzz"]

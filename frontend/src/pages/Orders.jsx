@@ -3,13 +3,14 @@ import { Helmet } from 'react-helmet-async';
 import { useSearchParams } from 'react-router-dom';
 import { api, newIdempotencyKey } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import Spinner from '../components/Spinner';
+import { SkeletonOrderRow } from '../components/SkeletonLoaders';
 import Pagination from '../components/Pagination';
 import { normalizePage } from '../hooks/usePaginatedQuery';
 import { useNetwork } from '../context/NetworkContext';
-import OrderStatusTimeline from '../components/orders/OrderStatusTimeline';
+import OrderStatusTimeline, { TxHashLink, settlementLabel } from '../components/orders/OrderStatusTimeline';
 import CarbonOffsetBadge from '../components/CarbonOffsetBadge';
 import { useModalA11y } from '../hooks/useModalA11y';
+import { useIdempotencyKey } from '../hooks/useIdempotencyKey';
 import OpenDisputeModal from '../components/disputes/OpenDisputeModal';
 import DisputeDetail from '../components/disputes/DisputeDetail';
 
@@ -239,6 +240,8 @@ export default function Orders() {
   const returnDialogRef = useModalA11y(returnModal != null, () => setReturnModal(null));
   const [disputeTarget, setDisputeTarget] = useState(null); // order being disputed
   const [disputeViewId, setDisputeViewId] = useState(null); // order id whose dispute is shown
+  const claimAttempt = useIdempotencyKey();
+  const returnAttempt = useIdempotencyKey();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -358,9 +361,11 @@ export default function Orders() {
     setClaimingId(orderId);
     setClaimError((prev) => ({ ...prev, [orderId]: '' }));
     try {
-      await api.claimPreorder(orderId);
+      await api.claimPreorder(orderId, claimAttempt.keyFor({ orderId }));
+      claimAttempt.settle();
       load();
     } catch (e) {
+      claimAttempt.settle(e);
       setClaimError((prev) => ({ ...prev, [orderId]: getErrorMessage(e) }));
     } finally {
       setClaimingId(null);
@@ -370,8 +375,10 @@ export default function Orders() {
   async function handleFileReturn(orderId) {
     if (!returnReason.trim()) return;
     setReturnLoading(true);
+    const reason = returnReason.trim();
     try {
-      await api.fileReturn(orderId, returnReason.trim());
+      await api.fileReturn(orderId, reason, returnAttempt.keyFor({ orderId, reason }));
+      returnAttempt.settle();
       setReturnModal(null);
       setReturnReason('');
       setReturnMsg((prev) => ({
@@ -380,6 +387,7 @@ export default function Orders() {
       }));
       load();
     } catch (e) {
+      returnAttempt.settle(e);
       setReturnMsg((prev) => ({ ...prev, [orderId]: { type: 'err', text: getErrorMessage(e) } }));
     } finally {
       setReturnLoading(false);
@@ -576,7 +584,11 @@ export default function Orders() {
       )}
 
       {loading && !error ? (
-        <Spinner message="Loading orders..." />
+        <div role="status" aria-busy="true" aria-label="Loading orders">
+          <div style={s.card}>
+            {[0, 1, 2, 3].map((i) => <SkeletonOrderRow key={i} />)}
+          </div>
+        </div>
       ) : (
         <>
           <div style={s.stats}>
@@ -721,19 +733,11 @@ export default function Orders() {
                             : ''}
                         </div>
                       ) : null}
-                      {o.stellar_tx_hash && (
-                        <div style={s.hash}>
-                          TX:{' '}
-                          <a
-                            href={explorerUrl('tx', o.stellar_tx_hash)}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ color: '#2d6a4f' }}
-                          >
-                            {o.stellar_tx_hash}
-                          </a>
-                        </div>
-                      )}
+                      <TxHashLink label="Payment" hash={o.stellar_tx_hash} />
+                      <TxHashLink
+                        label={settlementLabel(o.settlement_type)}
+                        hash={o.settlement_tx_hash}
+                      />
                       {o.stellar_memo && (
                         <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
                           📝 Memo: <span style={{ fontFamily: 'monospace' }}>{o.stellar_memo}</span>

@@ -1,5 +1,5 @@
 export const MAX_EDGE_PX = 1600;
-export const QUALITY = 0.82;
+export const QUALITY = 0.8;
 
 export function isImageFile(file) {
   return Boolean(file && typeof file.type === 'string' && file.type.startsWith('image/'));
@@ -27,4 +27,19 @@ export async function compressCanvas(source, { maxEdge = MAX_EDGE_PX, quality = 
   const webp = await toBlob(out, 'image/webp', quality);
   if (webp && webp.type === 'image/webp') return webp;
   return toBlob(out, 'image/jpeg', quality);
+}
+
+/**
+ * Decodes a picked file with EXIF orientation applied, then compresses it.
+ * Re-encoding through a canvas drops all metadata, so GPS EXIF is stripped.
+ */
+export async function compressImage(file) {
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  try {
+    const blob = await compressCanvas(bitmap);
+    if (!blob) throw new Error('Could not compress image');
+    return blob;
+  } finally {
+    bitmap.close();
+  }
 }

@@ -11,18 +11,18 @@
  *   Mobile  : Pixel 7 (Android Chrome), iPhone 14 (iOS Safari), iPad Pro (iPadOS)
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Navigate to a page and wait for the network to settle. */
-async function goto(page, path) {
+async function goto(page: Page, path: string) {
   await page.goto(path, { waitUntil: 'networkidle' });
 }
 
 // ── 1. Page load & basic rendering ───────────────────────────────────────────
 
-test.describe('Page load', () => {
+test.describe('Page load', { tag: '@compat' }, () => {
   test('login page renders and is interactive', async ({ page }) => {
     await goto(page, '/login');
     await expect(page).toHaveTitle(/Farmers Marketplace|FarmersMarket|Marketplace/i);
@@ -52,7 +52,7 @@ test.describe('Page load', () => {
 
 // ── 2. CSS layout & responsive design ────────────────────────────────────────
 
-test.describe('Responsive layout', () => {
+test.describe('Responsive layout', { tag: '@compat' }, () => {
   test('navbar is visible on desktop', async ({ page }) => {
     await goto(page, '/login');
     const nav = page.locator('nav, header').first();
@@ -66,7 +66,7 @@ test.describe('Responsive layout', () => {
     const box = await form.boundingBox();
     expect(box).not.toBeNull();
     // Form must not overflow the viewport width
-    expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize().width + 2);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 2);
   });
 
   test('marketplace grid reflows on narrow viewport', async ({ page }) => {
@@ -81,7 +81,7 @@ test.describe('Responsive layout', () => {
 
 // ── 3. Form interaction & input handling ─────────────────────────────────────
 
-test.describe('Form interaction', () => {
+test.describe('Form interaction', { tag: '@compat' }, () => {
   test('login form shows validation on empty submit', async ({ page }) => {
     await goto(page, '/login');
     const btn = page.getByRole('button', { name: /login|sign in/i });
@@ -114,12 +114,12 @@ test.describe('Form interaction', () => {
 
 // ── 4. Navigation & routing ───────────────────────────────────────────────────
 
-test.describe('Client-side routing', () => {
+test.describe('Client-side routing', { tag: '@compat' }, () => {
   test('navigating to unknown route does not crash', async ({ page }) => {
     await goto(page, '/this-route-does-not-exist');
     // Should not show a blank white page or JS error
     const body = await page.locator('body').textContent();
-    expect(body.trim().length).toBeGreaterThan(0);
+    expect(body!.trim().length).toBeGreaterThan(0);
   });
 
   test('back navigation works after page change', async ({ page }) => {
@@ -132,7 +132,7 @@ test.describe('Client-side routing', () => {
 
 // ── 5. Accessibility basics ───────────────────────────────────────────────────
 
-test.describe('Accessibility', () => {
+test.describe('Accessibility', { tag: '@compat' }, () => {
   test('login page has no missing alt text on images', async ({ page }) => {
     await goto(page, '/login');
     const imgsWithoutAlt = await page.locator('img:not([alt])').count();
@@ -149,7 +149,7 @@ test.describe('Accessibility', () => {
 
 // ── 6. Browser-specific feature detection ────────────────────────────────────
 
-test.describe('Browser feature support', () => {
+test.describe('Browser feature support', { tag: '@compat' }, () => {
   test('fetch API is available', async ({ page }) => {
     await goto(page, '/login');
     const hasFetch = await page.evaluate(() => typeof window.fetch === 'function');
@@ -184,14 +184,14 @@ test.describe('Browser feature support', () => {
 
 // ── 7. Network & error resilience ────────────────────────────────────────────
 
-test.describe('Network resilience', () => {
+test.describe('Network resilience', { tag: '@compat' }, () => {
   test('app renders gracefully when API is unreachable', async ({ page }) => {
     // Block all API calls
     await page.route('**/api/**', route => route.abort());
     await goto(page, '/marketplace');
     // Should not show an unhandled JS error overlay
     const body = await page.locator('body').textContent();
-    expect(body.trim().length).toBeGreaterThan(0);
+    expect(body!.trim().length).toBeGreaterThan(0);
   });
 
   test('app handles slow network without blank screen', async ({ page }) => {
@@ -202,6 +202,6 @@ test.describe('Network resilience', () => {
     });
     await page.goto('/marketplace', { timeout: 15_000 });
     const body = await page.locator('body').textContent();
-    expect(body.trim().length).toBeGreaterThan(0);
+    expect(body!.trim().length).toBeGreaterThan(0);
   });
 });

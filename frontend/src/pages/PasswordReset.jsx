@@ -5,7 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import { isValidEmail, validatePassword } from '../utils/validation';
 import { getErrorMessage } from '../utils/errorMessages';
-import { authStyles as s, PasswordStrength } from './Auth';
+import { authStyles as s } from './Auth';
+import { PasswordStrength } from '../components/PasswordStrength';
 
 export function ForgotPasswordPage() {
   const { t } = useTranslation();

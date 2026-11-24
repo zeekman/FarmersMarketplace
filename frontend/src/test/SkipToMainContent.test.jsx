@@ -2,6 +2,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Navbar from '../components/Navbar';
 import { vi } from 'vitest';
 
@@ -25,19 +26,21 @@ vi.mock('../api/client', () => ({
 // the shared main-content landmark every route renders into.
 function TestLayout() {
   return (
-    <MemoryRouter>
-      <a
-        href="#main-content"
-        className="skip-link"
-        onClick={() => document.getElementById('main-content')?.focus()}
-      >
-        Skip to main content
-      </a>
-      <Navbar />
-      <main id="main-content" tabIndex={-1} style={{ outline: 'none' }}>
-        <h1>Marketplace</h1>
-      </main>
-    </MemoryRouter>
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter>
+        <a
+          href="#main-content"
+          className="skip-link"
+          onClick={() => document.getElementById('main-content')?.focus()}
+        >
+          Skip to main content
+        </a>
+        <Navbar />
+        <main id="main-content" tabIndex={-1} style={{ outline: 'none' }}>
+          <h1>Marketplace</h1>
+        </main>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 

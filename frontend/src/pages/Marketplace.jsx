@@ -8,9 +8,11 @@ import { useCompare } from "../context/CompareContext";
 import { useXlmRate } from "../utils/useXlmRate";
 import { useDebounce } from "../utils/useDebounce";
 import { getRecentlyViewed } from "../utils/recentlyViewed";
-import { saveSnapshot, saveScrollPosition, readSnapshot, clearSnapshot } from "../utils/marketplaceSnapshot";
+import { saveSnapshot, saveScrollPosition, readSnapshot, clearSnapshot, SNAPSHOT_TTL_MS } from "../utils/marketplaceSnapshot";
+import { queryClient } from "../lib/queryClient";
 import StarRating from "../components/StarRating";
 import SkeletonProductCard from "../components/SkeletonProductCard";
+import FreshnessBadge from "../components/FreshnessBadge";
 import Spinner from "../components/Spinner";
 import AuctionCard from "../components/AuctionCard";
 import FlashSaleCountdown from "../components/FlashSaleCountdown";
@@ -20,7 +22,9 @@ import { useTranslation } from "react-i18next";
 import { buildSrcSet } from "../utils/imageUtils";
 
 import { getErrorMessage } from '../utils/errorMessages';
+import { filtersFromParams, filtersToParams, roundCoord } from '../utils/marketplaceUrl';
 import { filtersFromParams, filtersToParams } from '../utils/marketplaceUrl';
+import { WidgetErrorBoundary } from '../components/RouteErrorBoundary';
 const MapView = lazy(() => import("../components/MapView"));
 
 // Fallback when GET /categories is unavailable.
@@ -332,6 +336,7 @@ const SORT_OPTIONS = [
   { value: "price_asc", label: "Price: Low to High" },
   { value: "price_desc", label: "Price: High to Low" },
   { value: "popular", label: "Most Popular" },
+  { value: "freshest", label: "Freshest first" },
 ];
 
 const EMPTY_FILTERS = {
@@ -362,33 +367,16 @@ function GradeBadge({ grade }) {
   );
 }
 
-// All freshness badge colors pass WCAG AA (≥ 4.5:1) on their paired backgrounds.
-// color/bg pairs verified: #b42318/#fee2e2 → 5.38:1, #7a3d00/#ffe0b2 → 6.64:1,
-// #155724/#d4edda → 7.48:1
-// Note: #c0392b/#fee2e2 = 4.45:1 (fails WCAG AA) — use #b42318 instead.
-function getFreshnessBadge(bestBefore) {
-  if (!bestBefore) return null;
-  const today = new Date();
-  const expiry = new Date(bestBefore);
-  const diffTime = expiry - today;
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return null; // expired, but shouldn't be shown
-  // #b42318 on #fee2e2 → 5.38:1 PASS (replaces #c0392b → 4.45:1 FAIL)
-  if (diffDays === 0) return { text: 'Expires today',   color: '#b42318', background: '#fee2e2' };
-  if (diffDays === 1) return { text: 'Expires tomorrow', color: '#7a3d00', background: '#ffe0b2' };
-  if (diffDays <= 3) return { text: `${diffDays} days left`, color: '#7a3d00', background: '#ffe0b2' };
-  if (diffDays <= 7) return { text: `${diffDays} days left`, color: '#155724', background: '#d4edda' };
-  return { text: 'Fresh', color: '#155724', background: '#d4edda' };
-}
-
 const SCROLL_SAVE_THROTTLE_MS = 250;
 
 // Stable key for the filters that affect the fetched product list.
+// Numbers and strings are normalised: URL-parsed values are strings while
+// slider/geolocation values are numbers, which otherwise never match.
 function filtersKey(f) {
   return JSON.stringify([
-    f.search || '', f.seller || '', f.category || '', f.minPrice || '', f.maxPrice || '',
-    f.available || '', f.excludeAllergens || [], f.sort || '', f.grade || '',
-    f.lat || '', f.lng || '', f.radius || '',
+    f.search || '', f.seller || '', f.category || '', String(f.minPrice || ''), String(f.maxPrice || ''),
+    f.available || '', [...(f.excludeAllergens || [])].sort(), f.sort || '', f.grade || '',
+    String(f.lat || ''), String(f.lng || ''), String(f.radius || ''),
   ]);
 }
 
@@ -460,10 +448,18 @@ export default function Marketplace() {
     });
   }
 
-  async function fetchPage(f, p) {
+  // staleTime 0 always hits the network and writes the React Query cache; a
+  // back-navigation restore passes SNAPSHOT_TTL_MS so cached pages are reused.
+  async function fetchPage(f, p, staleTime = 0) {
     let data, totalPages = 1, res;
+    const cached = (request) => queryClient.fetchQuery({
+      queryKey: ['marketplace', 'products', filtersKey(f), p],
+      queryFn: request,
+      staleTime,
+      retry: false,
+    });
     if (f.search && f.search.trim()) {
-      res = await api.searchProducts(f.search.trim());
+      res = await cached(() => api.searchProducts(f.search.trim()));
       data = res.data ?? res;
       totalPages = 1;
     } else {
@@ -476,7 +472,7 @@ export default function Marketplace() {
       if (f.grade) params.grade = f.grade;
       if (f.sort && f.sort !== "newest") params.sort = f.sort;
       if (f.lat && f.lng && f.radius) { params.lat = f.lat; params.lng = f.lng; params.radius = f.radius; }
-      res = await api.getProducts(params);
+      res = await cached(() => api.getProducts(params));
       data = res.data ?? [];
       totalPages = res.totalPages ?? 1;
     }
@@ -561,7 +557,7 @@ export default function Marketplace() {
     try {
       const pages = [];
       for (let p = snap.startPage; p <= snap.page; p++) pages.push(p);
-      const results = await Promise.all(pages.map((p) => fetchPage(f, p)));
+      const results = await Promise.all(pages.map((p) => fetchPage(f, p, SNAPSHOT_TTL_MS)));
       if (controller.signal.aborted) return;
       const data = results.flatMap((r) => r.data);
       const last = results[results.length - 1] ?? { totalPages: 1, total: 0 };
@@ -826,8 +822,8 @@ export default function Marketplace() {
       (pos) => {
         setFilters(f => ({
           ...f,
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
+          lat: roundCoord(pos.coords.latitude),
+          lng: roundCoord(pos.coords.longitude),
           radius: f.radius || 50,
         }));
         setGeoLoading(false);
@@ -1218,18 +1214,20 @@ export default function Marketplace() {
         </div>
       ) : viewMode === "map" ? (
         <Suspense fallback={<Spinner />}>
-          <MapView
-            products={products}
-            onFarmerClick={(name) => {
-              if (name) {
-                setFilters(f => ({ ...f, seller: name }));
-              }
-              setViewMode("grid");
-            }}
-            userLat={filters.lat || undefined}
-            userLng={filters.lng || undefined}
-            radius={filters.radius || undefined}
-          />
+          <WidgetErrorBoundary name="MapView">
+            <MapView
+              products={products}
+              onFarmerClick={(name) => {
+                if (name) {
+                  setFilters(f => ({ ...f, seller: name }));
+                }
+                setViewMode("grid");
+              }}
+              userLat={filters.lat || undefined}
+              userLng={filters.lng || undefined}
+              radius={filters.radius || undefined}
+            />
+          </WidgetErrorBoundary>
         </Suspense>
       ) : products.length === 0 ? (
         <div style={s.empty} role="status">
@@ -1294,6 +1292,7 @@ export default function Marketplace() {
               {p.category && p.category !== "other" && (
                 <div style={s.badge}>{p.category}</div>
               )}
+              <FreshnessBadge harvestDate={p.harvest_date} bestBefore={p.best_before} />
               {p.flash_sale_price &&
               p.flash_sale_ends_at &&
               new Date(p.flash_sale_ends_at).getTime() > Date.now() ? (

@@ -2,12 +2,12 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { api } from '../api/client';
 import { clearDraft, queueProduct } from '../utils/draftOutbox';
-import { compressCanvas, isImageFile } from '../utils/imageCompression';
+import { compressCanvas, compressImage, isImageFile } from '../utils/imageCompression';
 import { useXlmRate } from '../utils/useXlmRate';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import { getErrorMessage } from '../utils/errorMessages';
-import { showToast } from '../utils/toast';
+import { toast } from '../utils/toast';
 import { useConfirm } from '../hooks/useConfirm';
 import ProductForm from '../components/dashboard/ProductForm';
 import InlineEditField from '../components/dashboard/InlineEditField';
@@ -395,11 +395,11 @@ export default function Dashboard() {
   async function handleVideoUpload(productId, file) {
     if (!file) return;
     if (file.type !== 'video/mp4') {
-      showToast('Only MP4 videos are allowed.', 'error');
+      toast.error('Only MP4 videos are allowed.');
       return;
     }
     if (file.size > 50 * 1024 * 1024) {
-      showToast('Video must be 50 MB or smaller.', 'error');
+      toast.error('Video must be 50 MB or smaller.');
       return;
     }
 
@@ -408,7 +408,7 @@ export default function Dashboard() {
       await api.uploadProductVideo(productId, file);
       await load();
     } catch (e) {
-      showToast(getErrorMessage(e), 'error');
+      toast.error(getErrorMessage(e));
     } finally {
       setVideoUploadingByProduct((prev) => ({ ...prev, [productId]: false }));
     }
@@ -587,7 +587,7 @@ export default function Dashboard() {
           const latestQty = Number(latest.quantity ?? 0);
           const prevQty = prev ? Number(prev.quantity ?? 0) : LOW_STOCK_THRESHOLD + 1;
           if (prev && latestQty <= LOW_STOCK_THRESHOLD && prevQty > LOW_STOCK_THRESHOLD) {
-            showToast(`Low stock: ${latest.name} has only ${latestQty} left.`, 'warning', 8000);
+            toast.warning(`Low stock: ${latest.name} has only ${latestQty} left.`, { duration: 8000 });
           }
         });
         setProducts(latestProducts);
@@ -754,7 +754,7 @@ export default function Dashboard() {
         `products.${format}`
       );
     } catch (e) {
-      showToast(getErrorMessage(e), 'error');
+      toast.error(getErrorMessage(e));
     }
   }
 
@@ -770,7 +770,7 @@ export default function Dashboard() {
         `sales.${format}`
       );
     } catch (e) {
-      showToast(getErrorMessage(e), 'error');
+      toast.error(getErrorMessage(e));
     }
   }
 
@@ -796,7 +796,7 @@ export default function Dashboard() {
       setRestockVals((prev) => ({ ...prev, [productId]: '' }));
       load();
     } catch (e) {
-      showToast(getErrorMessage(e), 'error');
+      toast.error(getErrorMessage(e));
     }
   }
 
@@ -882,11 +882,11 @@ export default function Dashboard() {
     setSigningTxId(txId);
     try {
       const res = await api.signPendingTx(txId);
-      if (res.submitted) showToast(`✅ Transaction submitted! TX: ${res.txHash}`, 'success');
-      else showToast(`Signature added (${res.signaturesCollected}/${res.required} required)`, 'info');
+      if (res.submitted) toast.success(`✅ Transaction submitted! TX: ${res.txHash}`);
+      else toast.info(`Signature added (${res.signaturesCollected}/${res.required} required)`);
       load();
     } catch (e) {
-      showToast(`Error: ${multisigErrorMessage(e) || getErrorMessage(e)}`, 'error');
+      toast.error(`Error: ${multisigErrorMessage(e) || getErrorMessage(e)}`);
     } finally {
       setSigningTxId(null);
     }
@@ -896,7 +896,7 @@ export default function Dashboard() {
   async function handleSignPendingTxWithFreighter(tx) {
     const freighter = window.freighterApi;
     if (!freighter?.signMessage || !freighter?.getAddress) {
-      showToast('Freighter is not available in this browser.', 'error');
+      toast.error('Freighter is not available in this browser.');
       return;
     }
     setSigningTxId(tx.id);
@@ -906,10 +906,10 @@ export default function Dashboard() {
       const signature = signed?.signedMessage ?? signed;
       if (!signature || signed?.error) throw new Error(signed?.error?.message || 'Freighter declined to sign');
       const res = await api.signPendingTx(tx.id, { signature, public_key: address });
-      showToast(`Signature added (${res.signaturesCollected}/${res.required} required)`, 'info');
+      toast.info(`Signature added (${res.signaturesCollected}/${res.required} required)`);
       load();
     } catch (e) {
-      showToast(`Error: ${multisigErrorMessage(e)}`, 'error');
+      toast.error(`Error: ${multisigErrorMessage(e)}`);
     } finally {
       setSigningTxId(null);
     }
@@ -919,10 +919,10 @@ export default function Dashboard() {
     setSigningTxId(txId);
     try {
       const res = await api.submitPendingTx(txId);
-      showToast(`✅ Release submitted! TX: ${res.txHash}`, 'success');
+      toast.success(`✅ Release submitted! TX: ${res.txHash}`);
       load();
     } catch (e) {
-      showToast(`Error: ${multisigErrorMessage(e)}`, 'error');
+      toast.error(`Error: ${multisigErrorMessage(e)}`);
     } finally {
       setSigningTxId(null);
     }
@@ -991,8 +991,10 @@ export default function Dashboard() {
         continue;
       }
       try {
-        const res = await api.uploadProductImage(galleryProductId, file);
-        setGalleryImages((prev) => [...prev, res.data]);
+        const blob = await compressImage(file);
+        const ext = blob.type === 'image/webp' ? 'webp' : 'jpg';
+        const res = await api.uploadProductImages(galleryProductId, [new File([blob], `image.${ext}`, { type: blob.type })]);
+        setGalleryImages(res.data);
       } catch (err) {
         setGalleryErr(getErrorMessage(err));
       }
@@ -1341,7 +1343,7 @@ export default function Dashboard() {
                             step="any"
                             format={(v) => `${v} XLM`}
                             onSave={(v) => handleInlineSave(p.id, 'price', v)}
-                            onError={(msg) => showToast(msg, 'error')}
+                            onError={(msg) => toast.error(msg)}
                           />
                         </>
                       )}
@@ -1354,7 +1356,7 @@ export default function Dashboard() {
                         step={1}
                         format={(v) => `${v} ${p.unit}`}
                         onSave={(v) => handleInlineSave(p.id, 'quantity', Math.floor(v))}
-                        onError={(msg) => showToast(msg, 'error')}
+                        onError={(msg) => toast.error(msg)}
                       />
                     </div>
                     {Number(p.quantity) <= 0 && (
@@ -1481,7 +1483,7 @@ export default function Dashboard() {
                       >
                         <img
                           src={img.url}
-                          alt={`Photo ${i + 1}`}
+                          alt={t('productDetail.imageN', { name: products.find(p => p.id === galleryProductId)?.name ?? '', n: i + 1 })}
                           style={{
                             ...s.galleryThumb,
                             ...(i === 0 ? s.galleryThumbFirst : {}),
@@ -1858,7 +1860,7 @@ export default function Dashboard() {
             {avatarPreview ? (
               <img
                 src={avatarPreview}
-                alt="Avatar"
+                alt={t('dashboard.avatar')}
                 style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover' }}
               />
             ) : (

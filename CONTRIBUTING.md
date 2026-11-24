@@ -70,6 +70,42 @@ cd backend
 npm test
 ```
 
+### End-to-end (Playwright)
+
+All browser tests live in `e2e/` (the only Playwright setup in the repo). Add new specs there as `e2e/<name>.spec.ts`; the config picks them up automatically and runs them on Chromium, Firefox and WebKit.
+
+Tag each `describe` so it's grouped correctly:
+
+| Tag | Use for |
+|-----|---------|
+| `@flow` | User journeys (login, checkout, theme, service-worker prompts) |
+| `@compat` | Cross-browser checks (layout, feature detection) |
+| `@visual` | Screenshot comparisons, stored in `e2e/__screenshots__/` |
+
+```ts
+test.describe('My feature', { tag: '@flow' }, () => { /* ... */ });
+```
+
+Run locally (the Playwright config starts the Vite dev server on port 3000 for you, so start the backend first if your tests call the API):
+
+```bash
+cd e2e
+npm ci
+npx playwright install chromium firefox webkit   # first time only
+npx playwright test                              # all browsers
+npx playwright test --project=chromium --grep @flow
+npx playwright test --ui                         # interactive mode
+npx playwright show-report                       # open the last HTML report
+```
+
+For visual tests, regenerate baselines after an intended UI change (only with a reviewed diff):
+
+```bash
+npx playwright test --grep @visual --update-snapshots
+```
+
+CI runs the same suite sharded across the three browsers (`.github/workflows/e2e.yml`). Test failures upload an HTML report as a workflow artifact.
+
 ---
 
 ## 4. Lint
