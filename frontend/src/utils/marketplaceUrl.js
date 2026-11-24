@@ -22,14 +22,15 @@ function nonNegativeNumber(v) {
   return Number.isFinite(n) && n >= 0 ? String(n) : '';
 }
 
+/** Coordinates are shared at 2 dp (~1 km) so a link never pins a precise location. */
+export function roundCoord(n) {
+  return Math.round(n * 100) / 100;
+}
+
 function coordinate(v, limit) {
   if (v == null || v === '') return '';
   const n = Number(v);
-  return Number.isFinite(n) && Math.abs(n) <= limit ? String(n) : '';
-}
-
-function slug(v) {
-  return typeof v === 'string' && /^[a-z0-9-]{1,50}$/.test(v) ? v : '';
+  return Number.isFinite(n) && Math.abs(n) <= limit ? String(roundCoord(n)) : '';
 }
 
 /**
@@ -42,7 +43,8 @@ export function filtersFromParams(params, defaults) {
 
   f.search = text(get('q'));
   f.seller = text(get('seller'));
-  f.category = slug(get('category'));
+  // Category names come from the API and aren't always slugs (e.g. "grains & cereals"); dropping them reset the filter on return.
+  f.category = text(get('category'));
 
   f.minPrice = nonNegativeNumber(get('min'));
   f.maxPrice = nonNegativeNumber(get('max'));
