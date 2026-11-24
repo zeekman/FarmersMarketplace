@@ -10,20 +10,20 @@ import { PasswordStrength } from '../components/PasswordStrength';
 
 const s = {
   wrap: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 },
-  card: { background: '#fff', borderRadius: 12, padding: 36, width: '100%', maxWidth: 400, boxShadow: '0 2px 16px #0001' },
-  title: { fontSize: 24, fontWeight: 700, marginBottom: 24, color: '#2d6a4f' },
+  card: { background: 'var(--color-bg-primary)', borderRadius: 12, padding: 36, width: '100%', maxWidth: 400, boxShadow: 'var(--shadow-lg)' },
+  title: { fontSize: 24, fontWeight: 700, marginBottom: 24, color: 'var(--color-primary)' },
   field: { marginBottom: 16 },
-  label: { display: 'block', fontSize: 13, marginBottom: 4, color: '#595959' },
-  input: { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
-  inputErr: { width: '100%', padding: '10px 12px', border: '1px solid #c0392b', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
-  select: { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 16, minHeight: 44 },
-  btn: { width: '100%', padding: '12px', background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, fontSize: 16, fontWeight: 600, cursor: 'pointer', marginTop: 8, minHeight: 44 },
-  err: { color: '#c0392b', fontSize: 12, marginTop: 4 },
-  formErr: { color: '#c0392b', fontSize: 13, marginTop: 8, padding: '8px 12px', background: '#fff0f0', borderRadius: 6 },
-  link: { display: 'block', textAlign: 'center', marginTop: 16, color: '#2d6a4f', fontSize: 14 },
-  strengthHint: { fontSize: 11, color: '#595959', marginTop: 3 },
-  hint: { fontSize: 14, color: '#595959', marginBottom: 16, lineHeight: 1.5 },
-  linkBtn: { display: 'block', width: '100%', background: 'none', border: 'none', color: '#2d6a4f', fontSize: 14, cursor: 'pointer', marginTop: 16, textAlign: 'center' },
+  label: { display: 'block', fontSize: 13, marginBottom: 4, color: 'var(--color-text-secondary)' },
+  input: { width: '100%', padding: '10px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
+  inputErr: { width: '100%', padding: '10px 12px', border: '1px solid var(--color-danger)', borderRadius: 8, fontSize: 16, boxSizing: 'border-box', minHeight: 44 },
+  select: { width: '100%', padding: '10px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 16, minHeight: 44 },
+  btn: { width: '100%', padding: '12px', background: 'var(--color-primary)', color: 'var(--color-text-inverse)', border: 'none', borderRadius: 8, fontSize: 16, fontWeight: 600, cursor: 'pointer', marginTop: 8, minHeight: 44 },
+  err: { color: 'var(--color-danger)', fontSize: 12, marginTop: 4 },
+  formErr: { color: 'var(--color-danger)', fontSize: 13, marginTop: 8, padding: '8px 12px', background: 'var(--color-error-lightest)', borderRadius: 6 },
+  link: { display: 'block', textAlign: 'center', marginTop: 16, color: 'var(--color-primary)', fontSize: 14 },
+  strengthHint: { fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 3 },
+  hint: { fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 16, lineHeight: 1.5 },
+  linkBtn: { display: 'block', width: '100%', background: 'none', border: 'none', color: 'var(--color-primary)', fontSize: 14, cursor: 'pointer', marginTop: 16, textAlign: 'center' },
 };
 
 export const authStyles = s;
@@ -37,6 +37,28 @@ function getPostLoginPath(state, user) {
     if (path.startsWith('/') && !path.startsWith('//')) return path;
   }
   return user.role === 'farmer' ? '/dashboard' : '/marketplace';
+}
+
+function PasswordStrength({ password }) {
+  const { t } = useTranslation();
+  const issues = validatePassword(password);
+  const score = 4 - issues.length;
+  const colors = ['var(--color-danger)', 'var(--color-warning)', 'var(--color-accent-light)', 'var(--color-success-light)', 'var(--color-primary)'];
+  const labelKeys = ['auth.passwordStrength.veryWeak', 'auth.passwordStrength.weak', 'auth.passwordStrength.fair', 'auth.passwordStrength.good', 'auth.passwordStrength.strong'];
+  if (!password) return null;
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 3, marginTop: 6 }}>
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i < score ? colors[score] : 'var(--color-border)' }} />
+        ))}
+      </div>
+      <div style={{ ...s.strengthHint, color: colors[score] }}>{t(labelKeys[score])}</div>
+      {issues.length > 0 && (
+        <div style={s.strengthHint}>{t('auth.passwordStrength.needs', { issues: issues.join(', ') })}</div>
+      )}
+    </div>
+  );
 }
 
 // Maps a failed second-factor attempt to copy. 429/423 mean rate-limited or locked out,
@@ -191,7 +213,7 @@ export function LoginPage() {
             <button style={s.linkBtn} type="button" onClick={toggleBackupCode}>
               {t(useBackupCode ? 'auth.mfa.useAuthenticator' : 'auth.mfa.useBackup')}
             </button>
-            <button style={{ ...s.linkBtn, color: '#888', marginTop: 4 }} type="button" onClick={backToLogin}>
+            <button style={{ ...s.linkBtn, color: 'var(--color-text-muted)', marginTop: 4 }} type="button" onClick={backToLogin}>
               {t('auth.mfa.back')}
             </button>
           </form>
@@ -219,7 +241,7 @@ export function LoginPage() {
           </form>
         )}
         <Link to="/register" style={s.link}>{t('auth.noAccount')}</Link>
-        <Link to="/recover" style={{ ...s.link, fontSize: 12, color: '#888' }}>Lost wallet access? Recover with seed phrase</Link>
+        <Link to="/recover" style={{ ...s.link, fontSize: 12, color: 'var(--color-text-muted)' }}>Lost wallet access? Recover with seed phrase</Link>
       </div>
     </div>
   );

@@ -26,6 +26,18 @@ function DeactivateModal({ user, onConfirm, onCancel }) {
       onKeyDown={handleKeyDown}
       className={styles.modalOverlay}
     >
+      <div style={{ background: 'var(--color-bg-primary)', borderRadius: 12, padding: 28, maxWidth: 400, width: '90%', boxShadow: 'var(--shadow-lg)' }}>
+        <div id="deactivate-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 10, color: 'var(--color-text-primary)' }}>
+          Deactivate {user.name}?
+        </div>
+        <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 20 }}>
+          They will lose access immediately.
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'var(--color-bg-primary)', cursor: 'pointer', fontWeight: 600 }}>
+            Cancel
+          </button>
+          <button ref={confirmRef} onClick={onConfirm} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: 'var(--color-danger)', color: 'var(--color-text-inverse)', cursor: 'pointer', fontWeight: 600 }}>
       <div className={styles.modalCard}>
         <div id="deactivate-modal-title" className={styles.modalTitle}>
           Deactivate {user.name}?
@@ -61,6 +73,11 @@ function BanModal({ user, onConfirm, onCancel, loading }) {
       onKeyDown={handleKeyDown}
       className={styles.modalOverlay}
     >
+      <div style={{ background: 'var(--color-bg-primary)', borderRadius: 12, padding: 28, maxWidth: 400, width: '90%', boxShadow: 'var(--shadow-lg)' }}>
+        <div id="ban-modal-title" style={{ fontWeight: 700, fontSize: 17, marginBottom: 10, color: 'var(--color-text-primary)' }}>
+          Ban {user.name}?
+        </div>
+        <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 14 }}>
       <div className={styles.modalCard}>
         <div id="ban-modal-title" className={styles.modalTitle}>
           Ban {user.name}?
@@ -73,6 +90,13 @@ function BanModal({ user, onConfirm, onCancel, loading }) {
           value={reason}
           onChange={e => setReason(e.target.value)}
           placeholder="Optional ban reason (visible to user)…"
+          style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14, resize: 'vertical', minHeight: 60, boxSizing: 'border-box', marginBottom: 16 }}
+        />
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} disabled={loading} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'var(--color-bg-primary)', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 600, color: loading ? 'var(--color-text-muted)' : 'var(--color-text-primary)' }}>
+            Cancel
+          </button>
+          <button onClick={() => onConfirm(reason)} disabled={loading} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: loading ? 'var(--color-border)' : 'var(--color-danger)', color: 'var(--color-text-inverse)', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
           className={styles.reasonInput}
         />
         <div className={styles.modalActions}>
@@ -87,6 +111,32 @@ function BanModal({ user, onConfirm, onCancel, loading }) {
     </div>
   );
 }
+
+const s = {
+  page: { maxWidth: 1000, margin: '0 auto', padding: 24 },
+  title: { fontSize: 24, fontWeight: 700, color: 'var(--color-primary)', marginBottom: 24 },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 },
+  stat: { background: 'var(--color-bg-primary)', borderRadius: 12, padding: 20, boxShadow: 'var(--shadow-md)', textAlign: 'center' },
+  statVal: { fontSize: 28, fontWeight: 700, color: 'var(--color-primary)' },
+  statLabel: { fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 4 },
+  card: { background: 'var(--color-bg-primary)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-md)' },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: 14 },
+  th: { textAlign: 'left', padding: '10px 12px', borderBottom: '2px solid var(--color-border-light)', color: 'var(--color-text-secondary)', fontWeight: 600 },
+  td: { padding: '10px 12px', borderBottom: '1px solid var(--color-border-light)' },
+  badge: (role) => ({
+    display: 'inline-block', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+    background: role === 'admin' ? 'var(--color-warning-lightest)' : role === 'farmer' ? 'var(--color-primary-lightest)' : 'var(--color-bg-tertiary)',
+    // Text-primary on the tinted badge backgrounds keeps contrast in both themes (was #b8860b → 2.72:1, failed WCAG AA)
+    color: 'var(--color-text-primary)',
+  }),
+  deactivate: { background: 'var(--color-error-lightest)', color: 'var(--color-danger)', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 },
+  inactive: { color: 'var(--color-text-muted)', fontSize: 12, fontStyle: 'italic' },
+  pagination: { display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' },
+  pgBtn: (disabled) => ({ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--color-border)', cursor: disabled ? 'not-allowed' : 'pointer', background: disabled ? 'var(--color-bg-tertiary)' : 'var(--color-bg-primary)', color: disabled ? 'var(--color-text-muted)' : 'var(--color-text-primary)' }),
+  err: { color: 'var(--color-danger)', fontSize: 14, marginBottom: 12 },
+  input: { padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14 },
+  btn: (loading) => ({ padding: '8px 20px', borderRadius: 8, border: 'none', background: 'var(--color-primary)', color: 'var(--color-text-inverse)', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer' }),
+};
 
 export default function AdminDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -149,6 +199,8 @@ export default function AdminDashboard() {
     return WASM_HASH_RE.test(value) ? '' : 'WASM hash must be a 64-character hex string.';
   }
 
+  const inputStyle = { padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14 };
+  const monoInputStyle = { ...inputStyle, fontFamily: 'monospace' };
   // Contract event log
   const [evtContractId, setEvtContractId] = useState('');
   const [evtFilters, setEvtFilters] = useState({ type: '', from: '', to: '' });
@@ -539,11 +591,13 @@ export default function AdminDashboard() {
       />
 
             {/* Contract Deployment */}
+      <div style={{ ...s.card, marginTop: 32 }}>
+        <h3 style={{ marginBottom: 16, color: 'var(--color-text-primary)' }}>🚀 Deploy Soroban Contract</h3>
       <div className={styles.card} style={{marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>🚀 Deploy Soroban Contract</h3>
         {deployMsg && (
           <div style={{
-            color: deployMsg.includes('deployed') ? '#2d6a4f' : '#c0392b',
+            color: deployMsg.includes('deployed') ? 'var(--color-primary)' : 'var(--color-danger)',
             fontSize: 14,
             marginBottom: 12,
           }}
@@ -580,8 +634,8 @@ export default function AdminDashboard() {
               padding: '8px 18px',
               borderRadius: 8,
               border: 'none',
-              background: deployBusy ? '#ccc' : '#2d6a4f',
-              color: '#fff',
+              background: deployBusy ? 'var(--color-border)' : 'var(--color-primary)',
+              color: 'var(--color-text-inverse)',
               fontWeight: 600,
               cursor: deployBusy ? 'not-allowed' : 'pointer'
             }}
@@ -589,17 +643,19 @@ export default function AdminDashboard() {
             {deployBusy ? 'Deploying...' : 'Deploy Contract'}
           </button>
         </form>
-        <div style={{ fontSize: 13, color: '#666' }}>
+        <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
           Upload a compiled .wasm file to deploy a new Soroban contract to the network.
         </div>
       </div>
 
       {/* Contract registry + simulation (registered contracts only) */}
+      <div style={{ ...s.card, marginTop: 32 }}>
+        <h3 style={{ marginBottom: 16, color: 'var(--color-text-primary)' }}>📜 Registered Soroban contracts</h3>
       <div className={styles.card} style={{marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>📜 Registered Soroban contracts</h3>
         {contractMsg && (
           <div style={{
-            color: contractMsg.includes('registered') || contractMsg.includes('Deregister') ? '#2d6a4f' : '#c0392b',
+            color: contractMsg.includes('registered') || contractMsg.includes('Deregister') ? 'var(--color-primary)' : 'var(--color-danger)',
             fontSize: 14,
             marginBottom: 12,
           }}
@@ -617,9 +673,11 @@ export default function AdminDashboard() {
             <option value="testnet">testnet</option>
             <option value="mainnet">mainnet</option>
           </select>
-          <button type="submit" style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2d6a4f', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Register</button>
+          <button type="submit" style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: 'var(--color-primary)', color: 'var(--color-text-inverse)', fontWeight: 600, cursor: 'pointer' }}>Register</button>
         </form>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+          <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>Filter:</span>
+          <select style={inputStyle} value={contractFilter.network} onChange={(e) => { const nf = { ...contractFilter, network: e.target.value }; setContractFilter(nf); loadContracts(nf); }}>
           <span style={{ fontSize: 13, color: '#666' }}>Filter:</span>
           <select className={styles.input} value={contractFilter.network} onChange={(e) => { const nf = { ...contractFilter, network: e.target.value }; setContractFilter(nf); loadContracts(nf); }}>
             <option value="">All networks</option>
@@ -634,7 +692,7 @@ export default function AdminDashboard() {
           </select>
         </div>
         {contracts.length === 0 ? (
-          <div style={{ color: '#888', fontSize: 14 }}>No contracts registered. Add one above to enable simulation for this deployment.</div>
+          <div style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>No contracts registered. Add one above to enable simulation for this deployment.</div>
         ) : (
           <div className={styles.tableWrap}>
           <table className={styles.table}>
@@ -659,7 +717,7 @@ export default function AdminDashboard() {
                       <button
                         type="button"
                         onClick={() => { setSimContractId(c.contract_id); setSimFormError(''); setSimOutcome(null); }}
-                        style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #2d6a4f', background: '#f0fdf4', color: '#2d6a4f', fontSize: 12, cursor: 'pointer' }}
+                        style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--color-primary)', background: 'var(--color-surface-subtle)', color: 'var(--color-primary)', fontSize: 12, cursor: 'pointer' }}
                       >Simulate</button>
                       <button
                         type="button"
@@ -667,8 +725,8 @@ export default function AdminDashboard() {
                         style={{
                           padding: '4px 10px',
                           borderRadius: 6,
-                          border: selectedRegistryId === c.id ? '2px solid #2d6a4f' : '1px solid #ccc',
-                          background: selectedRegistryId === c.id ? '#e8f5e9' : '#fff',
+                          border: selectedRegistryId === c.id ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
+                          background: selectedRegistryId === c.id ? 'var(--color-primary-lightest)' : 'var(--color-bg-primary)',
                           fontSize: 12,
                           cursor: 'pointer',
                         }}
@@ -676,7 +734,7 @@ export default function AdminDashboard() {
                       <button
                         type="button"
                         onClick={() => handleDeregisterContract(c.id)}
-                        style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #ddd', background: '#fff', fontSize: 12, cursor: 'pointer' }}
+                        style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-bg-primary)', fontSize: 12, cursor: 'pointer' }}
                       >Deregister</button>
                     </div>
                   </td>
@@ -688,25 +746,25 @@ export default function AdminDashboard() {
         )}
 
         {selectedRegistryId != null && (
-          <div style={{ marginTop: 24, padding: 16, borderRadius: 10, border: '1px solid #e0e0e0', background: '#fafafa' }}>
+          <div style={{ marginTop: 24, padding: 16, borderRadius: 10, border: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-              <h4 style={{ margin: 0, color: '#333' }}>
+              <h4 style={{ margin: 0, color: 'var(--color-text-primary)' }}>
                 Contract #{selectedRegistryId}
                 {contracts.find((x) => x.id === selectedRegistryId)?.name
                   ? ` — ${contracts.find((x) => x.id === selectedRegistryId).name}`
                   : ''}
-                <span style={{ fontWeight: 400, fontSize: 13, color: '#666', marginLeft: 8 }}>WASM upgrade history</span>
+                <span style={{ fontWeight: 400, fontSize: 13, color: 'var(--color-text-secondary)', marginLeft: 8 }}>WASM upgrade history</span>
               </h4>
               <button
                 type="button"
                 onClick={() => { setSelectedRegistryId(null); setContractUpgrades([]); setUpgradeSubmitMsg(''); setUpgradeDetailError(''); }}
-                style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', fontSize: 12, cursor: 'pointer' }}
+                style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-bg-primary)', fontSize: 12, cursor: 'pointer' }}
               >Close</button>
             </div>
             <div style={{ marginBottom: 16 }}>
-              <strong style={{ fontSize: 13, color: '#333' }}>On-chain config</strong>
+              <strong style={{ fontSize: 13, color: 'var(--color-text-primary)' }}>On-chain config</strong>
               {contractConfig?.loading ? (
-                <div style={{ color: '#666', fontSize: 13 }}>Loading config…</div>
+                <div style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>Loading config…</div>
               ) : contractConfig?.config || contractConfig?.snapshot ? (
                 <div className={styles.tableWrap}>
                 <table className={styles.table} style={{marginTop: 8 }}>
@@ -723,22 +781,22 @@ export default function AdminDashboard() {
                 </table>
                 </div>
               ) : (
-                <div style={{ color: '#888', fontSize: 13 }}>
+                <div style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>
                   {contractConfig?.error || 'No get_config() view available for this contract.'}
                 </div>
               )}
               {contractConfig?.snapshot_synced_at && (
-                <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>Snapshot synced {contractConfig.snapshot_synced_at}</div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>Snapshot synced {contractConfig.snapshot_synced_at}</div>
               )}
             </div>
-            <p style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>
+            <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 12 }}>
               Each row is immutable. <code style={{ fontSize: 11 }}>new_wasm_hash</code> must match the hash Soroban RPC reports for the contract after upgrade.
             </p>
             {upgradeDetailError && <div className={styles.err}>{upgradeDetailError}</div>}
             {upgradeDetailLoading ? (
-              <div style={{ color: '#666', fontSize: 14 }}>Loading history…</div>
+              <div style={{ color: 'var(--color-text-secondary)', fontSize: 14 }}>Loading history…</div>
             ) : contractUpgrades.length === 0 ? (
-              <div style={{ color: '#888', fontSize: 14, marginBottom: 16 }}>No upgrades recorded yet.</div>
+              <div style={{ color: 'var(--color-text-muted)', fontSize: 14, marginBottom: 16 }}>No upgrades recorded yet.</div>
             ) : (
               <div className={styles.tableWrap}>
               <table className={styles.table} style={{marginBottom: 20 }}>
@@ -763,10 +821,11 @@ export default function AdminDashboard() {
               </table>
               </div>
             )}
-            <div style={{ fontWeight: 600, marginBottom: 8, color: '#444' }}>Record upgrade</div>
+            <div style={{ fontWeight: 600, marginBottom: 8, color: 'var(--color-text-primary)' }}>Record upgrade</div>
             <form onSubmit={handleRecordUpgrade} style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 560 }}>
               <div>
                 <input
+                  style={{ ...monoInputStyle, borderColor: upgradeHashErrors.old_wasm_hash ? 'var(--color-danger)' : 'var(--color-border)' }}
                   className={styles.monoInput} style={{borderColor: upgradeHashErrors.old_wasm_hash ? '#c0392b' : '#ddd' }}
                   placeholder="Previous WASM hash (64 hex chars)"
                   value={upgradeForm.old_wasm_hash}
@@ -778,11 +837,12 @@ export default function AdminDashboard() {
                   required
                 />
                 {upgradeHashErrors.old_wasm_hash && (
-                  <div style={{ color: '#c0392b', fontSize: 12, marginTop: 2 }}>{upgradeHashErrors.old_wasm_hash}</div>
+                  <div style={{ color: 'var(--color-danger)', fontSize: 12, marginTop: 2 }}>{upgradeHashErrors.old_wasm_hash}</div>
                 )}
               </div>
               <div>
                 <input
+                  style={{ ...monoInputStyle, borderColor: upgradeHashErrors.new_wasm_hash ? 'var(--color-danger)' : 'var(--color-border)' }}
                   className={styles.monoInput} style={{borderColor: upgradeHashErrors.new_wasm_hash ? '#c0392b' : '#ddd' }}
                   placeholder="New WASM hash — must match Soroban RPC (64 hex)"
                   value={upgradeForm.new_wasm_hash}
@@ -794,13 +854,13 @@ export default function AdminDashboard() {
                   required
                 />
                 {upgradeHashErrors.new_wasm_hash && (
-                  <div style={{ color: '#c0392b', fontSize: 12, marginTop: 2 }}>{upgradeHashErrors.new_wasm_hash}</div>
+                  <div style={{ color: 'var(--color-danger)', fontSize: 12, marginTop: 2 }}>{upgradeHashErrors.new_wasm_hash}</div>
                 )}
               </div>
               {upgradeSubmitMsg && (
                 <div style={{
                   fontSize: 13,
-                  color: upgradeSubmitMsg.includes('recorded') ? '#2d6a4f' : '#c0392b',
+                  color: upgradeSubmitMsg.includes('recorded') ? 'var(--color-primary)' : 'var(--color-danger)',
                 }}
                 >{upgradeSubmitMsg}</div>
               )}
@@ -812,8 +872,8 @@ export default function AdminDashboard() {
                   padding: '8px 18px',
                   borderRadius: 8,
                   border: 'none',
-                  background: (upgradeSubmitBusy || upgradeHashErrors.old_wasm_hash || upgradeHashErrors.new_wasm_hash) ? '#ccc' : '#2d6a4f',
-                  color: '#fff',
+                  background: (upgradeSubmitBusy || upgradeHashErrors.old_wasm_hash || upgradeHashErrors.new_wasm_hash) ? 'var(--color-border)' : 'var(--color-primary)',
+                  color: 'var(--color-text-inverse)',
                   fontWeight: 600,
                   cursor: (upgradeSubmitBusy || upgradeHashErrors.old_wasm_hash || upgradeHashErrors.new_wasm_hash) ? 'not-allowed' : 'pointer',
                 }}
@@ -822,8 +882,8 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        <h4 style={{ marginTop: 28, marginBottom: 12, color: '#444' }}>Simulate contract call</h4>
-        <p style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>
+        <h4 style={{ marginTop: 28, marginBottom: 12, color: 'var(--color-text-primary)' }}>Simulate contract call</h4>
+        <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 12 }}>
           Runs Soroban <code style={{ fontSize: 12 }}>simulateTransaction</code> only (nothing is submitted). Each argument must be a JSON object with <code style={{ fontSize: 12 }}>type</code> and <code style={{ fontSize: 12 }}>value</code> for Stellar <code style={{ fontSize: 12 }}>nativeToScVal</code>.
         </p>
         <form onSubmit={handleSimulate} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -858,8 +918,8 @@ export default function AdminDashboard() {
               padding: '8px 20px',
               borderRadius: 8,
               border: 'none',
-              background: '#2d6a4f',
-              color: '#fff',
+              background: 'var(--color-primary)',
+              color: 'var(--color-text-inverse)',
               fontWeight: 600,
               cursor: simBusy || contracts.length === 0 ? 'not-allowed' : 'pointer',
               opacity: contracts.length === 0 ? 0.5 : 1,
@@ -867,12 +927,12 @@ export default function AdminDashboard() {
           >{simBusy ? 'Simulating…' : 'Run simulation'}</button>
         </form>
         {simOutcome && (
-          <div style={{ marginTop: 16, padding: 14, borderRadius: 8, background: simOutcome.success ? '#f0fdf4' : '#fff5f5', border: `1px solid ${simOutcome.success ? '#bbf7d0' : '#fecaca'}` }}>
-            <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Result</div>
+          <div style={{ marginTop: 16, padding: 14, borderRadius: 8, background: simOutcome.success ? 'var(--color-surface-subtle)' : 'var(--color-error-lightest)', border: `1px solid ${simOutcome.success ? 'var(--color-border-accent)' : 'var(--color-error-light)'}` }}>
+            <div style={{ fontWeight: 600, marginBottom: 8, color: 'var(--color-text-primary)' }}>Result</div>
             <div style={{ fontSize: 13, fontFamily: 'monospace', wordBreak: 'break-all' }}>
               <div><strong>success:</strong> {String(simOutcome.success)}</div>
               {simOutcome.fee != null && <div><strong>fee (stroops):</strong> {simOutcome.fee}</div>}
-              {simOutcome.error != null && simOutcome.error !== '' && <div style={{ color: '#b91c1c' }}><strong>error:</strong> {simOutcome.error}</div>}
+              {simOutcome.error != null && simOutcome.error !== '' && <div style={{ color: 'var(--color-danger)' }}><strong>error:</strong> {simOutcome.error}</div>}
               <div style={{ marginTop: 8 }}><strong>result:</strong> {JSON.stringify(simOutcome.result, null, 2)}</div>
             </div>
           </div>
@@ -880,18 +940,20 @@ export default function AdminDashboard() {
       </div>
 
       {/* Soroban Contract State Viewer */}
+      <div style={{ ...s.card, marginTop: 32 }}>
+        <h3 style={{ marginBottom: 16, color: 'var(--color-text-primary)' }}>🔍 Soroban Contract State</h3>
       <div className={styles.card} style={{marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>🔍 Soroban Contract State</h3>
         <form onSubmit={loadContractState} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
           <input
-            style={{ flex: '2 1 260px', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, fontFamily: 'monospace' }}
+            style={{ flex: '2 1 260px', padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14, fontFamily: 'monospace' }}
             placeholder="Contract ID (base32 or hex)"
             value={contractId}
             onChange={e => setContractId(e.target.value)}
             required
           />
           <input
-            style={{ flex: '1 1 140px', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 }}
+            style={{ flex: '1 1 140px', padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14 }}
             placeholder="Key prefix (optional)"
             value={contractPrefix}
             onChange={e => setContractPrefix(e.target.value)}
@@ -899,20 +961,20 @@ export default function AdminDashboard() {
           <button
             type="submit"
             disabled={contractLoading}
-            style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: '#2d6a4f', color: '#fff', fontWeight: 600, cursor: contractLoading ? 'not-allowed' : 'pointer' }}
+            style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: 'var(--color-primary)', color: 'var(--color-text-inverse)', fontWeight: 600, cursor: contractLoading ? 'not-allowed' : 'pointer' }}
           >{contractLoading ? 'Loading…' : 'Fetch State'}</button>
         </form>
         {contractError && <div className={styles.err}>{contractError}</div>}
         {contractState && (
           contractState.length === 0
-            ? <div style={{ color: '#888', fontSize: 14 }}>No storage entries found{contractPrefix ? ` matching prefix "${contractPrefix}"` : ''}.</div>
+            ? <div style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>No storage entries found{contractPrefix ? ` matching prefix "${contractPrefix}"` : ''}.</div>
             : (
               <>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
                   <select
                     value={exportFormat}
                     onChange={e => setExportFormat(e.target.value)}
-                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13 }}
                   >
                     <option value="json">JSON</option>
                     <option value="csv">CSV</option>
@@ -922,7 +984,7 @@ export default function AdminDashboard() {
                     placeholder="Since ledger (optional)"
                     value={exportSinceLedger}
                     onChange={e => setExportSinceLedger(e.target.value)}
-                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13, width: 180 }}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, width: 180 }}
                   />
                   {(() => {
                     const reg = contracts.find(c => c.contract_id === contractId.trim());
@@ -931,7 +993,7 @@ export default function AdminDashboard() {
                       <button
                         type="button"
                         onClick={() => api.adminExportContractState(reg.id, exportFormat, exportSinceLedger || undefined).catch(e => setContractError(getErrorMessage(e)))}
-                        style={{ padding: '6px 16px', borderRadius: 6, background: '#1d4ed8', color: '#fff', fontWeight: 600, fontSize: 13, border: 'none', cursor: 'pointer' }}
+                        style={{ padding: '6px 16px', borderRadius: 6, background: 'var(--color-secondary)', color: 'var(--color-text-inverse)', fontWeight: 600, fontSize: 13, border: 'none', cursor: 'pointer' }}
                       >⬇ Export</button>
                     );
                   })()}
@@ -952,8 +1014,8 @@ export default function AdminDashboard() {
                         <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{JSON.stringify(entry.val)}</td>
                         <td className={styles.td} style={{fontSize: 12 }}>
                           <span style={{ padding: '2px 8px', borderRadius: 12, fontWeight: 600, fontSize: 11,
-                            background: entry.durability === 'Temporary' ? '#fff3cd' : '#d8f3dc',
-                            color: entry.durability === 'Temporary' ? '#856404' : '#2d6a4f' }}>
+                            background: entry.durability === 'Temporary' ? 'var(--color-warning-lightest)' : 'var(--color-primary-lightest)',
+                            color: entry.durability === 'Temporary' ? 'var(--color-text-primary)' : 'var(--color-primary)' }}>
                             {entry.durability}
                           </span>
                         </td>
@@ -967,6 +1029,8 @@ export default function AdminDashboard() {
         )}
       </div>
       {/* Soroban Contract Event Log */}
+      <div style={{ ...s.card, marginTop: 32 }}>
+        <h3 style={{ marginBottom: 16, color: 'var(--color-text-primary)' }}>📋 Soroban Contract Event Log</h3>
       <div className={styles.card} style={{marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>📋 Soroban Contract Event Log</h3>
         <form onSubmit={(e) => loadContractEvents(e, 1)} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -1008,7 +1072,7 @@ export default function AdminDashboard() {
         {evtError && <div className={styles.err}>{evtError}</div>}
         {evtData && (
           evtData.events.length === 0
-            ? <div style={{ color: '#888', fontSize: 14 }}>No events found for this contract.</div>
+            ? <div style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>No events found for this contract.</div>
             : <>
               <div className={styles.tableWrap}>
               <table className={styles.table}>
@@ -1028,8 +1092,8 @@ export default function AdminDashboard() {
                       <td className={styles.td} style={{fontSize: 12 }}>{ev.ledgerClosedAt ? new Date(ev.ledgerClosedAt).toLocaleString() : '—'}</td>
                       <td className={styles.td}>
                         <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600,
-                          background: ev.type === 'contract' ? '#d8f3dc' : '#dfe6e9',
-                          color: ev.type === 'contract' ? '#2d6a4f' : '#555' }}>
+                          background: ev.type === 'contract' ? 'var(--color-primary-lightest)' : 'var(--color-bg-tertiary)',
+                          color: ev.type === 'contract' ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}>
                           {ev.type}
                         </span>
                       </td>
@@ -1050,7 +1114,7 @@ export default function AdminDashboard() {
                   disabled={evtPage <= 1}
                   onClick={() => loadContractEvents(null, evtPage - 1)}
                 >← Prev</button>
-                <span style={{ fontSize: 13, color: '#666' }}>
+                <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
                   Page {evtData.pagination.page} of {evtData.pagination.pages} ({evtData.pagination.total} events)
                 </span>
                 <button
@@ -1064,11 +1128,11 @@ export default function AdminDashboard() {
       </div>
 
       {/* Contract ACL Management */}
-      <div style={{ background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 }}>
-        <h3 style={{ marginBottom: 16, color: '#333' }}>🔐 Contract Access Control (ACL)</h3>
+      <div style={{ background: 'var(--color-bg-primary)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-md)', marginBottom: 24 }}>
+        <h3 style={{ marginBottom: 16, color: 'var(--color-text-primary)' }}>🔐 Contract Access Control (ACL)</h3>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}>
           <select
-            style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 }}
+            style={{ padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14 }}
             value={aclRegistryId}
             onChange={async (e) => {
               setAclRegistryId(e.target.value);
@@ -1106,14 +1170,14 @@ export default function AdminDashboard() {
               style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}
             >
               <input
-                style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, flex: 1, minWidth: 300, fontFamily: 'monospace' }}
+                style={{ padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14, flex: 1, minWidth: 300, fontFamily: 'monospace' }}
                 placeholder="Stellar address (G...)"
                 value={aclForm.address}
                 onChange={(e) => setAclForm((f) => ({ ...f, address: e.target.value.trim() }))}
                 required
               />
               <select
-                style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 }}
+                style={{ padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14 }}
                 value={aclForm.role}
                 onChange={(e) => setAclForm((f) => ({ ...f, role: e.target.value }))}
               >
@@ -1121,20 +1185,20 @@ export default function AdminDashboard() {
                 <option value="operator">operator</option>
                 <option value="viewer">viewer</option>
               </select>
-              <button type="submit" style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2d6a4f', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
+              <button type="submit" style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: 'var(--color-primary)', color: 'var(--color-text-inverse)', fontWeight: 600, cursor: 'pointer' }}>
                 Grant
               </button>
             </form>
 
-            {aclMsg && <div style={{ fontSize: 13, color: aclMsg.includes('granted') ? '#2d6a4f' : '#c0392b', marginBottom: 12 }}>{aclMsg}</div>}
+            {aclMsg && <div style={{ fontSize: 13, color: aclMsg.includes('granted') ? 'var(--color-primary)' : 'var(--color-danger)', marginBottom: 12 }}>{aclMsg}</div>}
 
             {aclEntries.length === 0 ? (
-              <div style={{ color: '#888', fontSize: 14 }}>No ACL entries for this contract.</div>
+              <div style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>No ACL entries for this contract.</div>
             ) : (
               <div className={styles.tableWrap}>
               <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
                 <thead>
-                  <tr style={{ borderBottom: '2px solid #eee', textAlign: 'left' }}>
+                  <tr style={{ borderBottom: '2px solid var(--color-border-light)', textAlign: 'left' }}>
                     <th style={{ padding: '6px 8px' }}>Address</th>
                     <th style={{ padding: '6px 8px' }}>Role</th>
                     <th style={{ padding: '6px 8px' }}>Granted by</th>
@@ -1144,16 +1208,16 @@ export default function AdminDashboard() {
                 </thead>
                 <tbody>
                   {aclEntries.map((entry) => (
-                    <tr key={entry.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                    <tr key={entry.id} style={{ borderBottom: '1px solid var(--color-bg-tertiary)' }}>
                       <td style={{ padding: '6px 8px', fontFamily: 'monospace', fontSize: 12 }}>{entry.address}</td>
                       <td style={{ padding: '6px 8px' }}>
-                        <span style={{ background: '#d8f3dc', color: '#2d6a4f', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>{entry.role}</span>
+                        <span style={{ background: 'var(--color-primary-lightest)', color: 'var(--color-primary)', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>{entry.role}</span>
                       </td>
-                      <td style={{ padding: '6px 8px', color: '#666' }}>{entry.granted_by_name ?? '—'}</td>
-                      <td style={{ padding: '6px 8px', color: '#888' }}>{new Date(entry.granted_at).toLocaleString()}</td>
+                      <td style={{ padding: '6px 8px', color: 'var(--color-text-secondary)' }}>{entry.granted_by_name ?? '—'}</td>
+                      <td style={{ padding: '6px 8px', color: 'var(--color-text-muted)' }}>{new Date(entry.granted_at).toLocaleString()}</td>
                       <td style={{ padding: '6px 8px' }}>
                         <button
-                          style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#fee', color: '#c0392b', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                          style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: 'var(--color-error-lightest)', color: 'var(--color-danger)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                           onClick={async () => {
                             const ok = await confirm({
                               title: 'Revoke contract access?',
@@ -1182,6 +1246,9 @@ export default function AdminDashboard() {
       </div>
 
       {/* Contract Version Comparison */}
+      <div style={{ ...s.card, marginTop: 24 }}>
+        <h3 style={{ marginBottom: 16, color: 'var(--color-text-primary)' }}>🔀 Contract Version Comparison</h3>
+        <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 16 }}>
       <div className={styles.card} style={{marginTop: 24 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>🔀 Contract Version Comparison</h3>
         <p style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>
@@ -1190,6 +1257,16 @@ export default function AdminDashboard() {
         </p>
         <div className="admin-comparison-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 10, alignItems: 'end', marginBottom: 12 }}>
           <div>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: 'var(--color-text-secondary)' }}>Registry ID</label>
+            <input style={inputStyle} type="number" placeholder="Contract registry ID" value={cmpRegistryId} onChange={(e) => setCmpRegistryId(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: 'var(--color-text-secondary)' }}>v1 WASM Hash (old)</label>
+            <input style={monoInputStyle} placeholder="64-char hex" value={cmpV1} onChange={(e) => setCmpV1(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: 'var(--color-text-secondary)' }}>v2 WASM Hash (new)</label>
+            <input style={monoInputStyle} placeholder="64-char hex" value={cmpV2} onChange={(e) => setCmpV2(e.target.value)} />
             <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#555' }}>Registry ID</label>
             <input className={styles.input} type="number" placeholder="Contract registry ID" value={cmpRegistryId} onChange={(e) => setCmpRegistryId(e.target.value)} />
           </div>
@@ -1225,18 +1302,18 @@ export default function AdminDashboard() {
             {cmpLoading ? 'Comparing…' : 'Compare'}
           </button>
         </div>
-        {cmpError && <div style={{ color: '#c0392b', fontSize: 13, marginBottom: 12 }}>{cmpError}</div>}
+        {cmpError && <div style={{ color: 'var(--color-danger)', fontSize: 13, marginBottom: 12 }}>{cmpError}</div>}
         {cmpResult && (
           <div>
             {cmpResult.added.length === 0 && cmpResult.removed.length === 0 && cmpResult.changed.length === 0 ? (
-              <div style={{ color: '#2d6a4f', fontSize: 14 }}>✅ Identical — no differences found.</div>
+              <div style={{ color: 'var(--color-primary)', fontSize: 14 }}>✅ Identical — no differences found.</div>
             ) : (
               <>
                 {cmpResult.added.length > 0 && (
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontWeight: 600, color: '#2d6a4f', marginBottom: 6 }}>➕ Added ({cmpResult.added.length})</div>
+                    <div style={{ fontWeight: 600, color: 'var(--color-primary)', marginBottom: 6 }}>➕ Added ({cmpResult.added.length})</div>
                     {cmpResult.added.map((fn) => (
-                      <div key={fn.name} style={{ background: '#d8f3dc', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
+                      <div key={fn.name} style={{ background: 'var(--color-primary-lightest)', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
                         <strong>{fn.name}</strong> {fn.signature}
                       </div>
                     ))}
@@ -1244,9 +1321,9 @@ export default function AdminDashboard() {
                 )}
                 {cmpResult.removed.length > 0 && (
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontWeight: 600, color: '#c0392b', marginBottom: 6 }}>➖ Removed ({cmpResult.removed.length})</div>
+                    <div style={{ fontWeight: 600, color: 'var(--color-danger)', marginBottom: 6 }}>➖ Removed ({cmpResult.removed.length})</div>
                     {cmpResult.removed.map((fn) => (
-                      <div key={fn.name} style={{ background: '#fee', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
+                      <div key={fn.name} style={{ background: 'var(--color-error-lightest)', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
                         <strong>{fn.name}</strong> {fn.signature}
                       </div>
                     ))}
@@ -1254,45 +1331,45 @@ export default function AdminDashboard() {
                 )}
                 {cmpResult.changed.length > 0 && (
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontWeight: 600, color: '#7a5800', marginBottom: 6 }}>✏️ Changed ({cmpResult.changed.length})</div>
+                    <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 6 }}>✏️ Changed ({cmpResult.changed.length})</div>
                     {cmpResult.changed.map((fn) => (
-                      <div key={fn.name} style={{ background: '#ffeaa7', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
+                      <div key={fn.name} style={{ background: 'var(--color-warning-lightest)', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontFamily: 'monospace', fontSize: 13 }}>
                         <strong>{fn.name}</strong><br />
-                        <span style={{ color: '#c0392b' }}>− {fn.old_signature}</span><br />
-                        <span style={{ color: '#2d6a4f' }}>+ {fn.new_signature}</span>
+                        <span style={{ color: 'var(--color-danger)' }}>− {fn.old_signature}</span><br />
+                        <span style={{ color: 'var(--color-primary)' }}>+ {fn.new_signature}</span>
                       </div>
                     ))}
                   </div>
                 )}
               </>
             )}
-            {cmpResult.cached && <div style={{ fontSize: 11, color: '#aaa', marginTop: 8 }}>Cached result</div>}
+            {cmpResult.cached && <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 8 }}>Cached result</div>}
           </div>
         )}
       </div>
       {/* Contract Alerts */}
-      <div style={{ background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001', marginBottom: 24 }}>
-        <h3 style={{ marginBottom: 16, color: '#333' }}>🚨 Contract Monitoring Alerts</h3>
+      <div style={{ background: 'var(--color-bg-primary)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-md)', marginBottom: 24 }}>
+        <h3 style={{ marginBottom: 16, color: 'var(--color-text-primary)' }}>🚨 Contract Monitoring Alerts</h3>
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
           {['unacknowledged', 'acknowledged', 'all'].map((f) => (
             <button
               key={f}
               onClick={() => { setAlertsFilter(f); loadContractAlerts(f); }}
-              style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #ddd', cursor: 'pointer', fontWeight: alertsFilter === f ? 700 : 400, background: alertsFilter === f ? '#2d6a4f' : '#fff', color: alertsFilter === f ? '#fff' : '#333' }}
+              style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--color-border)', cursor: 'pointer', fontWeight: alertsFilter === f ? 700 : 400, background: alertsFilter === f ? 'var(--color-primary)' : 'var(--color-bg-primary)', color: alertsFilter === f ? 'var(--color-text-inverse)' : 'var(--color-text-primary)' }}
             >
               {f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
           ))}
         </div>
         {alertsLoading ? (
-          <div style={{ color: '#888', fontSize: 14 }}>Loading…</div>
+          <div style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>Loading…</div>
         ) : contractAlerts.length === 0 ? (
-          <div style={{ color: '#888', fontSize: 14 }}>No alerts.</div>
+          <div style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>No alerts.</div>
         ) : (
           <div className={styles.tableWrap}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
             <thead>
-              <tr style={{ borderBottom: '2px solid #eee', textAlign: 'left' }}>
+              <tr style={{ borderBottom: '2px solid var(--color-border-light)', textAlign: 'left' }}>
                 <th style={{ padding: '8px 10px' }}>Contract ID</th>
                 <th style={{ padding: '8px 10px' }}>Type</th>
                 <th style={{ padding: '8px 10px' }}>Message</th>
@@ -1302,25 +1379,25 @@ export default function AdminDashboard() {
             </thead>
             <tbody>
               {contractAlerts.map((a) => (
-                <tr key={a.id} style={{ borderBottom: '1px solid #f0f0f0', background: a.acknowledged ? '#fafafa' : '#fffbf0' }}>
+                <tr key={a.id} style={{ borderBottom: '1px solid var(--color-border-light)', background: a.acknowledged ? 'var(--color-bg-secondary)' : 'var(--color-warning-lightest)' }}>
                   <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12 }}>{a.contract_id}</td>
                   <td style={{ padding: '8px 10px' }}>
-                    <span style={{ background: a.alert_type === 'large_transfer' ? '#ffeaa7' : '#fde8e8', color: a.alert_type === 'large_transfer' ? '#7a5800' : '#c0392b', borderRadius: 4, padding: '2px 8px', fontWeight: 600, fontSize: 12 }}>
+                    <span style={{ background: a.alert_type === 'large_transfer' ? 'var(--color-warning-lightest)' : 'var(--color-error-lightest)', color: a.alert_type === 'large_transfer' ? 'var(--color-text-primary)' : 'var(--color-danger)', borderRadius: 4, padding: '2px 8px', fontWeight: 600, fontSize: 12 }}>
                       {a.alert_type}
                     </span>
                   </td>
-                  <td style={{ padding: '8px 10px', color: '#444' }}>{a.message}</td>
-                  <td style={{ padding: '8px 10px', color: '#888', whiteSpace: 'nowrap' }}>{new Date(a.created_at).toLocaleString()}</td>
+                  <td style={{ padding: '8px 10px', color: 'var(--color-text-primary)' }}>{a.message}</td>
+                  <td style={{ padding: '8px 10px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{new Date(a.created_at).toLocaleString()}</td>
                   <td style={{ padding: '8px 10px' }}>
                     {!a.acknowledged && (
                       <button
                         onClick={() => acknowledgeAlert(a.id)}
-                        style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: '#d8f3dc', color: '#2d6a4f', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}
+                        style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: 'var(--color-primary-lightest)', color: 'var(--color-primary)', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}
                       >
                         Acknowledge
                       </button>
                     )}
-                    {!!a.acknowledged && <span style={{ color: '#aaa', fontSize: 12 }}>✓ Acknowledged</span>}
+                    {!!a.acknowledged && <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>✓ Acknowledged</span>}
                   </td>
                 </tr>
               ))}
@@ -1330,6 +1407,8 @@ export default function AdminDashboard() {
         )}
       </div>
       {/* Contract Invocation History */}
+      <div style={{ ...s.card, marginTop: 32 }}>
+        <h3 style={{ marginBottom: 16, color: 'var(--color-text-primary)' }}>📑 Contract Invocation History</h3>
       <div className={styles.card} style={{marginTop: 32 }}>
         <h3 style={{ marginBottom: 16, color: '#333' }}>📑 Contract Invocation History</h3>
         <form onSubmit={(e) => loadContractInvocations(e, 1)} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -1369,7 +1448,7 @@ export default function AdminDashboard() {
         {invocError && <div className={styles.err}>{invocError}</div>}
         {invocData && (
           invocData.data.length === 0
-            ? <div style={{ color: '#888', fontSize: 14 }}>No invocations found.</div>
+            ? <div style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>No invocations found.</div>
             : <>
               <div className={styles.tableWrap}>
               <table className={styles.table}>
@@ -1391,8 +1470,8 @@ export default function AdminDashboard() {
                       <td className={styles.td}>
                         <span style={{
                           padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600,
-                          background: inv.success ? '#d8f3dc' : '#fee',
-                          color: inv.success ? '#2d6a4f' : '#c0392b',
+                          background: inv.success ? 'var(--color-primary-lightest)' : 'var(--color-error-lightest)',
+                          color: inv.success ? 'var(--color-primary)' : 'var(--color-danger)',
                         }}>
                           {inv.success ? 'success' : 'failed'}
                         </span>
@@ -1400,6 +1479,8 @@ export default function AdminDashboard() {
                       <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 160 }}>
                         {inv.tx_hash || '—'}
                       </td>
+                      <td style={{ ...s.td, fontSize: 12 }}>{inv.invoked_by_name || `#${inv.invoked_by || '?'}`}</td>
+                      <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 200, color: inv.success ? 'var(--color-text-primary)' : 'var(--color-danger)' }}>
                       <td className={styles.td} style={{fontSize: 12 }}>{inv.invoked_by_name || `#${inv.invoked_by || '?'}`}</td>
                       <td className={styles.td} style={{fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', maxWidth: 200, color: inv.success ? '#333' : '#c0392b' }}>
                         {inv.success ? (inv.result ? JSON.stringify(JSON.parse(inv.result)) : '—') : (inv.error || '—')}
@@ -1408,6 +1489,9 @@ export default function AdminDashboard() {
                   ))}
                 </tbody>
               </table>
+              <div style={s.pagination}>
+                <button style={s.pgBtn(invocPage <= 1)} disabled={invocPage <= 1} onClick={() => loadContractInvocations(null, invocPage - 1)}>← Prev</button>
+                <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
               </div>
               <div className={styles.pagination}>
                 <button className={invocPage <= 1 ? styles.pgBtnDisabled : styles.pgBtn} disabled={invocPage <= 1} onClick={() => loadContractInvocations(null, invocPage - 1)}>← Prev</button>
