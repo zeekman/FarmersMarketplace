@@ -621,6 +621,11 @@ For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md)
 <!-- handsoff-issue-1539 -->
 - #1539: CT-20: Auto-release and timeout refund: define precedence and test the boundaries
 
+<!-- handsoff-issue-1707 -->
+- #1707: `resolve_dispute` is declared twice and the first declaration has no body
+
+<!-- handsoff-issue-1708 -->
+- #1708: `set_coop` is declared twice: per-cooperative (#1297) and global
 <!-- handsoff-issue-1713 -->
 - #1713: Add a time-lock to `upgrade()` in escrow and creator-earnings
 
