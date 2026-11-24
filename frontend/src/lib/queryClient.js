@@ -20,6 +20,9 @@ export const queryKeys = {
   rates: ['rates', 'xlm-usd'],
   favorites: ['favorites'],
   unreadCount: ['notifications', 'unreadCount'],
+  // Bell and /notifications both read the count from this key so they can't diverge.
+  notificationCount: ['notificationCount'],
+  notificationList: (unread) => ['notificationList', { unread: Boolean(unread) }],
   orders: ['orders'],
   products: {
     all: ['products'],

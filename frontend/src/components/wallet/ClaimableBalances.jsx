@@ -1,37 +1,42 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { s } from './walletStyles';
 
 /** Returns a human-readable description of a Stellar claimant predicate */
-function describeCondition(predicate) {
-  if (!predicate || predicate.unconditional) return 'Claimable now';
+function describeCondition(predicate, t, language) {
+  if (!predicate || predicate.unconditional) return t('wallet.claimable.claimableNow');
   if (predicate.not) {
     const inner = predicate.not;
     if (inner.abs_before) {
-      return `Claimable after ${new Date(inner.abs_before).toLocaleString()}`;
+      const date = new Date(inner.abs_before).toLocaleDateString(language);
+      return t('wallet.claimable.claimableAfter', { date });
     }
     if (inner.rel_before) {
       const days = Math.round(inner.rel_before / 86400);
-      return `Claimable after ~${days} day${days !== 1 ? 's' : ''}`;
+      return t('wallet.claimable.claimableAfterDays', { days, plural: days !== 1 ? 's' : '' });
     }
   }
   if (predicate.abs_before) {
-    return `Claimable until ${new Date(predicate.abs_before).toLocaleString()}`;
+    const date = new Date(predicate.abs_before).toLocaleDateString(language);
+    return t('wallet.claimable.claimableUntil', { date });
   }
-  return 'Conditional';
+  return t('wallet.claimable.condition');
 }
 
 /** Pending claims section: claimable balances from pre-orders / escrow refunds. */
 export default function ClaimableBalances({ balances, loading, claimingId, onClaim }) {
+  const { t, i18n } = useTranslation();
+  
   if (!loading && balances.length === 0) return null;
 
   return (
     <div style={s.card} data-testid="pending-claims-section">
-      <h3 style={{ marginBottom: 4, color: 'var(--color-text)' }}>⏳ Pending Claims</h3>
+      <h3 style={{ marginBottom: 4, color: 'var(--color-text)' }}>⏳ {t('wallet.claimable.title')}</h3>
       <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
-        Funds locked in Stellar claimable balances (e.g. pre-order refunds) waiting to be claimed.
+        {t('wallet.claimable.description')}
       </p>
       {loading ? (
-        <p style={{ color: 'var(--color-text-faint)', fontSize: 14 }}>Loading...</p>
+        <p style={{ color: 'var(--color-text-faint)', fontSize: 14 }}>{t('wallet.claimable.loading')}</p>
       ) : (
         <div>
           {balances.map(b => {
@@ -39,7 +44,7 @@ export default function ClaimableBalances({ balances, loading, claimingId, onCla
             const shortId = b.id.length > 16
               ? `${b.id.slice(0, 8)}…${b.id.slice(-6)}`
               : b.id;
-            const condition = describeCondition(b.claimant_condition);
+            const condition = describeCondition(b.claimant_condition, t, i18n.language);
             return (
               <div
                 key={b.id}
@@ -56,7 +61,7 @@ export default function ClaimableBalances({ balances, loading, claimingId, onCla
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 3, wordBreak: 'break-all' }}>
-                    ID: {shortId}
+                    {t('wallet.claimable.idLabel')} {shortId}
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--color-primary)' }}>
                     {parseFloat(b.amount).toFixed(2)} XLM
@@ -85,7 +90,7 @@ export default function ClaimableBalances({ balances, loading, claimingId, onCla
                   onClick={() => onClaim(b.id)}
                   disabled={isClaiming}
                   aria-busy={isClaiming}
-                  aria-label={`Claim ${parseFloat(b.amount).toFixed(2)} XLM`}
+                  aria-label={`${t('wallet.claimable.claim')} ${parseFloat(b.amount).toFixed(2)} XLM`}
                 >
                   {isClaiming && (
                     <span
@@ -101,7 +106,7 @@ export default function ClaimableBalances({ balances, loading, claimingId, onCla
                       aria-hidden="true"
                     />
                   )}
-                  {isClaiming ? 'Claiming…' : 'Claim'}
+                  {isClaiming ? t('wallet.claimable.claiming') : t('wallet.claimable.claim')}
                 </button>
               </div>
             );

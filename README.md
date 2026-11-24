@@ -620,3 +620,19 @@ For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md)
 
 <!-- handsoff-issue-1539 -->
 - #1539: CT-20: Auto-release and timeout refund: define precedence and test the boundaries
+
+<!-- handsoff-issue-1710 -->
+- #1710: Escrow has no pause circuit breaker, but `get_config` always reports `paused: false`
+
+<!-- handsoff-issue-1719 -->
+- #1719: `mint_for_order` is not idempotent per order, so retries double-mint rewards
+<!-- handsoff-issue-1707 -->
+- #1707: `resolve_dispute` is declared twice and the first declaration has no body
+
+<!-- handsoff-issue-1708 -->
+- #1708: `set_coop` is declared twice: per-cooperative (#1297) and global
+<!-- handsoff-issue-1713 -->
+- #1713: Add a time-lock to `upgrade()` in escrow and creator-earnings
+
+<!-- handsoff-issue-1714 -->
+- #1714: `CONTRACT_VERSION` is still 1 after many storage changes; define a versioned migration path

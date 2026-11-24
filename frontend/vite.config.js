@@ -86,6 +86,10 @@ export default defineConfig({
           if (/\/node_modules\/(leaflet|react-leaflet|@react-leaflet\/core)\//.test(normalizedId)) {
             return 'maps';
           }
+          // Stellar SDK / Freighter: only wallet and checkout routes need it, so keep it out of the entry.
+          if (/\/node_modules\/@stellar\//.test(normalizedId)) {
+            return 'stellar-vendor';
+          }
         },
       },
       // Treat the optional Sentry SDK as external — it is loaded dynamically

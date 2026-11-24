@@ -1,0 +1,16 @@
+[package]
+name = "carbon-offset"
+version = "0.1.0"
+edition = "2021"
+description = "Carbon offset registry with verifier approvals and time-locked upgrades"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

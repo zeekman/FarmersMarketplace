@@ -7,6 +7,7 @@ Required status checks (Settings → Branches → `main`):
 - `Contracts (fmt, clippy, test, wasm) (contract-reward-token)`
 - `Contracts (fmt, clippy, test, wasm) (contract-carbon-offset)`
 - `WASM size diff`
+- `actionlint`
 
 Equivalent `gh` command:
 
@@ -17,5 +18,6 @@ gh api -X PUT repos/zeekman/FarmersMarketplace/branches/main/protection/required
   -f 'contexts[]=Contracts (fmt, clippy, test, wasm) (contract-escrow)' \
   -f 'contexts[]=Contracts (fmt, clippy, test, wasm) (contract-reward-token)' \
   -f 'contexts[]=Contracts (fmt, clippy, test, wasm) (contract-carbon-offset)' \
-  -f 'contexts[]=WASM size diff'
+  -f 'contexts[]=WASM size diff' \
+  -f 'contexts[]=actionlint'
 ```

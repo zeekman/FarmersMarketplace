@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import NotificationBell from '../components/NotificationBell';
 import { api } from '../api/client';
@@ -33,7 +34,7 @@ describe('NotificationBell (FE-12)', () => {
   });
 
   it('announces the unread count and lists the latest notifications', async () => {
-    render(<MemoryRouter><NotificationBell /></MemoryRouter>);
+    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><NotificationBell /></MemoryRouter></QueryClientProvider>);
     const bell = await screen.findByRole('button', { name: '3 unread notifications' });
     fireEvent.click(bell);
     expect(api.getNotifications).toHaveBeenCalledWith({ limit: 10 });
@@ -42,7 +43,7 @@ describe('NotificationBell (FE-12)', () => {
   });
 
   it('marks all read', async () => {
-    render(<MemoryRouter><NotificationBell /></MemoryRouter>);
+    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><NotificationBell /></MemoryRouter></QueryClientProvider>);
     fireEvent.click(await screen.findByRole('button', { name: '3 unread notifications' }));
     fireEvent.click(await screen.findByText('notificationCenter.markAllRead'));
     expect(api.markAllNotificationsRead).toHaveBeenCalled();
