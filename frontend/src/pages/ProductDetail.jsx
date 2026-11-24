@@ -24,6 +24,7 @@ import Spinner from '../components/Spinner';
 import FlashSaleCountdown from '../components/FlashSaleCountdown';
 import ShareButtons from '../components/ShareButtons';
 import PriceHistoryChart from '../components/PriceHistoryChart';
+import { WidgetErrorBoundary } from '../components/RouteErrorBoundary';
 import CheckoutReviewModal from '../components/CheckoutReviewModal';
 import NotFound from './NotFound';
 
@@ -1082,7 +1083,9 @@ export default function ProductDetail() {
         {product.farm_lat != null && product.farm_lng != null ? (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#2d6a4f', marginBottom: 12 }}>Farm Location</div>
-          <LazyMapView lat={product.farm_lat} lng={product.farm_lng} farmerName={product.farmer_name} />
+          <WidgetErrorBoundary name="MapView">
+            <LazyMapView lat={product.farm_lat} lng={product.farm_lng} farmerName={product.farmer_name} />
+          </WidgetErrorBoundary>
           </div>
         ) : (
           <div style={{ marginBottom: 20, padding: '16px', borderRadius: 10, background: '#f8fdf9', color: '#555' }}>
@@ -1269,7 +1272,9 @@ export default function ProductDetail() {
           );
         })()}
 
-        <PriceHistoryChart data={priceHistory} />
+        <WidgetErrorBoundary name="PriceHistoryChart">
+          <PriceHistoryChart data={priceHistory} />
+        </WidgetErrorBoundary>
         {usd(unitPrice) && (
           <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
             {usd(unitPrice)} {t('productDetail.perUnit', { unit: product.unit })} <span style={{ fontSize: 11, color: '#bbb' }}>{t('productDetail.approxRate')}</span>

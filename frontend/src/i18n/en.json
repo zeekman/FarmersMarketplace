@@ -566,6 +566,13 @@
       "networkMismatch": "Freighter is on a different network than this app. Switch networks in Freighter and try again."
     }
   },
+  "errorBoundary": {
+    "routeTitle": "This page ran into a problem",
+    "routeBody": "The rest of the site still works. Try again, or head back to the home page.",
+    "tryAgain": "Try again",
+    "goHome": "Go home",
+    "widgetBody": "This section couldn't load."
+  },
   "common": {
     "loading": "Loading...",
     "errors": "Errors",

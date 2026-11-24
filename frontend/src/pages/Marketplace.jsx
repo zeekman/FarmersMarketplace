@@ -22,6 +22,7 @@ import { buildSrcSet } from "../utils/imageUtils";
 
 import { getErrorMessage } from '../utils/errorMessages';
 import { filtersFromParams, filtersToParams } from '../utils/marketplaceUrl';
+import { WidgetErrorBoundary } from '../components/RouteErrorBoundary';
 const MapView = lazy(() => import("../components/MapView"));
 
 // Fallback when GET /categories is unavailable.
@@ -1201,18 +1202,20 @@ export default function Marketplace() {
         </div>
       ) : viewMode === "map" ? (
         <Suspense fallback={<Spinner />}>
-          <MapView
-            products={products}
-            onFarmerClick={(name) => {
-              if (name) {
-                setFilters(f => ({ ...f, seller: name }));
-              }
-              setViewMode("grid");
-            }}
-            userLat={filters.lat || undefined}
-            userLng={filters.lng || undefined}
-            radius={filters.radius || undefined}
-          />
+          <WidgetErrorBoundary name="MapView">
+            <MapView
+              products={products}
+              onFarmerClick={(name) => {
+                if (name) {
+                  setFilters(f => ({ ...f, seller: name }));
+                }
+                setViewMode("grid");
+              }}
+              userLat={filters.lat || undefined}
+              userLng={filters.lng || undefined}
+              radius={filters.radius || undefined}
+            />
+          </WidgetErrorBoundary>
         </Suspense>
       ) : products.length === 0 ? (
         <div style={s.empty} role="status">

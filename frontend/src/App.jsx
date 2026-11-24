@@ -10,6 +10,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { showToast } from './utils/toast';
 import { setLoadingCallback, setLogoutCallback, setEmailNotVerifiedCallback } from './api/client';
 import ErrorBoundary from './components/ErrorBoundary';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import Navbar from './components/Navbar';
 import AnnouncementBanner from './components/AnnouncementBanner';
 import EmailVerificationBanner from './components/EmailVerificationBanner';
@@ -175,6 +176,7 @@ function AppContent() {
       <OfflineBanner />
       <main id="main-content" tabIndex={-1} style={{ paddingTop: 24, outline: 'none' }}>
         <Suspense fallback={<PageLoader />}>
+          <RouteErrorBoundary>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<LoginPage />} />
@@ -198,6 +200,7 @@ function AppContent() {
             <Route path="/recover" element={<AccountRecovery />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </RouteErrorBoundary>
         </Suspense>
       </main>
     </>
