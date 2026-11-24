@@ -11,6 +11,8 @@
     "newConversation": "New conversation",
     "sending": "Sending…",
     "failed": "Failed to send.",
+    "queued": "Will send when back online",
+    "rateLimited": "You're sending messages too quickly, try again in {{seconds}} s",
     "retry": "Retry",
     "inputLabel": "Type a message",
     "placeholder": "Write a message…",
