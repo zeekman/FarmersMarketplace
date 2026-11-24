@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
 import { safeStorage } from '../../utils/safeStorage';
+import { useNetwork } from '../../context/NetworkContext';
 
 const DISCLAIMER_KEY = 'testnet_disclaimer_dismissed';
 
 /** One-time modal reminding users that testnet XLM has no value. */
 export default function TestnetDisclaimer() {
   const [visible, setVisible] = useState(() => safeStorage.get(DISCLAIMER_KEY) !== 'true');
+  const { network } = useNetwork();
 
   function dismiss() {
     safeStorage.set(DISCLAIMER_KEY, 'true');
     setVisible(false);
   }
 
+  // Only relevant on testnet; never show the disclaimer on mainnet.
+  if (network === 'mainnet') return null;
   if (!visible) return null;
 
   return (
