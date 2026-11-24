@@ -1450,6 +1450,57 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Farmer-initiated full refund before timeout (#1725). Requires the farmer's
+    /// auth and refunds the full amount to the buyer with no fee. Blocked while
+    /// disputed; only `resolve_dispute` can settle a disputed escrow.
+    pub fn cancel_by_farmer(env: Env, order_id: u64) -> Result<(), EscrowError> {
+        let mut escrow: Escrow = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(order_id))
+            .ok_or(EscrowError::NotFound)?;
+        escrow.farmer.require_auth();
+
+        match escrow.status {
+            EscrowStatus::Released | EscrowStatus::Refunded => {
+                return Err(EscrowError::AlreadySettled);
+            }
+            EscrowStatus::Disputed => return Err(EscrowError::InDispute),
+            EscrowStatus::Active => {}
+        }
+
+        let stored_token: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Token(order_id))
+            .ok_or(EscrowError::NotFound)?;
+        if stored_token != escrow.token {
+            return Err(EscrowError::InvalidToken);
+        }
+
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &escrow.buyer,
+            &escrow.amount,
+        );
+
+        escrow.status = EscrowStatus::Refunded;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(order_id), &escrow);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
+
+        // #1725 — farmer cancel event: ("escrow", "f_cancel") → order_id
+        env.events().publish(
+            (symbol_short!("escrow"), symbol_short!("f_cancel")),
+            order_id,
+        );
+        Ok(())
+    }
+
     // ── #878: Auto-release (time-lock release) ─────────────────────────────────────
 
     /// Default auto-release days. (#878)

@@ -27,6 +27,7 @@ subscribers can filter deterministically.
 | `release` | `(escrow, release, order_id)` | `(farmer_amount, fee_amount)` |
 | `release_to_stream` | `(escrow, release, order_id)` | `(farmer_amount, fee_amount)` |
 | `refund` | `(escrow, refund, order_id)` | `(farmer_amount, fee_amount)` |
+| `cancel_by_farmer` | `(escrow, f_cancel)` | `order_id` |
 | `dispute` | `(escrow, dispute, order_id)` | `(initiator,)` |
 | `resolve` | `(escrow, resolve, order_id)` | `(farmer_amount, fee_amount)` |
 | `auto_release` | `(escrow, auto_release, order_id)` | `(farmer_amount, fee_amount)` |
