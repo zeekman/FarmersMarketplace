@@ -1824,7 +1824,9 @@ impl EscrowContract {
         }
 
         env.deployer().update_current_contract_wasm(new_wasm_hash);
-        env.events().publish(("admin", "upgrade"), ());
+        // #1729 — was a &str tuple; symbol_short! keeps topics consistent for indexers
+        env.events()
+            .publish((symbol_short!("admin"), symbol_short!("upgrade")), ());
         Ok(())
     }
 
