@@ -10,7 +10,8 @@
  */
 
 const router = require('express').Router();
-const adminAuth = require('../middleware/adminAuth');
+const auth = require('../middleware/auth');
+const requireAdmin = require('../middleware/requireAdmin');
 const { reconcileOrphanedUploads } = require('../jobs/reconcileOrphanedUploads');
 
 /**
@@ -19,7 +20,7 @@ const { reconcileOrphanedUploads } = require('../jobs/reconcileOrphanedUploads')
  * Returns a report of orphaned upload files without deleting them.
  * Pass ?dryRun=false to trigger live deletion via GET (not recommended; use DELETE instead).
  */
-router.get('/orphaned', adminAuth, async (req, res) => {
+router.get('/orphaned', auth, requireAdmin, async (req, res) => {
   const dryRun = req.query.dryRun !== 'false'; // default to dry-run
 
   try {
@@ -42,7 +43,7 @@ router.get('/orphaned', adminAuth, async (req, res) => {
  *
  * Identifies and removes all orphaned upload files.
  */
-router.delete('/orphaned', adminAuth, async (req, res) => {
+router.delete('/orphaned', auth, requireAdmin, async (req, res) => {
   try {
     const report = await reconcileOrphanedUploads({ dryRun: false });
     return res.json({

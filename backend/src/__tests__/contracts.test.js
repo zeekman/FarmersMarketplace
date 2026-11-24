@@ -12,13 +12,14 @@ jest.mock('../middleware/auth', () => (req, _res, next) => {
   req.user = req._mockUser || { id: 1, role: 'admin' };
   next();
 });
-jest.mock('../middleware/adminAuth', () => (_req, _res, next) => next());
 jest.mock('../utils/stellar', () => ({
   getContractState: jest.fn(),
   getContractEvents: jest.fn(),
   simulateContractCall: jest.fn(),
 }));
-jest.mock('../utils/auditLog', () => ({ writeAuditLog: jest.fn().mockResolvedValue(undefined) }));
+// Plain async stub (not jest.fn) so requireAdmin's writeAuditLog() keeps a
+// resolved promise to .catch() even after the global jest.resetAllMocks().
+jest.mock('../utils/auditLog', () => ({ writeAuditLog: async () => undefined }));
 
 const contractsRouter = require('../routes/contracts');
 
@@ -126,5 +127,32 @@ describe('GET /api/contracts/:contractId/events', () => {
 
     const res = await request(buildApp()).get(`/api/contracts/${VALID_CONTRACT_ID}/events`);
     expect(res.status).toBe(404);
+  });
+});
+
+// ── admin-only enforcement via requireAdmin (#009) ────────────────────────
+describe('admin-only contract endpoints reject non-admins with 403', () => {
+  const buyerApp = () => buildApp({ id: 2, role: 'buyer' });
+
+  it('POST /:contractId/simulate returns 403 for a non-admin', async () => {
+    const res = await request(buyerApp())
+      .post(`/api/contracts/${VALID_CONTRACT_ID}/simulate`)
+      .send({ method: 'transfer', args: [] });
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /:contractId/config returns 403 for a non-admin', async () => {
+    const res = await request(buyerApp()).get(`/api/contracts/${VALID_CONTRACT_ID}/config`);
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /:contractId/events returns 403 for a non-admin', async () => {
+    const res = await request(buyerApp()).get(`/api/contracts/${VALID_CONTRACT_ID}/events`);
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /:contractId/invocations returns 403 for a non-admin', async () => {
+    const res = await request(buyerApp()).get(`/api/contracts/${VALID_CONTRACT_ID}/invocations`);
+    expect(res.status).toBe(403);
   });
 });

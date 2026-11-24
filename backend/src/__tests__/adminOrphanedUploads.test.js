@@ -8,16 +8,30 @@ const express = require('express');
 const adminOrphanedUploadsRouter = require('../routes/adminOrphanedUploads');
 const { reconcileOrphanedUploads } = require('../jobs/reconcileOrphanedUploads');
 
-jest.mock('../middleware/adminAuth', () => (req, res, next) => {
-  req.user = { id: 1, role: 'admin' };
+// Inject the user via the auth middleware so the real requireAdmin runs.
+jest.mock('../middleware/auth', () => (req, _res, next) => {
+  req.user = req._mockUser || { id: 1, role: 'admin' };
   next();
 });
-
+// Plain async stub (not jest.fn) so requireAdmin's writeAuditLog() keeps a
+// resolved promise to .catch() even after the global jest.resetAllMocks().
+jest.mock('../utils/auditLog', () => ({ writeAuditLog: async () => undefined }));
 jest.mock('../jobs/reconcileOrphanedUploads');
 
-const app = express();
-app.use(express.json());
-app.use('/api/admin/uploads', adminOrphanedUploadsRouter);
+function buildApp(user) {
+  const app = express();
+  app.use(express.json());
+  if (user) {
+    app.use((req, _res, next) => {
+      req._mockUser = user;
+      next();
+    });
+  }
+  app.use('/api/admin/uploads', adminOrphanedUploadsRouter);
+  return app;
+}
+
+const app = buildApp();
 
 describe('GET /api/admin/uploads/orphaned', () => {
   beforeEach(() => {
@@ -145,5 +159,20 @@ describe('Safety regression test: referenced files never deleted', () => {
     const res = await request(app).delete('/api/admin/uploads/orphaned');
 
     expect(res.body.deleted).toBe(0);
+  });
+});
+
+describe('admin-only orphaned-uploads endpoints reject non-admins with 403 (#009)', () => {
+  const buyerApp = () => buildApp({ id: 2, role: 'buyer' });
+
+  test('GET /api/admin/uploads/orphaned returns 403 for a non-admin', async () => {
+    const res = await request(buyerApp()).get('/api/admin/uploads/orphaned');
+    expect(res.status).toBe(403);
+  });
+
+  test('DELETE /api/admin/uploads/orphaned returns 403 for a non-admin', async () => {
+    const res = await request(buyerApp()).delete('/api/admin/uploads/orphaned');
+    expect(res.status).toBe(403);
+    expect(reconcileOrphanedUploads).not.toHaveBeenCalled();
   });
 });

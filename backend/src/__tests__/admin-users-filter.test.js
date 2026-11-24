@@ -16,9 +16,6 @@ describe('GET /api/admin/users - Active Filter', () => {
       req.user = { id: 1, role: 'admin' };
       next();
     });
-    jest.mock('../middleware/adminAuth', () => (req, res, next) => {
-      next();
-    });
   });
 
   test('should return all users when no active filter is provided', async () => {
