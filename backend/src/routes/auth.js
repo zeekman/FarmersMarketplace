@@ -11,6 +11,7 @@ const {
   createWalletFromMnemonic,
   deriveKeypairFromMnemonic,
   getBalance,
+  mergeAccount,
 } = require('../utils/stellar');
 const validate = require('../middleware/validate');
 const auth = require('../middleware/auth');
@@ -586,37 +587,162 @@ router.post('/account/deletion-request', auth, async (req, res) => {
   });
 });
 
-// DELETE /api/auth/account — self-service account deletion
-router.delete('/account', auth, async (req, res) => {
-  const force = req.query.force === 'true';
+// DELETE /api/auth/account — self-service account deletion with optional wallet sweep
+router.delete('/account', auth, requireStepUp2FA, async (req, res) => {
+  const { password, sweep_to } = req.body;
 
-  const { rows } = await db.query('SELECT stellar_public_key FROM users WHERE id = $1', [
-    req.user.id,
-  ]);
-  if (!rows[0]) return err(res, 404, 'User not found', 'not_found');
+  // Require password confirmation
+  if (!password) {
+    return err(res, 400, 'Password confirmation required', 'password_required');
+  }
 
-  // Check Stellar balance — warn if above base reserve (1 XLM)
-  if (!force) {
-    const balance = await getBalance(rows[0].stellar_public_key);
-    if (balance > 1) {
-      return res.status(409).json({
-        success: false,
-        code: 'balance_warning',
-        message:
-          'Your Stellar wallet still has a balance. Withdraw your funds before deleting your account, or confirm deletion with ?force=true.',
-        balance,
-        publicKey: rows[0].stellar_public_key,
+  const { rows } = await db.query(
+    'SELECT id, password, stellar_public_key, stellar_secret_key FROM users WHERE id = $1',
+    [req.user.id]
+  );
+  const user = rows[0];
+  if (!user) return err(res, 404, 'User not found', 'not_found');
+
+  // Verify password
+  const validPassword = await bcrypt.compare(password, user.password);
+  if (!validPassword) {
+    return err(res, 401, 'Incorrect password', 'invalid_password');
+  }
+
+  // Check for open obligations that block deletion
+  const openChecks = [
+    {
+      reason: 'open_escrows',
+      sql: `SELECT COUNT(*) AS c FROM escrows
+            WHERE (farmer_id = $1 OR buyer_id = $1)
+              AND status IN ('pending', 'funded', 'active')`,
+    },
+    {
+      reason: 'open_disputes',
+      sql: `SELECT COUNT(*) AS c FROM disputes
+            WHERE (claimant_id = $1 OR respondent_id = $1)
+              AND status IN ('open', 'under_review')`,
+    },
+    {
+      reason: 'active_subscriptions',
+      sql: `SELECT COUNT(*) AS c FROM subscriptions
+            WHERE (farmer_id = $1 OR buyer_id = $1)
+              AND status = 'active'`,
+    },
+  ];
+
+  for (const check of openChecks) {
+    try {
+      const { rows: countRows } = await db.query(check.sql, [req.user.id]);
+      const count = Number(countRows[0]?.c || 0);
+      if (count > 0) {
+        return err(
+          res,
+          409,
+          `Cannot delete account: you have ${check.reason.replace('_', ' ')}. Please resolve them first.`,
+          check.reason
+        );
+      }
+    } catch (e) {
+      // Table might not exist in all deployments — log but don't block
+      logger.warn(`[account-delete] ${check.reason} check failed`, {
+        userId: req.user.id,
+        error: e.message,
       });
     }
   }
 
-  // Delete user — cascade handles related rows (orders, refresh_tokens, etc.)
-  await db.query('DELETE FROM users WHERE id = $1', [req.user.id]);
-  await invalidateAuthStatus(req.user.id);
+  let txHash = null;
 
-  // Clear the refresh token cookie
+  // Sweep funds to user-supplied address if provided
+  if (sweep_to) {
+    if (!/^G[A-Z0-9]{55}$/.test(sweep_to)) {
+      return err(res, 400, 'Invalid sweep_to address format', 'invalid_sweep_address');
+    }
+
+    try {
+      const { decrypt } = require('../utils/crypto');
+      const secretKey = await decrypt(user.stellar_secret_key);
+      const { mergeAccount } = require('../utils/stellar');
+      
+      txHash = await mergeAccount({
+        sourceSecret: secretKey,
+        destination: sweep_to,
+      });
+
+      logger.info('[account-delete] Wallet merged successfully', {
+        userId: req.user.id,
+        destination: sweep_to,
+        txHash,
+      });
+    } catch (e) {
+      logger.error('[account-delete] Wallet merge failed', {
+        userId: req.user.id,
+        error: e.message,
+      });
+      return err(
+        res,
+        500,
+        `Failed to merge wallet: ${e.message}. Your account was not deleted.`,
+        'merge_failed'
+      );
+    }
+  } else {
+    // Warn if balance exists
+    try {
+      const balance = await getBalance(user.stellar_public_key);
+      if (balance > 0.5) {
+        return res.status(409).json({
+          success: false,
+          code: 'balance_warning',
+          message: `Your wallet holds ${balance.toFixed(4)} XLM. Provide sweep_to to transfer funds, or they will be lost.`,
+          balance,
+          publicKey: user.stellar_public_key,
+        });
+      }
+    } catch (e) {
+      logger.warn('[account-delete] Balance check failed', {
+        userId: req.user.id,
+        error: e.message,
+      });
+    }
+  }
+
+  // Deactivate account and schedule anonymization
+  await db.query(
+    'UPDATE users SET active = 0, deactivated_at = CURRENT_TIMESTAMP WHERE id = $1',
+    [req.user.id]
+  );
+
+  // Store merge transaction hash in audit log if sweep happened
+  if (txHash) {
+    try {
+      await db.query(
+        `INSERT INTO audit_log (user_id, event, details, created_at)
+         VALUES ($1, 'account_deletion_sweep', $2, CURRENT_TIMESTAMP)`,
+        [req.user.id, JSON.stringify({ sweep_to, txHash })]
+      );
+    } catch (e) {
+      // Audit log is best-effort
+      logger.warn('[account-delete] Failed to log sweep tx', {
+        userId: req.user.id,
+        error: e.message,
+      });
+    }
+  }
+
+  // Revoke all sessions
+  await db.query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.user.id]);
+  await invalidateAuthStatus(req.user.id);
   res.clearCookie('refreshToken', { path: '/api/v1/auth' });
-  res.json({ success: true, message: 'Account deleted' });
+
+  res.json({
+    success: true,
+    message: txHash
+      ? `Account deactivated. Wallet merged to ${sweep_to}. Personal data will be anonymized after 30 days.`
+      : 'Account deactivated. Personal data will be anonymized after 30 days.',
+    txHash,
+  });
 });
 
 /**

@@ -682,6 +682,9 @@ export default function ProductDetail() {
 
   // Freighter pays only plain XLM orders; escrow and path payments stay custodial.
   const payWithFreighter = freighter.connected && !useEscrow && !sourceAsset;
+  // Freighter on the wrong network would sign for the wrong chain, so block before any order is built.
+  const payWithFreighterBlocked = payWithFreighter && freighter.mismatch;
+  const freighterSwitchMsg = t('freighter.switchNetwork', { network: network === 'mainnet' ? 'Mainnet' : 'Testnet' });
 
   async function confirmBuy() {
     // The ref blocks a second click before React re-renders the disabled button.
@@ -706,7 +709,9 @@ export default function ProductDetail() {
       setResult({ ...res, escrow: useEscrow });
     } catch (e) {
       if (!settled) buyAttempt.settle(e);
-      const msg = getStellarErrorMessage(e) || getErrorMessage(e);
+      const msg = e?.freighterKey
+        ? t(`freighter.errors.${e.freighterKey}`)
+        : getStellarErrorMessage(e) || getErrorMessage(e);
       setReviewBody(null);
       setError(msg);
       toast.error(msg);
@@ -959,7 +964,7 @@ export default function ProductDetail() {
                   src={images[safeActiveImg].url}
                   srcSet={buildSrcSet(images[safeActiveImg].url)}
                   sizes="(max-width: 640px) 100vw, 640px"
-                  alt={`${product.name} photo ${safeActiveImg + 1}`}
+                  alt={t('productDetail.imageN', { name: product.name, n: safeActiveImg + 1 })}
                   style={s.galleryMain}
                 />
               </div>
@@ -1627,9 +1632,12 @@ export default function ProductDetail() {
                 {t('productDetail.useEscrow')}
               </label>
             )}
+            {payWithFreighterBlocked && (
+              <div role="alert" style={{ color: '#b42318', fontSize: 13, fontWeight: 600, marginBottom: 12 }}>{freighterSwitchMsg}</div>
+            )}
             <button style={{ ...s.btn, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
               onClick={handleBuy}
-              disabled={loading || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}
+              disabled={loading || payWithFreighterBlocked || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}
               aria-disabled={loading}
               aria-busy={loading}
               data-testid="buy-now-btn">
@@ -1652,7 +1660,7 @@ export default function ProductDetail() {
                 }}
                 escrow={useEscrow}
                 payingWith={payWithFreighter ? `Freighter ${freighter.publicKey.slice(0, 6)}…${freighter.publicKey.slice(-4)}` : null}
-                blockedReason={payWithFreighter && freighter.mismatch ? 'Freighter is on a different network than this app. Switch networks in Freighter to continue.' : ''}
+                blockedReason={payWithFreighterBlocked ? freighterSwitchMsg : ''}
                 submitting={loading}
                 onConfirm={confirmBuy}
                 onCancel={() => setReviewBody(null)}

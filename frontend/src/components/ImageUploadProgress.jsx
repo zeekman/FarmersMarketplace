@@ -11,15 +11,20 @@ export default function ImageUploadProgress({ blob, onUploaded, onCancel }) {
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
+  const blobRef = useRef(null);
+
+  // Once unmounted (image removed), a late response must not set the parent's URL.
+  React.useEffect(() => () => { blobRef.current = null; }, []);
 
   const start = useCallback(() => {
+    blobRef.current = blob;
     setStatus('uploading');
     setError(null);
     setProgress(0);
     const { promise, abort } = uploadWithProgress(blob, { onProgress: setProgress });
     abortRef.current = abort;
     promise
-      .then((data) => { setStatus('done'); onUploaded?.(data); })
+      .then((data) => { if (blobRef.current !== blob) return; setStatus('done'); onUploaded?.(data); })
       .catch((e) => {
         if (e.cancelled) { setStatus('idle'); onCancel?.(); return; }
         setStatus('error');

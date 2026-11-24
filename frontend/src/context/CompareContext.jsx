@@ -1,23 +1,59 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { MAX_RECENTLY_COMPARED } from '../components/RecentlyCompared';
+import { api } from '../api/client';
 import { safeStorage } from '../utils/safeStorage';
+import { showToast } from '../utils/toast';
 
 const CompareContext = createContext(null);
 
 const HISTORY_KEY = 'comparison_history';
+const SELECTION_KEY = 'compare_selection';
+const MAX_COMPARE = 4;
+
+function warnListFull(product) {
+  showToast(`Compare list is full (max ${MAX_COMPARE}). Remove a product before adding "${product.name}".`, 'warning');
+}
 
 export function CompareProvider({ children }) {
   const [products, setProducts] = useState([]);
   const [history, setHistory] = useState([]);
-  const [compareWarning, setCompareWarning] = useState('');
   const location = useLocation();
+  const selectionHydrated = useRef(false);
 
   // Load history from localStorage on mount
   useEffect(() => {
     const stored = safeStorage.getJSON(HISTORY_KEY);
     if (Array.isArray(stored)) setHistory(stored);
   }, []);
+
+  // Rehydrate the persisted selection (IDs only) by fetching current product data
+  useEffect(() => {
+    const ids = safeStorage.getJSON(SELECTION_KEY, []);
+    if (!Array.isArray(ids) || ids.length === 0) {
+      selectionHydrated.current = true;
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      ids.slice(0, MAX_COMPARE).map((id) =>
+        api.getProduct(id)
+          .then((res) => res?.data ?? { id, name: `Product ${id}`, unavailable: true })
+          .catch(() => ({ id, name: 'No longer available', unavailable: true }))
+      )
+    ).then((restored) => {
+      if (cancelled) return;
+      selectionHydrated.current = true;
+      setProducts(restored);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Persist only once rehydration has run, so mount never overwrites the stored selection
+  useEffect(() => {
+    if (!selectionHydrated.current) return;
+    safeStorage.setJSON(SELECTION_KEY, products.map((p) => p.id));
+  }, [products]);
 
   useEffect(() => {
     const allowed =
@@ -48,40 +84,23 @@ export function CompareProvider({ children }) {
   }, []);
 
   const addProduct = useCallback((product) => {
-    setProducts((prev) => {
-      if (prev.some((p) => p.id === product.id)) return prev;
-      if (prev.length >= 4) {
-        setCompareWarning(
-          `Compare list is full (max 4). Remove a product before adding "${product.name}".`
-        );
-        return prev;
-      }
-      setCompareWarning('');
-      return [...prev, product];
-    });
-  }, []);
+    if (products.some((p) => p.id === product.id)) return;
+    if (products.length >= MAX_COMPARE) return warnListFull(product);
+    setProducts((prev) => [...prev, product]);
+  }, [products]);
 
   const removeProduct = useCallback((productId) => {
     setProducts((prev) => prev.filter((p) => p.id !== productId));
   }, []);
 
   const toggleProduct = useCallback((product) => {
-    setProducts((prev) => {
-      const exists = prev.some((p) => p.id === product.id);
-      if (exists) {
-        setCompareWarning('');
-        return prev.filter((p) => p.id !== product.id);
-      }
-      if (prev.length >= 4) {
-        setCompareWarning(
-          `Compare list is full (max 4). Remove a product before adding "${product.name}".`
-        );
-        return prev;
-      }
-      setCompareWarning('');
-      return [...prev, product];
-    });
-  }, []);
+    if (products.some((p) => p.id === product.id)) {
+      setProducts((prev) => prev.filter((p) => p.id !== product.id));
+      return;
+    }
+    if (products.length >= MAX_COMPARE) return warnListFull(product);
+    setProducts((prev) => [...prev, product]);
+  }, [products]);
 
   const clearProducts = useCallback(() => {
     setProducts([]);
@@ -123,7 +142,6 @@ export function CompareProvider({ children }) {
       value={{
         products,
         history,
-        compareWarning,
         addProduct,
         removeProduct,
         toggleProduct,

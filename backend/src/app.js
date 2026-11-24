@@ -194,13 +194,7 @@ app.use(require('./routes'));
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// Background jobs are started from src/index.js via jobs/index.js (#1367), never on import.
-app.locals.startBackgroundJobs = () => {
-  if (process.env.NODE_ENV === 'test') return;
-  const { startActivityMonitor } = require('./jobs/activityMonitor');
-  startActivityMonitor();
-  const { startOrphanedUploadsCleanupJob } = require('./jobs/reconcileOrphanedUploads');
-  startOrphanedUploadsCleanupJob();
-};
+// Background jobs are scheduled only by jobs/index.js (called from src/index.js),
+// never on import and never outside the registry — #011/#1367.
 
 module.exports = app;

@@ -1,4 +1,5 @@
 // Shared form validation utilities
+import { z } from 'zod';
 
 export const PASSWORD_MIN_LENGTH = 8;
 
@@ -74,42 +75,56 @@ export function validateRegister({ name, email, password }) {
   return errors;
 }
 
+// Product form rules. Mirrors the `product` schema in backend/src/middleware/validate.js — keep in sync.
+// Input is the raw form state (strings); the backend's zod issues map back onto these field names.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const PRODUCT_CATEGORIES = ['vegetables', 'fruits', 'grains', 'dairy', 'herbs', 'other'];
+const isSevenDp = (v) => Math.abs(v * 1e7 - Math.round(v * 1e7)) < 1e-6;
+
+export const productSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Name must be at least 2 characters').max(200, 'Name must be 200 characters or fewer'),
+    price: z.string().trim().min(1, 'Price is required').pipe(
+      z.coerce.number({ error: 'Price must be a positive number' })
+        .positive('Price must be a positive number')
+        .max(1_000_000, 'Price seems too high (max 1,000,000 XLM)')
+        .refine(isSevenDp, 'Price can have at most 7 decimal places')
+    ),
+    quantity: z.string().trim().min(1, 'Quantity is required').pipe(
+      z.coerce.number({ error: 'Quantity must be a positive whole number' })
+        .int('Quantity must be a positive whole number')
+        .positive('Quantity must be a positive whole number')
+        .max(1_000_000, 'Quantity seems too high (max 1,000,000)')
+    ),
+    category: z.enum(PRODUCT_CATEGORIES, { error: 'Pick a category' }),
+    is_preorder: z.boolean(),
+    preorder_delivery_date: z.string(),
+    harvest_date: z.string().regex(DATE_RE, 'Date must be in YYYY-MM-DD format').or(z.literal('')),
+    best_before: z.string().regex(DATE_RE, 'Date must be in YYYY-MM-DD format').or(z.literal('')),
+  })
+  .superRefine((d, ctx) => {
+    // Local date; the backend compares against UTC, so a farmer near midnight may see a server-side rejection.
+    const today = new Date().toLocaleDateString('en-CA');
+    if (d.is_preorder && (!DATE_RE.test(d.preorder_delivery_date) || d.preorder_delivery_date < today)) {
+      ctx.addIssue({ code: 'custom', path: ['preorder_delivery_date'], message: DATE_RE.test(d.preorder_delivery_date) ? 'Pre-order delivery date must be today or later' : 'Date must be in YYYY-MM-DD format' });
+    }
+    if (DATE_RE.test(d.harvest_date) && DATE_RE.test(d.best_before) && d.best_before < d.harvest_date) {
+      ctx.addIssue({ code: 'custom', path: ['best_before'], message: 'Best before date must be on or after the harvest date' });
+    }
+  });
+
 /**
- * Validates the product creation form. Returns an errors object (empty = valid).
+ * Validates the product form against productSchema. Returns `{ fieldName: message }` (empty = valid).
+ * Only the first message per field is kept.
  */
-export function validateProduct({ name, price, quantity, nutrition }) {
+export function validateProductForm(form) {
+  const result = productSchema.safeParse(form);
   const errors = {};
-  if (!name || !name.trim()) errors.name = 'Product name is required';
-  else if (name.trim().length < 2) errors.name = 'Name must be at least 2 characters';
-  else if (name.trim().length > 200) errors.name = 'Name must be 200 characters or fewer';
-
-  const priceNum = parseFloat(price);
-  if (price === '' || price === null || price === undefined) errors.price = 'Price is required';
-  else if (isNaN(priceNum) || priceNum <= 0) errors.price = 'Price must be a positive number';
-  else if (priceNum > 1_000_000) errors.price = 'Price seems too high (max 1,000,000 XLM)';
-  else if (!/^\d+(\.\d{1,7})?$/.test(String(price).trim())) errors.price = 'Price can have at most 7 decimal places';
-
-  const qtyNum = parseInt(quantity, 10);
-  if (quantity === '' || quantity === null || quantity === undefined) errors.quantity = 'Quantity is required';
-  else if (isNaN(qtyNum) || qtyNum <= 0) errors.quantity = 'Quantity must be a positive whole number';
-  else if (qtyNum > 1_000_000) errors.quantity = 'Quantity seems too high (max 1,000,000)';
-
-  // Validate nutrition if provided
-  if (nutrition) {
-    const nutritionErrors = {};
-    const fields = ['calories', 'protein', 'carbs', 'fat', 'fiber'];
-    fields.forEach(field => {
-      if (nutrition[field] !== undefined && nutrition[field] !== '') {
-        const val = parseFloat(nutrition[field]);
-        if (isNaN(val) || val < 0) {
-          nutritionErrors[field] = `${field.charAt(0).toUpperCase() + field.slice(1)} must be a non-negative number`;
-        }
-      }
-    });
-    if (Object.keys(nutritionErrors).length > 0) {
-      errors.nutrition = nutritionErrors;
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      const field = issue.path[0];
+      if (field && !errors[field]) errors[field] = issue.message;
     }
   }
-
   return errors;
 }

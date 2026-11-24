@@ -1,6 +1,7 @@
 // #1199 – Navbar unread-message badge driven by the messages SSE stream
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Navbar from '../components/Navbar';
 import { api } from '../api/client';
@@ -52,14 +53,14 @@ describe('Navbar unread-message badge (#1199)', () => {
 
   it('renders no badge when there are no unread messages', async () => {
     api.getUnreadMessageCount.mockResolvedValue({ count: 0 });
-    render(<MemoryRouter><Navbar /></MemoryRouter>);
+    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><Navbar /></MemoryRouter></QueryClientProvider>);
     await waitFor(() => expect(api.getUnreadMessageCount).toHaveBeenCalled());
     expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('shows the fetched unread count and increments live on a new_message SSE event', async () => {
     api.getUnreadMessageCount.mockResolvedValue({ count: 2 });
-    render(<MemoryRouter><Navbar /></MemoryRouter>);
+    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><Navbar /></MemoryRouter></QueryClientProvider>);
 
     expect(await screen.findByRole('status')).toHaveTextContent('2');
     expect(MockEventSource.instances).toHaveLength(1);
@@ -73,7 +74,7 @@ describe('Navbar unread-message badge (#1199)', () => {
 
   it('clears the badge after messages are marked read', async () => {
     api.getUnreadMessageCount.mockResolvedValueOnce({ count: 1 });
-    render(<MemoryRouter><Navbar /></MemoryRouter>);
+    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><Navbar /></MemoryRouter></QueryClientProvider>);
     expect(await screen.findByRole('status')).toHaveTextContent('1');
 
     api.getUnreadMessageCount.mockResolvedValueOnce({ count: 0 });
