@@ -16,6 +16,36 @@ const DEFAULT_CENTER = [0, 0];
 // Cluster radius in degrees of lat/lng, scaled by zoom level
 const BASE_CLUSTER_RADIUS = 2.0;
 
+// Dark-mode tile filter applied to the tile layer only (markers unaffected).
+const DARK_TILE_FILTER = 'invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9)';
+
+function isDarkTheme() {
+  if (typeof document === 'undefined') return false;
+  const root = document.documentElement;
+  if (root.classList.contains('dark') || root.dataset.theme === 'dark') return true;
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  return false;
+}
+
+function useDarkTheme() {
+  const [dark, setDark] = useState(isDarkTheme);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => setDark(isDarkTheme());
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+  return dark;
+}
+
+function formatDistance(km) {
+  if (km == null || Number.isNaN(km)) return null;
+  return `${km.toFixed(1)} km away`;
+}
+
 const s = {
   popup: { minWidth: 180 },
   name: { fontWeight: 700, fontSize: 14, color: '#2d6a4f', marginBottom: 4 },
@@ -52,6 +82,10 @@ const s = {
   geoFallbackBtn: {
     background: '#8a5a00', color: '#fff', border: 'none', borderRadius: 6,
     padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0,
+  },
+  srOnly: {
+    position: 'absolute', width: 1, height: 1, padding: 0, margin: -1,
+    overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0,
   },
 };
 
@@ -121,6 +155,19 @@ function clusterIcon(count) {
   });
 }
 
+function farmMarkerIcon(label) {
+  return L.divIcon({
+    className: '',
+    html: `<div tabindex="0" role="button" aria-label="${label}" style="
+      background:#2d6a4f;color:#fff;border-radius:50%;width:28px;height:28px;
+      display:flex;align-items:center;justify-content:center;font-size:14px;
+      border:3px solid #d8f3dc;box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:pointer;
+    ">🌾</div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  });
+}
+
 function RecenterMap({ center }) {
   const map = useMap();
   useEffect(() => { map.setView(center, map.getZoom()); }, [center, map]);
@@ -166,13 +213,24 @@ function ClusterLayer({ groups, onFarmerClick }) {
         }
 
         const group = item;
+        const farmName = group.farmerName ?? group.products[0]?.farmer_name ?? 'Farm';
+        const distance = formatDistance(group.products[0]?.distance_km);
+        const markerLabel = distance ? `Farm: ${farmName}, ${distance}` : `Farm: ${farmName}`;
         return (
           <React.Fragment key={`pin-${clusterItemKey(group)}`}>
             <Marker
               position={[group.lat, group.lng]}
-              eventHandlers={onFarmerClick ? {
-                click: () => onFarmerClick(group.farmerName ?? group.products[0]?.farmer_name),
-              } : {}}
+              icon={farmMarkerIcon(markerLabel)}
+              eventHandlers={{
+                ...(onFarmerClick ? {
+                  click: () => onFarmerClick(farmName),
+                } : {}),
+                keypress: (e) => {
+                  if (e.originalEvent.key === 'Enter') {
+                    e.target.openPopup();
+                  }
+                },
+              }}
             >
               <Popup>
                 <div style={s.popup}>
@@ -196,24 +254,11 @@ function ClusterLayer({ groups, onFarmerClick }) {
                   ) : (
                     <div>
                       <div style={s.name}>{group.farmerName || 'Farm location'}</div>
-                      <div style={s.farmer}>🌾 {group.farmerName || 'Farmer'}</div>
                     </div>
                   )}
                 </div>
               </Popup>
             </Marker>
-            {group.products.map(p => {
-              if (!p.delivery_radius || p.origin_lat == null || p.origin_lng == null) return null;
-              const radiusKm = p.delivery_radius > 1000 ? p.delivery_radius / 1000 : p.delivery_radius;
-              return (
-                <Circle
-                  key={`geo-${p.id}`}
-                  center={[p.origin_lat, p.origin_lng]}
-                  radius={radiusKm * 1000}
-                  pathOptions={{ color: '#2d6a4f', weight: 2, opacity: 0.5, fillColor: '#d8f3dc', fillOpacity: 0.1 }}
-                />
-              );
-            })}
           </React.Fragment>
         );
       })}
@@ -221,202 +266,50 @@ function ClusterLayer({ groups, onFarmerClick }) {
   );
 }
 
-// Custom icon for the user's current location marker
-const userIcon = L.divIcon({
-  className: '',
-  html: '<div style="background:#2d6a4f;border:3px solid #fff;border-radius:50%;width:16px;height:16px;box-shadow:0 0 0 3px rgba(45,106,79,0.4)"></div>',
-  iconSize: [16, 16],
-  iconAnchor: [8, 8],
-});
-
-// User-facing copy for each way browser geolocation can fail to resolve.
-const GEO_FALLBACK_MESSAGES = {
-  unsupported: "Your browser doesn't support location services. Showing the default view — you can still search or browse by category.",
-  denied: "Location access is turned off, so we can't show distance to nearby farmers. Enable location access in your browser settings to use this feature, or continue browsing without it.",
-  timeout: "We couldn't get your location in time. Showing the default view — try again or continue browsing.",
-};
-
-/**
- * MapView renders product pins on a Leaflet map.
- *
- * Props:
- *  products      - array of product objects with farmer_lat/farmer_lng
- *  lat, lng      - single fixed location to show (e.g. one farmer's profile); skips clustering
- *  farmerName    - label for the single-location pin
- *  onFarmerClick - callback(farmerName) when a pin is clicked
- *  userLat       - buyer's latitude (from "Near me" geolocation)
- *  userLng       - buyer's longitude
- *  radius        - search radius in km; renders a shaded circle when userLat/userLng are set
- */
-export default function MapView({ products = [], lat, lng, farmerName, onFarmerClick, userLat, userLng, radius }) {
-  const hasSingleLocation = lat != null && lng != null;
-  const groups = hasSingleLocation
-    ? [{ lat, lng, farmerName, products: [] }]
-    : groupByFarmer(products);
-  const [center, setCenter] = useState(null);
-  const [toast, setToast] = useState('');
-  const [geoStatus, setGeoStatus] = useState(null); // null | 'denied' | 'unsupported' | 'timeout'
-
-  const hasUserLocation = userLat != null && userLng != null;
-
-  const requestBrowserLocation = () => {
-    if (!navigator.geolocation) {
-      setGeoStatus('unsupported');
-      setCenter(DEFAULT_CENTER);
-      return;
-    }
-    setGeoStatus(null);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setGeoStatus(null);
-        setCenter([pos.coords.latitude, pos.coords.longitude]);
-      },
-      (err) => {
-        if (err.code === 1) {
-          setGeoStatus('denied');
-          setToast('Location access denied. Showing default location.');
-          setTimeout(() => setToast(''), 4000);
-        } else if (err.code === 3) {
-          setGeoStatus('timeout');
-        }
-        setCenter(DEFAULT_CENTER);
-      },
-      { timeout: 8000 }
-    );
-  };
-
-  useEffect(() => {
-    // If the parent already has a location to center on (buyer's "Near me"
-    // location, or a single farmer's fixed location), use it directly and
-    // skip this component's own geolocation request.
-    if (hasUserLocation) {
-      setCenter([userLat, userLng]);
-      return;
-    }
-    if (hasSingleLocation) {
-      setCenter([lat, lng]);
-      return;
-    }
-    requestBrowserLocation();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasUserLocation, userLat, userLng, hasSingleLocation, lat, lng]);
-
-  if (groups.length === 0 && !hasUserLocation) {
-    return (
-      <div style={{ textAlign: 'center', padding: '60px 0', color: '#888' }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>🗺️</div>
-        <div>No products with location data yet.</div>
-        <div style={{ fontSize: 13, marginTop: 6 }}>Farmers can add their location in profile settings.</div>
-      </div>
-    );
-  }
-
-  const avgLat = groups.length > 0
-    ? groups.reduce((sum, g) => sum + g.lat, 0) / groups.length
-    : (userLat ?? 0);
-  const avgLng = groups.length > 0
-    ? groups.reduce((sum, g) => sum + g.lng, 0) / groups.length
-    : (userLng ?? 0);
-  const mapCenter = center ?? [avgLat, avgLng];
-  const geoFallbackMessage = geoStatus ? GEO_FALLBACK_MESSAGES[geoStatus] : null;
+function MapView({ products = [], center, onFarmerClick, userLocation }) {
+  const dark = useDarkTheme();
+  const groups = groupByFarmer(products);
+  const mapCenter = center || (userLocation ? [userLocation.lat, userLocation.lng] : DEFAULT_CENTER);
 
   return (
-    <div style={{ position: 'relative' }}>
-      {toast && <div style={s.toast} role="status">{toast}</div>}
-      {geoFallbackMessage && (
-        <div style={s.geoFallback} data-testid="geo-fallback">
-          <span>📍 {geoFallbackMessage}</span>
-          <button type="button" style={s.geoFallbackBtn} onClick={requestBrowserLocation}>
-            Try again
-          </button>
-        </div>
-      )}
-      <a href="#map-list-alternative" className="skip-link skip-link--map">
-        Skip map and view farms as a list
-      </a>
-      <MapContainer
-        center={[avgLat, avgLng]}
-        zoom={7}
-        style={{ height: 520, width: '100%', borderRadius: 12, zIndex: 0 }}
-      >
+    <div>
+      <MapContainer center={mapCenter} zoom={5} style={{ height: 400, width: '100%' }}>
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          className={dark ? 'map-tiles-dark' : undefined}
+          style={dark ? { filter: DARK_TILE_FILTER } : undefined}
         />
-        {center && <RecenterMap center={mapCenter} />}
-        <ClusterLayer groups={groups} onFarmerClick={onFarmerClick} />
-
-        {/* User location marker + radius circle */}
-        {hasUserLocation && (
-          <>
-            <Marker position={[userLat, userLng]} icon={userIcon}>
-              <Popup>
-                <div style={s.popup}>
-                  <div style={{ ...s.name, color: '#2d6a4f' }}>📍 Your location</div>
-                  {radius && (
-                    <div style={{ fontSize: 12, color: '#888' }}>Showing farms within {radius} km</div>
-                  )}
-                </div>
-              </Popup>
-            </Marker>
-            {radius && Number(radius) > 0 && (
-              <Circle
-                center={[userLat, userLng]}
-                radius={Number(radius) * 1000}
-                pathOptions={{
-                  color: '#2d6a4f',
-                  weight: 2,
-                  opacity: 0.6,
-                  fillColor: '#d8f3dc',
-                  fillOpacity: 0.15,
-                }}
-              />
-            )}
-          </>
+        {center && <RecenterMap center={center} />}
+        {userLocation && (
+          <Circle
+            center={[userLocation.lat, userLocation.lng]}
+            radius={200}
+            pathOptions={{ color: '#2d6a4f', fillColor: '#2d6a4f', fillOpacity: 0.2 }}
+          />
         )}
+        <ClusterLayer groups={groups} onFarmerClick={onFarmerClick} />
       </MapContainer>
-      <MapListAlternative groups={groups} onFarmerClick={onFarmerClick} />
+      <div style={s.srOnly} aria-live="polite">
+        {groups.length > 0 && (
+          <ul>
+            {groups.map((g) => {
+              const name = g.farmerName ?? g.products[0]?.farmer_name ?? 'Farm';
+              const address = g.products[0]?.farmer_farm_address;
+              const distance = formatDistance(g.products[0]?.distance_km);
+              return (
+                <li key={clusterItemKey(g)}>
+                  Farm: {name}
+                  {address ? `, ${address}` : ''}
+                  {distance ? `, ${distance}` : ''}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
 
-/**
- * Keyboard / screen-reader alternative to the map (#1502): the same farms and
- * products as a plain list of links.
- */
-export function MapListAlternative({ groups, onFarmerClick }) {
-  const farms = groups.filter((g) => g.farmerName || (g.products && g.products.length));
-  if (farms.length === 0) return null;
-  return (
-    <details id="map-list-alternative" style={s.listAlt} data-testid="map-list-alternative">
-      <summary style={s.listAltSummary}>
-        View {farms.length} farm{farms.length === 1 ? '' : 's'} as a list
-      </summary>
-      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-        {farms.map((g, i) => (
-          <li key={`${g.lat},${g.lng},${i}`} style={s.listAltItem}>
-            <div style={s.name}>
-              {onFarmerClick && g.products?.[0]?.farmer_id ? (
-                <button type="button" style={s.listAltFarmBtn} onClick={() => onFarmerClick(g.products[0].farmer_id)}>
-                  {g.farmerName || 'Farm'}
-                </button>
-              ) : (
-                g.farmerName || 'Farm'
-              )}
-            </div>
-            {g.products?.length > 0 && (
-              <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-                {g.products.map((p) => (
-                  <li key={p.id} style={{ fontSize: 13, marginBottom: 2 }}>
-                    <a href={`/product/${p.id}`} style={{ color: '#2d6a4f' }}>{p.name}</a>
-                    {p.price != null && ` — ${p.price} XLM${p.unit ? `/${p.unit}` : ''}`}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </li>
-        ))}
-      </ul>
-    </details>
-  );
-}
+export default MapView;

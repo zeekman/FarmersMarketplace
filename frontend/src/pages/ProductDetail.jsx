@@ -9,7 +9,7 @@ import { useIdempotencyKey } from '../hooks/useIdempotencyKey';
 import { useFavorites } from '../context/FavoritesContext';
 import { getStellarErrorMessage } from '../utils/stellarErrors';
 import { getErrorMessage } from '../utils/errorMessages';
-import { showToast } from '../utils/toast';
+import { toast } from '../utils/toast';
 import { useXlmRate } from '../utils/useXlmRate';
 import { calculateHaversineDistance, formatDistanceLabel } from '../utils/distance';
 import { buildSrcSet } from '../utils/imageUtils';
@@ -24,6 +24,7 @@ import Spinner from '../components/Spinner';
 import FlashSaleCountdown from '../components/FlashSaleCountdown';
 import ShareButtons from '../components/ShareButtons';
 import PriceHistoryChart from '../components/PriceHistoryChart';
+import { WidgetErrorBoundary } from '../components/RouteErrorBoundary';
 import CheckoutReviewModal from '../components/CheckoutReviewModal';
 import NotFound from './NotFound';
 
@@ -605,10 +606,10 @@ export default function ProductDetail() {
       const res = await api.joinWaitlist(product.id, { address_id: selectedAddressId });
       setIsOnWaitlist(true);
       setWaitlistPosition(res.position || 1);
-      showToast('Successfully joined waitlist', 'success');
+      toast.success('Successfully joined waitlist');
     } catch (e) {
       setWaitlistError(getErrorMessage(e));
-      showToast(getErrorMessage(e), 'error');
+      toast.error(getErrorMessage(e));
     } finally {
       setWaitlistLoading(false);
     }
@@ -621,10 +622,10 @@ export default function ProductDetail() {
       await api.leaveWaitlist(product.id);
       setIsOnWaitlist(false);
       setWaitlistPosition(null);
-      showToast('Removed from waitlist', 'success');
+      toast.success('Removed from waitlist');
     } catch (e) {
       setWaitlistError(getErrorMessage(e));
-      showToast(getErrorMessage(e), 'error');
+      toast.error(getErrorMessage(e));
     } finally {
       setWaitlistLoading(false);
     }
@@ -682,6 +683,9 @@ export default function ProductDetail() {
 
   // Freighter pays only plain XLM orders; escrow and path payments stay custodial.
   const payWithFreighter = freighter.connected && !useEscrow && !sourceAsset;
+  // Freighter on the wrong network would sign for the wrong chain, so block before any order is built.
+  const payWithFreighterBlocked = payWithFreighter && freighter.mismatch;
+  const freighterSwitchMsg = t('freighter.switchNetwork', { network: network === 'mainnet' ? 'Mainnet' : 'Testnet' });
 
   async function confirmBuy() {
     // The ref blocks a second click before React re-renders the disabled button.
@@ -706,10 +710,12 @@ export default function ProductDetail() {
       setResult({ ...res, escrow: useEscrow });
     } catch (e) {
       if (!settled) buyAttempt.settle(e);
-      const msg = getStellarErrorMessage(e) || getErrorMessage(e);
+      const msg = e?.freighterKey
+        ? t(`freighter.errors.${e.freighterKey}`)
+        : getStellarErrorMessage(e) || getErrorMessage(e);
       setReviewBody(null);
       setError(msg);
-      showToast(msg, 'error');
+      toast.error(msg);
     } finally {
       setLoading(false);
       submittingRef.current = false;
@@ -959,7 +965,7 @@ export default function ProductDetail() {
                   src={images[safeActiveImg].url}
                   srcSet={buildSrcSet(images[safeActiveImg].url)}
                   sizes="(max-width: 640px) 100vw, 640px"
-                  alt={`${product.name} photo ${safeActiveImg + 1}`}
+                  alt={t('productDetail.imageN', { name: product.name, n: safeActiveImg + 1 })}
                   style={s.galleryMain}
                 />
               </div>
@@ -1077,7 +1083,9 @@ export default function ProductDetail() {
         {product.farm_lat != null && product.farm_lng != null ? (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#2d6a4f', marginBottom: 12 }}>Farm Location</div>
-          <LazyMapView lat={product.farm_lat} lng={product.farm_lng} farmerName={product.farmer_name} />
+          <WidgetErrorBoundary name="MapView">
+            <LazyMapView lat={product.farm_lat} lng={product.farm_lng} farmerName={product.farmer_name} />
+          </WidgetErrorBoundary>
           </div>
         ) : (
           <div style={{ marginBottom: 20, padding: '16px', borderRadius: 10, background: '#f8fdf9', color: '#555' }}>
@@ -1264,7 +1272,9 @@ export default function ProductDetail() {
           );
         })()}
 
-        <PriceHistoryChart data={priceHistory} />
+        <WidgetErrorBoundary name="PriceHistoryChart">
+          <PriceHistoryChart data={priceHistory} />
+        </WidgetErrorBoundary>
         {usd(unitPrice) && (
           <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
             {usd(unitPrice)} {t('productDetail.perUnit', { unit: product.unit })} <span style={{ fontSize: 11, color: '#bbb' }}>{t('productDetail.approxRate')}</span>
@@ -1627,9 +1637,12 @@ export default function ProductDetail() {
                 {t('productDetail.useEscrow')}
               </label>
             )}
+            {payWithFreighterBlocked && (
+              <div role="alert" style={{ color: '#b42318', fontSize: 13, fontWeight: 600, marginBottom: 12 }}>{freighterSwitchMsg}</div>
+            )}
             <button style={{ ...s.btn, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
               onClick={handleBuy}
-              disabled={loading || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}
+              disabled={loading || payWithFreighterBlocked || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}
               aria-disabled={loading}
               aria-busy={loading}
               data-testid="buy-now-btn">
@@ -1652,7 +1665,7 @@ export default function ProductDetail() {
                 }}
                 escrow={useEscrow}
                 payingWith={payWithFreighter ? `Freighter ${freighter.publicKey.slice(0, 6)}…${freighter.publicKey.slice(-4)}` : null}
-                blockedReason={payWithFreighter && freighter.mismatch ? 'Freighter is on a different network than this app. Switch networks in Freighter to continue.' : ''}
+                blockedReason={payWithFreighterBlocked ? freighterSwitchMsg : ''}
                 submitting={loading}
                 onConfirm={confirmBuy}
                 onCancel={() => setReviewBody(null)}

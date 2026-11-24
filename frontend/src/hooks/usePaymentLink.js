@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { api } from '../api/client';
 import { getStellarErrorMessage } from '../utils/stellarErrors';
 import { getErrorMessage } from '../utils/errorMessages';
-import { showToast } from '../utils/toast';
+import { toast } from '../utils/toast';
 import { useIdempotencyKey } from './useIdempotencyKey';
 
 export function usePaymentLink() {
@@ -40,7 +40,7 @@ export function usePaymentLink() {
     } catch (e) {
       const msg = getStellarErrorMessage(e) || getErrorMessage(e);
       setPaymentLinkError(msg);
-      showToast(msg, 'error');
+      toast.error(msg);
     } finally {
       setPaymentLinkLoading(false);
     }

@@ -6,17 +6,17 @@
  * collide or overflow as new badge types are added.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-async function goto(page, path) {
+async function goto(page: Page, path: string) {
   await page.goto(path, { waitUntil: 'networkidle' });
 }
 
 // ── Visual regression tests ───────────────────────────────────────────────────
 
-test.describe('Marketplace visual regression (#1067)', () => {
+test.describe('Marketplace visual regression (#1067)', { tag: '@visual' }, () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to marketplace
     await goto(page, '/marketplace');

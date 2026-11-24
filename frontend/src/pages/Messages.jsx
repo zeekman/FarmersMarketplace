@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useMessageStream } from '../hooks/useMessageStream';
+import { queueMessage } from '../utils/draftOutbox';
 
 const MOBILE_QUERY = '(max-width: 767px)';
 
@@ -46,6 +47,13 @@ function formatTime(value) {
 }
 
 let tempId = 0;
+
+// Swaps the optimistic row for the server copy; drops a duplicate if SSE already added it.
+function confirmSent(list, pendingTempId, saved) {
+  return list
+    .filter(m => m.tempId === pendingTempId || saved.id == null || m.id !== saved.id)
+    .map(m => (m.tempId === pendingTempId ? { ...m, ...saved, status: 'sent', error: null } : m));
+}
 
 export default function Messages() {
   const { user } = useAuth();
@@ -95,6 +103,20 @@ export default function Messages() {
   }, [activeId, markRead]);
 
   useEffect(() => {
+    function onOutboxSent(e) {
+      const { tempId: pendingId, message: saved, error } = e.detail || {};
+      if (saved) {
+        setMessages(prev => confirmSent(prev, pendingId, saved));
+        loadConversations();
+      } else {
+        setMessages(prev => prev.map(m => (m.tempId === pendingId ? { ...m, status: 'failed', error: error || null } : m)));
+      }
+    }
+    window.addEventListener('messages:sent', onOutboxSent);
+    return () => window.removeEventListener('messages:sent', onOutboxSent);
+  }, [loadConversations]);
+
+  useEffect(() => {
     const el = logRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
@@ -114,14 +136,23 @@ export default function Messages() {
   }
 
   async function deliver(pending) {
-    setMessages(prev => prev.map(m => (m.tempId === pending.tempId ? { ...m, status: 'sending' } : m)));
+    const body = { receiver_id: pending.receiver_id, content: pending.content };
+    setMessages(prev => prev.map(m => (m.tempId === pending.tempId ? { ...m, status: 'sending', error: null } : m)));
     try {
-      const res = await api.sendMessage({ receiver_id: activeRef.current ?? pending.receiver_id, content: pending.content });
-      const saved = res?.data || {};
-      setMessages(prev => prev.map(m => (m.tempId === pending.tempId ? { ...pending, ...saved, status: 'sent' } : m)));
+      const res = await api.sendMessage(body);
+      setMessages(prev => confirmSent(prev, pending.tempId, res?.data || {}));
       loadConversations();
-    } catch {
-      setMessages(prev => prev.map(m => (m.tempId === pending.tempId ? { ...m, status: 'failed' } : m)));
+    } catch (e) {
+      // A network failure (fetch throws TypeError) means nothing reached the server: park it in the outbox.
+      if (e instanceof TypeError) {
+        try {
+          await queueMessage(pending.tempId, body);
+          setMessages(prev => prev.map(m => (m.tempId === pending.tempId ? { ...m, status: 'queued' } : m)));
+          return;
+        } catch { /* IndexedDB unavailable: fall through to failed */ }
+      }
+      const error = e.status === 429 && e.retryAfter ? t('inbox.rateLimited', { seconds: e.retryAfter }) : null;
+      setMessages(prev => prev.map(m => (m.tempId === pending.tempId ? { ...m, status: 'failed', error } : m)));
     }
   }
 
@@ -217,9 +248,10 @@ export default function Messages() {
                         </span>
                         <span style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
                           {m.status === 'sending' && t('inbox.sending')}
+                          {m.status === 'queued' && t('inbox.queued')}
                           {m.status === 'failed' && (
                             <>
-                              <span role="alert" style={{ color: '#c0392b' }}>{t('inbox.failed')}</span>{' '}
+                              <span role="alert" style={{ color: '#c0392b' }}>{m.error || t('inbox.failed')}</span>{' '}
                               <button type="button" style={s.link} onClick={() => deliver(m)}>{t('inbox.retry')}</button>
                             </>
                           )}

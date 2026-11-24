@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { api } from '../api/client';
 import { getErrorMessage } from '../utils/errorMessages';
-import { showToast } from '../utils/toast';
+import { toast } from '../utils/toast';
 
 /** Stellar claimable balances (pre-order and escrow refunds). */
 export function useClaimableBalances({ onBalance }) {
@@ -22,13 +22,13 @@ export function useClaimableBalances({ onBalance }) {
     setClaimingId(balanceId);
     try {
       const res = await api.claimBalance(balanceId);
-      showToast('Balance claimed successfully!', 'success');
+      toast.success('Balance claimed successfully!');
       // Update wallet balance immediately with the returned value
       if (res.balance != null) onBalance(res.balance);
       // Remove the claimed balance from the list
       setClaimableBalances(prev => prev.filter(b => b.id !== balanceId));
     } catch (e) {
-      showToast(getErrorMessage(e), 'error');
+      toast.error(getErrorMessage(e));
     } finally {
       setClaimingId(null);
     }

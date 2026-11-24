@@ -1,5 +1,5 @@
 import { api } from '../api/client';
-import { showToast } from './toast';
+import { toast } from './toast';
 import i18n from '../i18n';
 
 // IndexedDB-backed product draft autosave + offline outbox (FE-24).
@@ -38,6 +38,7 @@ export const loadDraft = () => tx(DRAFTS, 'readonly', (s) => s.get(CURRENT_DRAFT
 export const clearDraft = () => tx(DRAFTS, 'readwrite', (s) => s.delete(CURRENT_DRAFT)).catch(() => {});
 
 export const queueProduct = (body) => tx(OUTBOX, 'readwrite', (s) => s.add({ body, queuedAt: Date.now() }));
+export const queueMessage = (tempId, body) => tx(OUTBOX, 'readwrite', (s) => s.add({ kind: 'message', tempId, body, queuedAt: Date.now() }));
 const listOutbox = () => tx(OUTBOX, 'readonly', (s) => s.getAll()).catch(() => []);
 const removeOutbox = (id) => tx(OUTBOX, 'readwrite', (s) => s.delete(id));
 
@@ -47,16 +48,16 @@ export async function flushOutbox() {
   if (flushing || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
   flushing = true;
   try {
-    const items = await listOutbox();
+    const items = (await listOutbox()).filter((item) => item.kind !== 'message');
     for (const item of items) {
       try {
         await api.createProduct(item.body);
         await removeOutbox(item.id);
-        showToast(i18n.t('offline.publishedQueued', { name: item.body.name }), 'success');
+        toast.success(i18n.t('offline.publishedQueued', { name: item.body.name }));
       } catch (e) {
         // Client errors will never succeed, so drop them instead of retrying forever.
         if (e.status >= 400 && e.status < 500) await removeOutbox(item.id);
-        showToast(i18n.t('offline.publishFailed', { name: item.body.name, error: e.message }), 'error');
+        toast.error(i18n.t('offline.publishFailed', { name: item.body.name, error: e.message }));
       }
     }
   } finally {
@@ -64,10 +65,35 @@ export async function flushOutbox() {
   }
 }
 
+let flushingMessages = false;
+/** Sends queued chat messages; each result is announced as a `messages:sent` window event. */
+export async function flushMessageOutbox() {
+  if (flushingMessages || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+  flushingMessages = true;
+  try {
+    const items = (await listOutbox()).filter((item) => item.kind === 'message');
+    for (const item of items) {
+      try {
+        const res = await api.sendMessage(item.body);
+        await removeOutbox(item.id);
+        window.dispatchEvent(new CustomEvent('messages:sent', { detail: { tempId: item.tempId, message: res?.data || {} } }));
+      } catch (e) {
+        // Rate-limited or offline again: keep the rest queued and try on the next flush.
+        if (e.status === 429 || !e.status) break;
+        await removeOutbox(item.id);
+        window.dispatchEvent(new CustomEvent('messages:sent', { detail: { tempId: item.tempId, error: e.message } }));
+      }
+    }
+  } finally {
+    flushingMessages = false;
+  }
+}
+
 export function startOutboxSync() {
   if (typeof window === 'undefined') return undefined;
-  const onOnline = () => { flushOutbox(); };
+  const onOnline = () => { flushOutbox(); flushMessageOutbox(); };
   window.addEventListener('online', onOnline);
   flushOutbox();
+  flushMessageOutbox();
   return () => window.removeEventListener('online', onOnline);
 }

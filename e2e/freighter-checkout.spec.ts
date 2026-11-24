@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test';
 
 const extensionAvailable = Boolean(process.env.FREIGHTER_EXTENSION_PATH);
 
-test.describe('Freighter checkout', () => {
+test.describe('Freighter checkout', { tag: '@flow' }, () => {
   test.skip(!extensionAvailable, 'Freighter extension is not available in this environment');
 
   test('wallet page offers to connect Freighter', async ({ page }) => {

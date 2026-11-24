@@ -1,6 +1,7 @@
 // #424 – Navbar applies active style to the current route link
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Navbar from '../components/Navbar';
 import { vi } from 'vitest';
 
@@ -16,9 +17,11 @@ vi.mock('../api/client', () => ({
 
 test('Marketplace link has active (bold/underline) style when on /marketplace', () => {
   render(
-    <MemoryRouter initialEntries={['/marketplace']}>
-      <Navbar />
-    </MemoryRouter>
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter initialEntries={['/marketplace']}>
+        <Navbar />
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 
   const links = screen.getAllByRole('link', { name: /browse/i });

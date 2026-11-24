@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { validatePassword } from '../utils/validation';
 import TwoFactorAuth from '../components/TwoFactorAuth';
 import { getErrorMessage } from '../utils/errorMessages';
+import { toast } from '../utils/toast';
+import { PasswordStrength } from '../components/PasswordStrength';
 
 const s = {
   page:    { maxWidth: 640, margin: '0 auto', padding: 24 },
@@ -48,6 +49,23 @@ const s = {
 
 const CONFIRM_PHRASE = 'delete my account';
 
+function PasswordStrengthBar({ password }) {
+  if (!password) return null;
+  const issues = validatePassword(password);
+  const score = 4 - issues.length; // 0–4
+  const colors = ['#c0392b', '#e67e22', '#f1c40f', '#27ae60', '#2d6a4f'];
+  const labels = ['Weak', 'Weak', 'Fair', 'Good', 'Strong'];
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: 'flex', gap: 3 }}>
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i < score ? colors[score] : '#e0e0e0' }} />
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: colors[score], marginTop: 3 }}>{labels[score]}</div>
+      {issues.length > 0 && (
+        <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Needs: {issues.join(', ')}</div>
+      )}
 function useToast() {
   const [toast, setToast] = useState(null);
   const show = useCallback((type, text) => {
@@ -72,27 +90,6 @@ function Toast({ toast }) {
       }}
     >
       {toast.text}
-    </div>
-  );
-}
-
-function PasswordStrengthBar({ password }) {
-  if (!password) return null;
-  const issues = validatePassword(password);
-  const score = 4 - issues.length; // 0–4
-  const colors = ['#c0392b', '#e67e22', '#f1c40f', '#27ae60', '#2d6a4f'];
-  const labels = ['Weak', 'Weak', 'Fair', 'Good', 'Strong'];
-  return (
-    <div style={{ marginTop: 6 }}>
-      <div style={{ display: 'flex', gap: 3 }}>
-        {[0, 1, 2, 3].map(i => (
-          <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i < score ? colors[score] : '#e0e0e0' }} />
-        ))}
-      </div>
-      <div style={{ fontSize: 11, color: colors[score], marginTop: 3 }}>{labels[score]}</div>
-      {issues.length > 0 && (
-        <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Needs: {issues.join(', ')}</div>
-      )}
     </div>
   );
 }
@@ -134,7 +131,7 @@ function PasswordChangeForm() {
         <label style={{ ...s.label, marginTop: 12 }} htmlFor="cp-new">New Password</label>
         <input id="cp-new" style={s.input} type="password" value={form.newPw}
           onChange={e => setForm(f => ({ ...f, newPw: e.target.value }))} autoComplete="new-password" />
-        <PasswordStrengthBar password={form.newPw} />
+        <PasswordStrength password={form.newPw} />
 
         <label style={{ ...s.label, marginTop: 12 }} htmlFor="cp-confirm">Confirm New Password</label>
         <input id="cp-confirm"
@@ -199,15 +196,19 @@ function SettingsAccountBody() {
   }
 
   const [showModal, setShowModal]       = useState(false);
-  const [step, setStep]                 = useState('confirm'); // 'confirm' | 'balance_warning'
+  const [step, setStep]                 = useState('confirm'); // 'confirm' | 'balance_warning' | 'sweep'
   const [balanceInfo, setBalanceInfo]   = useState(null); // { balance, publicKey }
   const [confirmText, setConfirmText]   = useState('');
+  const [sweepAddress, setSweepAddress] = useState('');
+  const [password, setPassword]         = useState('');
   const [deleting, setDeleting]         = useState(false);
   const [error, setError]               = useState('');
 
   function openModal() {
     setStep('confirm');
     setConfirmText('');
+    setSweepAddress('');
+    setPassword('');
     setBalanceInfo(null);
     setError('');
     setShowModal(true);
@@ -218,11 +219,11 @@ function SettingsAccountBody() {
     setShowModal(false);
   }
 
-  async function handleDelete(force = false) {
+  async function handleDelete(sweep_to = null) {
     setDeleting(true);
     setError('');
     try {
-      await api.deleteAccount(force);
+      await api.deleteAccount({ password, sweep_to });
       await logout();
       navigate('/login', { replace: true });
     } catch (e) {
@@ -238,6 +239,7 @@ function SettingsAccountBody() {
   }
 
   const confirmValid = confirmText.trim().toLowerCase() === CONFIRM_PHRASE;
+  const sweepValid = /^G[A-Z0-9]{55}$/.test(sweepAddress);
 
   return (
     <>
@@ -371,30 +373,55 @@ function SettingsAccountBody() {
                 <div style={s.modalTitle} id="modal-title">Wallet Balance Detected</div>
                 <div style={s.balanceBox}>
                   Your Stellar wallet still holds <strong>{balanceInfo.balance.toFixed(4)} XLM</strong>.
-                  If you delete your account now, these funds will be permanently inaccessible.
+                  If you delete your account without sweeping, these funds will be permanently inaccessible.
                 </div>
-                <p style={{ fontSize: 13, color: '#555', marginBottom: 8, lineHeight: 1.5 }}>
-                  We recommend withdrawing your funds first. Go to your{' '}
+                <p style={{ fontSize: 13, color: '#555', marginBottom: 12, lineHeight: 1.5 }}>
+                  <strong>Option 1: Sweep to another wallet</strong> — We can transfer all funds to a Stellar address you control, then delete your account safely.
+                </p>
+                <label style={s.label}>Destination Stellar address (G...)</label>
+                <input
+                  style={s.input}
+                  type="text"
+                  value={sweepAddress}
+                  onChange={e => setSweepAddress(e.target.value)}
+                  placeholder="Destination G-address"
+                  disabled={deleting}
+                />
+                <label style={{ ...s.label, marginTop: 12 }}>Confirm your password</label>
+                <input
+                  style={s.input}
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Your account password"
+                  disabled={deleting}
+                />
+                <p style={{ fontSize: 12, color: '#888', marginTop: 12 }}>
+                  <strong>Option 2: Withdraw manually</strong> — Go to your{' '}
                   <span
                     style={{ color: '#2d6a4f', cursor: 'pointer', textDecoration: 'underline' }}
                     onClick={() => { closeModal(); navigate('/wallet'); }}
                   >
                     Wallet
                   </span>{' '}
-                  to send XLM to another address.
-                </p>
-                <p style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
-                  Public key: <code style={{ wordBreak: 'break-all' }}>{balanceInfo.publicKey}</code>
+                  page to send XLM to another address, then come back to delete.
                 </p>
                 {error && <div style={s.errMsg}>{error}</div>}
                 <div style={s.row}>
                   <button style={s.btnGhost} onClick={closeModal} disabled={deleting}>Cancel</button>
                   <button
-                    style={{ ...s.btnDanger }}
-                    disabled={deleting}
-                    onClick={() => handleDelete(true)}
+                    style={{ ...s.btnDanger, background: '#27ae60', opacity: sweepValid && password ? 1 : 0.5 }}
+                    disabled={!sweepValid || !password || deleting}
+                    onClick={() => handleDelete(sweepAddress)}
                   >
-                    {deleting ? 'Deleting...' : 'Delete Anyway'}
+                    {deleting ? 'Sweeping...' : 'Sweep & Delete'}
+                  </button>
+                  <button
+                    style={{ ...s.btnDanger, opacity: password ? 1 : 0.5 }}
+                    disabled={!password || deleting}
+                    onClick={() => handleDelete(null)}
+                  >
+                    {deleting ? 'Deleting...' : 'Delete Without Sweep'}
                   </button>
                 </div>
               </>
@@ -429,6 +456,7 @@ function SeedPhraseBackup() {
   const [verifyResult, setVerifyResult] = useState(null);
   const hideTimer = useRef(null);
   const clipboardTimer = useRef(null);
+  const copiedRef = useRef(false);
 
   useEffect(() => {
     api.get2FAStatus().then(d => setNeedsTotp(!!d?.enabled)).catch(() => {});
@@ -452,9 +480,22 @@ function SeedPhraseBackup() {
     return () => clearTimeout(hideTimer.current);
   }, [mnemonic, handleHide]);
 
+  // Hide when the tab is backgrounded (screen-share, shoulder-surfing).
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.visibilityState === 'hidden') handleHide();
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [handleHide]);
+
+  // On unmount, wipe the phrase and, if it was copied, clear the clipboard now
+  // (the pending timer would otherwise be lost with the component).
   useEffect(() => () => {
     clearTimeout(hideTimer.current);
+    clearTimeout(clipboardTimer.current);
     setMnemonic(null);
+    if (copiedRef.current) navigator.clipboard?.writeText('').catch(() => {});
   }, []);
 
   async function handleReveal(e) {
@@ -479,6 +520,7 @@ function SeedPhraseBackup() {
   function handleCopy() {
     const phrase = mnemonic;
     navigator.clipboard.writeText(phrase).then(() => {
+      copiedRef.current = true;
       setCopied(true);
       clearTimeout(clipboardTimer.current);
       // Best effort: only clear the clipboard if it still holds the phrase.
@@ -556,7 +598,10 @@ function SeedPhraseBackup() {
             aria-label="Seed phrase words"
             aria-hidden={!revealed}
             translate="no"
-            className="notranslate"
+            className="notranslate sentry-block"
+            data-sentry-mask
+            data-lpignore="true"
+            autoComplete="off"
             spellCheck={false}
             onMouseDown={() => setRevealed(true)}
             onMouseUp={() => setRevealed(false)}
@@ -723,7 +768,7 @@ function AccountRecovery() {
 }
 
 // ── Profile / Notification Settings ─────────────────────────────────────────
-function ProfileSettings({ showToast }) {
+function ProfileSettings() {
   const { user } = useAuth();
   const [form, setForm] = useState({ name: user?.name ?? '', email: user?.email ?? '' });
   const [saving, setSaving] = useState(false);
@@ -733,9 +778,9 @@ function ProfileSettings({ showToast }) {
     setSaving(true);
     try {
       await api.updateProfile(form);
-      showToast('ok', 'Settings saved successfully.');
+      toast.success('Settings saved successfully.');
     } catch (err) {
-      showToast('err', getErrorMessage(err));
+      toast.error(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -878,15 +923,13 @@ function PushNotificationSettings() {
 // ── Main Settings Page ────────────────────────────────────────────────────────
 export default function Settings() {
   const { user } = useAuth();
-  const [toast, showToast] = useToast();
 
   return (
     <div style={s.page}>
-      <Toast toast={toast} />
       <div style={s.title}>⚙️ Settings</div>
       {user ? (
         <>
-          <ProfileSettings showToast={showToast} />
+          <ProfileSettings />
           <PushNotificationSettings />
           <SettingsAccountBody />
           <PasswordChangeForm />

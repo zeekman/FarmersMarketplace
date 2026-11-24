@@ -1,6 +1,40 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import './orderTimeline.css';
+import { useNetwork } from '../../context/NetworkContext';
+
+const SETTLEMENT_LABEL = { refund: 'Refund', release: 'Release', claim: 'Claim' };
+export const settlementLabel = (type) => SETTLEMENT_LABEL[type] || 'Settlement';
+
+/** Truncated tx hash linking to the network-correct explorer, with a copy button. */
+export function TxHashLink({ label, hash }) {
+  const { explorerUrl } = useNetwork();
+  if (!hash) return null;
+  const short = `${hash.slice(0, 4)}…${hash.slice(-4)}`;
+  return (
+    <div style={{ fontSize: 12, color: '#555', marginTop: 2 }}>
+      {label}:{' '}
+      <a
+        href={explorerUrl('tx', hash)}
+        target="_blank"
+        rel="noreferrer"
+        title={hash}
+        aria-label={`${label} transaction ${hash}`}
+        style={{ color: '#2d6a4f', fontFamily: 'monospace' }}
+      >
+        {short}
+      </a>{' '}
+      <button
+        type="button"
+        aria-label={`Copy ${label} transaction hash`}
+        onClick={() => navigator.clipboard?.writeText(hash).catch(() => {})}
+        style={{ fontSize: 11, padding: '1px 6px', border: '1px solid #ccc', borderRadius: 6, background: '#fff', cursor: 'pointer' }}
+      >
+        Copy
+      </button>
+    </div>
+  );
+}
 
 /** Fulfilment path shown as a stepper (#1501). Off-path terminal states render after it. */
 export const FULFILMENT_STEPS = ['pending', 'confirming', 'paid', 'shipped', 'delivered'];
@@ -102,6 +136,12 @@ export default function OrderStatusTimeline({ order, onRetry, retrying = false }
           </li>
         )}
       </ol>
+
+      {order.settled_at && (
+        <div className="order-timeline__settlement" data-testid={`order-settlement-${order.id}`}>
+          ✅ Settled {formatTime(order.settled_at)} · {settlementLabel(order.settlement_type)}
+        </div>
+      )}
 
       {status === 'confirming' && (
         <div className="order-timeline__note" role="status">Confirming payment on the Stellar network…</div>
