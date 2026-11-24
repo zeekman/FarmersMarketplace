@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
-const adminAuth = require('../middleware/adminAuth');
+const requireAdmin = require('../middleware/requireAdmin');
 
 // GET /api/announcements — public, returns active non-expired announcements
 router.get('/', async (_req, res) => {
@@ -16,7 +16,7 @@ router.get('/', async (_req, res) => {
 });
 
 // All routes below are admin-only
-router.use(auth, adminAuth);
+router.use(auth, requireAdmin);
 
 // GET /api/announcements/admin — all announcements (including inactive/expired)
 router.get('/admin', async (_req, res) => {

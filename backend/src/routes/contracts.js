@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
-const adminAuth = require('../middleware/adminAuth');
+const requireAdmin = require('../middleware/requireAdmin');
 const db = require('../db/schema');
 const { getContractState, getContractEvents, simulateContractCall } = require('../utils/stellar');
 const { err } = require('../middleware/error');
@@ -39,7 +39,7 @@ async function logInvocation({ contractId, method, args, result, txHash, success
 }
 
 // POST /api/contracts/:contractId/simulate  (admin only)
-router.post('/:contractId/simulate', auth, adminAuth, async (req, res) => {
+router.post('/:contractId/simulate', auth, requireAdmin, async (req, res) => {
   const { contractId } = req.params;
   if (!validateContractId(contractId)) {
     return err(res, 400, 'Invalid contractId format (base32 or hex expected)', 'invalid_contract_id');
@@ -93,7 +93,7 @@ router.post('/:contractId/simulate', auth, adminAuth, async (req, res) => {
 });
 
 // GET /api/contracts/:contractId/config  (admin only) — live get_config()/version() plus stored snapshot (CT-28)
-router.get('/:contractId/config', auth, adminAuth, async (req, res) => {
+router.get('/:contractId/config', auth, requireAdmin, async (req, res) => {
   const { contractId } = req.params;
   if (!validateContractId(contractId)) {
     return err(res, 400, 'Invalid contractId format (base32 or hex expected)', 'invalid_contract_id');
@@ -166,7 +166,7 @@ router.get('/:contractId/state', auth, async (req, res) => {
 });
 
 // GET /api/contracts/:contractId/events?type=&from=&to=&page=  (admin only)
-router.get('/:contractId/events', auth, adminAuth, async (req, res) => {
+router.get('/:contractId/events', auth, requireAdmin, async (req, res) => {
   const { contractId } = req.params;
   if (!validateContractId(contractId)) {
     return err(res, 400, 'Invalid contractId format (base32 or hex expected)', 'invalid_contract_id');
@@ -190,7 +190,7 @@ router.get('/:contractId/events', auth, adminAuth, async (req, res) => {
 
 // GET /api/contracts/:contractId/invocations?page=&limit=  (admin only)
 // Returns recent contract invocations stored in contract_invocations table
-router.get('/:contractId/invocations', auth, adminAuth, async (req, res) => {
+router.get('/:contractId/invocations', auth, requireAdmin, async (req, res) => {
   const { contractId } = req.params;
   if (!validateContractId(contractId)) {
     return err(res, 400, 'Invalid contractId format (base32 or hex expected)', 'invalid_contract_id');

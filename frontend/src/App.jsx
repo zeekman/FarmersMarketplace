@@ -25,6 +25,8 @@ import { getLocaleDirection } from './i18n';
 const ReactQueryDevtools = import.meta.env.DEV
   ? lazy(() => import('@tanstack/react-query-devtools').then(m => ({ default: m.ReactQueryDevtools })))
   : () => null;
+import { initSentry } from './utils/sentry';
+import { getLocaleDirection } from './i18n';
 
 const LoginPage = lazy(() => import('./pages/Auth').then(m => ({ default: m.LoginPage })));
 const RegisterPage = lazy(() => import('./pages/Auth').then(m => ({ default: m.RegisterPage })));
@@ -60,6 +62,40 @@ function PrivateRoute({ children, role }) {
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
   if (role && user.role !== role) return <RoleMismatch role={role} />;
+function PrivateRoute({ children, role }) {
+  const { user, loading } = useAuth();
+  const { t } = useTranslation();
+  const location = useLocation();
+  const [shouldRedirect, setShouldRedirect] = React.useState(false);
+
+  // Fire toast from effect, not during render, to avoid React 19 "setState in render" warning
+  React.useEffect(() => {
+    if (user && role && user.role !== role) {
+      const roleMessages = {
+        farmer: t('privateRoute.farmerOnly'),
+        buyer: t('privateRoute.buyerOnly'),
+        admin: t('privateRoute.adminOnly'),
+      };
+      if (roleMessages[role]) {
+        toast(roleMessages[role], { type: 'warning' });
+      }
+      setShouldRedirect(true);
+    }
+  }, [user, role, t]);
+
+  if (loading) return <PageLoader />;
+  
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  
+  if (role && user.role !== role) {
+    if (shouldRedirect) {
+      return <Navigate to="/" replace />;
+    }
+    return <PageLoader />;
+  }
+  
   return children;
 }
 

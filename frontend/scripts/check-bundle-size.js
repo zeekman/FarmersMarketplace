@@ -7,9 +7,10 @@
  * (vendor + index), then fails with a non-zero exit code when either budget
  * is exceeded.
  *
- * Budgets (uncompressed bytes):
- *   INITIAL_BUDGET_KB  – vendor + index chunks that every page must download
- *   TOTAL_BUDGET_KB    – all JS chunks combined
+ * Budgets:
+ *   INITIAL_BUDGET_KB       – vendor + index chunks every page downloads (uncompressed)
+ *   INITIAL_GZIP_BUDGET_KB  – same chunks, gzip-compressed (the wire size; #1695)
+ *   TOTAL_BUDGET_KB         – all JS chunks combined (uncompressed)
  *
  * Override budgets for a deliberate one-off increase:
  *   BUNDLE_INITIAL_BUDGET_KB=600 BUNDLE_TOTAL_BUDGET_KB=6000 node scripts/check-bundle-size.js
@@ -17,14 +18,16 @@
 
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
 import { join, basename } from 'path';
+import { gzipSync } from 'zlib';
 
 const DIST_ASSETS = join(process.cwd(), 'dist', 'assets');
 const DIST_ROOT = join(process.cwd(), 'dist');
 const MANIFEST_PATH = join(DIST_ROOT, '.vite', 'manifest.json');
 
 // Budgets in kibibytes (1 KiB = 1024 bytes).
-const INITIAL_BUDGET_KB = Number(process.env.BUNDLE_INITIAL_BUDGET_KB ?? 500);
-const TOTAL_BUDGET_KB   = Number(process.env.BUNDLE_TOTAL_BUDGET_KB   ?? 5000);
+const INITIAL_BUDGET_KB      = Number(process.env.BUNDLE_INITIAL_BUDGET_KB      ?? 500);
+const INITIAL_GZIP_BUDGET_KB = Number(process.env.BUNDLE_INITIAL_GZIP_BUDGET_KB ?? 180);
+const TOTAL_BUDGET_KB        = Number(process.env.BUNDLE_TOTAL_BUDGET_KB        ?? 5000);
 
 function kib(bytes) {
   return (bytes / 1024).toFixed(1);
@@ -74,6 +77,10 @@ for (const [key, entry] of Object.entries(manifest)) {
 
 const initialChunks = jsFiles.filter(f => initialFiles.has(`assets/${f.name}`));
 const initialBytes  = initialChunks.reduce((s, f) => s + f.size, 0);
+const initialGzipBytes = initialChunks.reduce(
+  (s, f) => s + gzipSync(readFileSync(join(DIST_ASSETS, f.name))).length,
+  0,
+);
 const totalBytes    = jsFiles.reduce((s, f) => s + f.size, 0);
 
 // ── Report ──────────────────────────────────────────────────────────────────
@@ -86,6 +93,7 @@ for (const f of jsFiles) {
 }
 console.log('─'.repeat(52));
 console.log(`  Initial load total${' '.repeat(23)} ${kib(initialBytes).padStart(7)} KiB  (budget: ${INITIAL_BUDGET_KB} KiB)`);
+console.log(`  Initial load gzip ${' '.repeat(23)} ${kib(initialGzipBytes).padStart(7)} KiB  (budget: ${INITIAL_GZIP_BUDGET_KB} KiB)`);
 console.log(`  All chunks total  ${' '.repeat(23)} ${kib(totalBytes).padStart(7)} KiB  (budget: ${TOTAL_BUDGET_KB} KiB)`);
 console.log();
 
@@ -103,6 +111,7 @@ if (summaryFile) {
     rows,
     '',
     `**Initial load**: ${kib(initialBytes)} KiB (budget: ${INITIAL_BUDGET_KB} KiB)`,
+    `**Initial load (gzip)**: ${kib(initialGzipBytes)} KiB (budget: ${INITIAL_GZIP_BUDGET_KB} KiB)`,
     `**Total JS**: ${kib(totalBytes)} KiB (budget: ${TOTAL_BUDGET_KB} KiB)`,
   ].join('\n');
   writeFileSync(summaryFile, md + '\n', { flag: 'a' });
@@ -119,6 +128,16 @@ if (initialBytes / 1024 > INITIAL_BUDGET_KB) {
   failed = true;
 } else {
   console.log(`[bundle-size] ✅ Initial chunk ${kib(initialBytes)} KiB is within budget (${INITIAL_BUDGET_KB} KiB).`);
+}
+
+if (initialGzipBytes / 1024 > INITIAL_GZIP_BUDGET_KB) {
+  console.error(
+    `[bundle-size] ❌ Initial chunk gzip ${kib(initialGzipBytes)} KiB exceeds budget of ${INITIAL_GZIP_BUDGET_KB} KiB.`
+  );
+  console.error(`   To raise the budget deliberately, set BUNDLE_INITIAL_GZIP_BUDGET_KB in the CI workflow.`);
+  failed = true;
+} else {
+  console.log(`[bundle-size] ✅ Initial chunk gzip ${kib(initialGzipBytes)} KiB is within budget (${INITIAL_GZIP_BUDGET_KB} KiB).`);
 }
 
 if (totalBytes / 1024 > TOTAL_BUDGET_KB) {
