@@ -29,6 +29,7 @@
     "empty": "You have no notifications.",
     "loadMore": "Load more",
     "loadError": "Could not load notifications.",
+    "unreadOnly": "Unread only",
     "unreadCount_one": "{{count}} unread notification",
     "unreadCount_other": "{{count}} unread notifications"
   },
