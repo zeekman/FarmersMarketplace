@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import ImageCropModal from '../ImageCropModal';
+import ImageUploadProgress from '../ImageUploadProgress';
 import { api } from '../../api/client';
 import { useXlmRate } from '../../utils/useXlmRate';
 import { useTranslation } from 'react-i18next';
@@ -47,7 +48,6 @@ const s = {
   btn: { background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, minHeight: 44 },
   msg: { padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 14 },
   preview: { width: '100%', maxHeight: 240, objectFit: 'cover', borderRadius: 8, marginBottom: 8, display: 'block' },
-  uploading: { fontSize: 13, color: '#666', marginBottom: 4 },
   removeImg: { background: 'none', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: '#c0392b', marginBottom: 8 },
   uploadZone: { border: '2px dashed #ddd', borderRadius: 8, padding: '24px 16px', textAlign: 'center', cursor: 'pointer', color: '#888', fontSize: 14, marginBottom: 8 },
   uploadZoneActive: { borderColor: '#2d6a4f', background: '#f0faf4' },
@@ -69,7 +69,8 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [imageUrl, setImageUrl] = useState(null);
   const [imageErr, setImageErr] = useState('');
-  const [uploading, setUploading] = useState(false);
+  // Image is still uploading, or its upload failed and needs a retry/removal.
+  const uploading = Boolean(imageFile) && !imageUrl;
   const [dragOver, setDragOver] = useState(false);
   const [cropSrc, setCropSrc] = useState(null);
   // Mirror of cropSrc kept in a ref so callbacks (handleCropConfirm /
@@ -185,19 +186,11 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
     if (Object.keys(newErrors).length > 0) { setFormErrors(newErrors); return; }
     setFormErrors({});
 
-    let finalImageUrl = imageUrl;
-    if (imageFile) {
-      setUploading(true);
-      try {
-        const res = await api.uploadProductImage(imageFile);
-        finalImageUrl = res.imageUrl;
-      } catch (err) {
-        setUploading(false);
-        setMsg({ type: 'err', text: `Image upload failed: ${err.message}` });
-        return;
-      }
-      setUploading(false);
+    if (uploading) {
+      setMsg({ type: 'err', text: 'Image upload has not finished. Wait for it, retry, or remove the image.' });
+      return;
     }
+    const finalImageUrl = imageUrl;
 
     try {
       const nutritionData = {};
@@ -470,7 +463,7 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
         {previewUrl ? (
           <>
             <img src={previewUrl} alt="Preview" style={s.preview} />
-            {uploading && <div style={s.uploading}>{t('dashboard.uploading')}</div>}
+            <ImageUploadProgress blob={imageFile} onUploaded={d => setImageUrl(d.imageUrl)} onCancel={removeImage} />
             <button type="button" style={s.removeImg} onClick={removeImage}>{t('dashboard.removeImage')}</button>
           </>
         ) : (
