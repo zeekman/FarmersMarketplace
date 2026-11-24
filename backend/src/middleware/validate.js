@@ -71,12 +71,23 @@ module.exports = {
   product: validate(
     z
       .object({
-        name: z.string().min(1, 'name is required').trim(),
-        price: z.coerce.number().positive('price must be a positive number'),
-        quantity: z.coerce.number().int().positive('quantity must be a positive integer'),
+        // Mirrored in frontend/src/utils/validation.js (productSchema) — keep in sync.
+        name: z.string().trim().min(2, 'name must be at least 2 characters').max(200, 'name must be 200 characters or fewer'),
+        price: z.coerce
+          .number()
+          .positive('price must be a positive number')
+          .max(1_000_000, 'price seems too high (max 1,000,000 XLM)')
+          .refine((v) => Math.abs(v * 1e7 - Math.round(v * 1e7)) < 1e-6, 'price can have at most 7 decimal places'),
+        quantity: z.coerce
+          .number()
+          .int('quantity must be a positive integer')
+          .positive('quantity must be a positive integer')
+          .max(1_000_000, 'quantity seems too high (max 1,000,000)'),
         unit: z.string().trim().optional(),
         description: z.string().optional(),
-        category: z.string().optional(),
+        category: z.enum(['vegetables', 'fruits', 'grains', 'dairy', 'herbs', 'other']).optional(),
+        harvest_date: z.string().nullable().optional(),
+        best_before: z.string().nullable().optional(),
         low_stock_threshold: z.coerce.number().int().nonnegative().optional(),
         image_url: z.string().optional().or(z.literal('')),
         tags: z.array(z.string()).optional(),
@@ -126,6 +137,18 @@ module.exports = {
             'Incomplete pricing configuration: weight-based requires min<max, and PWYW requires min_price',
         }
       )
+      // YYYY-MM-DD strings compare correctly as text. Dates are checked in UTC.
+      .superRefine((d, ctx) => {
+        const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+        const isPreorder = d.is_preorder === true || d.is_preorder === 1 || d.is_preorder === '1';
+        const today = new Date().toISOString().slice(0, 10);
+        if (isPreorder && DATE_RE.test(d.preorder_delivery_date || '') && d.preorder_delivery_date < today) {
+          ctx.addIssue({ code: 'custom', path: ['preorder_delivery_date'], message: 'pre-order delivery date must be today or later' });
+        }
+        if (DATE_RE.test(d.harvest_date || '') && DATE_RE.test(d.best_before || '') && d.best_before < d.harvest_date) {
+          ctx.addIssue({ code: 'custom', path: ['best_before'], message: 'best before date must be on or after the harvest date' });
+        }
+      })
   ),
 
   order: validate(
