@@ -23,7 +23,7 @@
  *   logged in (they live inside the nav-drawer's authenticated branch).
  */
 
-import { test, expect, BrowserContext } from '@playwright/test';
+import { test, expect, BrowserContext, type Page } from '@playwright/test';
 
 const ts         = Date.now();
 const USER_EMAIL = `theme_user_${ts}@test.invalid`;
@@ -58,7 +58,7 @@ async function loginAs(page: any) {
 
 // ─── tests ────────────────────────────────────────────────────────────────────
 
-test.describe('Theme toggle and persistence (#1047)', () => {
+test.describe('Theme toggle and persistence (#1047)', { tag: '@flow' }, () => {
   test('toggling dark mode persists across a full page reload', async ({ page }) => {
     await loginAs(page);
 
@@ -135,5 +135,59 @@ test.describe('Theme toggle and persistence (#1047)', () => {
     expect(storedAfterReload).toBeNull();
 
     await darkCtx.close();
+  });
+});
+
+// ─── Merged from frontend/src/test/e2e/theme.e2e.js ──────────────────────────
+// Logged-in tests inject a user into localStorage instead of a real login.
+
+async function injectUser(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'user',
+      JSON.stringify({ id: 1, name: 'Test User', email: 'test@example.com', role: 'buyer' }),
+    );
+  });
+}
+
+test.describe('Theme controls (injected session)', { tag: '@flow' }, () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('theme', 'light'));
+  });
+
+  test('toggle button switches back from dark to light', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('theme', 'dark'));
+    await injectUser(page);
+    await page.goto('/', { waitUntil: 'networkidle' });
+
+    await page.getByRole('button', { name: /toggle dark mode/i }).click();
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    expect(await page.evaluate(() => localStorage.getItem('theme'))).toBe('light');
+  });
+
+  test('"Use system theme" button label changes to "System" once applied', async ({ page }) => {
+    await injectUser(page);
+    await page.goto('/', { waitUntil: 'networkidle' });
+
+    await page.getByRole('button', { name: /use system theme/i }).click();
+
+    await expect(page.getByRole('button', { name: /use system theme/i })).toContainText('System');
+  });
+
+  test('system theme tracks light OS colour scheme after revert', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light' });
+    await injectUser(page);
+    await page.goto('/', { waitUntil: 'networkidle' });
+
+    await page.getByRole('button', { name: /use system theme/i }).click();
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  });
+
+  test('"Use system theme" is NOT visible when logged out', async ({ page }) => {
+    await page.goto('/login', { waitUntil: 'networkidle' });
+
+    await expect(page.getByRole('button', { name: /use system theme/i })).not.toBeVisible();
   });
 });
