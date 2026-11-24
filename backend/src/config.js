@@ -57,6 +57,8 @@ const EnvSchema = z.object({
 
   // Platform fee
   PLATFORM_FEE_PERCENT: z.coerce.number().nonnegative().optional(),
+  // Legacy contract/ ABI support is opt-in (ADR 0002); defaults to off.
+  ENABLE_LEGACY_ESCROW_ABI: z.enum(['true', 'false']).default('false'),
   PLATFORM_WALLET_PUBLIC_KEY: z.string().optional(),
   PLATFORM_FEE_ACCOUNT_SECRET: z.string().optional(),
   FEE_BUMP_THRESHOLD_XLM: z.coerce.number().positive().optional(),
@@ -138,6 +140,7 @@ const config = {
   stellarNetwork: env.STELLAR_NETWORK,
   stellarHorizonUrl: env.STELLAR_HORIZON_URL || null,
   platformFeePercent: env.PLATFORM_FEE_PERCENT ?? 0,
+  enableLegacyEscrowAbi: env.ENABLE_LEGACY_ESCROW_ABI === 'true',
   platformWalletPublicKey: env.PLATFORM_WALLET_PUBLIC_KEY || null,
   platformFeeAccountSecret: env.PLATFORM_FEE_ACCOUNT_SECRET || null,
   feeBumpThresholdXlm: env.FEE_BUMP_THRESHOLD_XLM ?? 2,

@@ -12,9 +12,14 @@ const mockBuilder = {
   addOperation: jest.fn(() => mockBuilder), addMemo: jest.fn(() => mockBuilder),
   setTimeout: jest.fn(() => mockBuilder), build: jest.fn(() => ({ sign: jest.fn() })),
 };
+const mockSimulateContractCall = jest.fn();
+jest.mock('../utils/stellar-contracts', () => ({
+  simulateContractCall: (...args) => mockSimulateContractCall(...args),
+}));
 jest.mock('../config', () => ({
   platformFeePercent: 2.5, platformWalletPublicKey: 'GPLATFORM',
   platformFeeAccountSecret: null, feeBumpThresholdXlm: 1,
+  sorobanEscrowContractId: 'CESCROW',
 }));
 jest.mock('../utils/stellar-accounts', () => ({ getBalance: jest.fn().mockResolvedValue(10) }));
 jest.mock('../utils/stellar-config', () => ({
@@ -43,6 +48,7 @@ const stellarConfig = require('../utils/stellar-config');
 describe('stellar payments', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    payments.clearPlatformFeeBpsCache();
     stellarConfig.StellarSdk.Keypair.fromSecret.mockReturnValue({
       publicKey: () => 'GSENDER',
     });
@@ -66,10 +72,21 @@ describe('stellar payments', () => {
   });
 
   test.each([[0, 0, 0], [0.0000001, 0, 0.0000001], [10, 0.25, 9.75]])(
-    'fee split for %p XLM', (amount, fee, farmer) => {
-      expect(payments.getPlatformFeeInfo(amount)).toMatchObject({ feeAmount: fee, farmerAmount: farmer });
+    'fee split for %p XLM', async (amount, fee, farmer) => {
+      expect(await payments.getPlatformFeeInfo(amount)).toMatchObject({ feeAmount: fee, farmerAmount: farmer });
     },
   );
+
+  it('uses the deployed escrow get_config().fee_bps (cached) for parity', async () => {
+    mockSimulateContractCall.mockResolvedValue({
+      success: true,
+      result: { returnValue: { fee_bps: 250 } },
+    });
+    expect(await payments.getPlatformFeeInfo(10)).toMatchObject({ feeBps: 250, feeAmount: 0.25 });
+    expect(mockSimulateContractCall).toHaveBeenCalledWith('CESCROW', 'get_config');
+    await payments.getPlatformFeeInfo(20);
+    expect(mockSimulateContractCall).toHaveBeenCalledTimes(1); // cached
+  });
 
   it('formats path-payment send_max to seven decimals', async () => {
     expect(payments.getPathPaymentSendMax(100, 0.5)).toBe(100.5);

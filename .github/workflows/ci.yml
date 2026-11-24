@@ -234,6 +234,8 @@ jobs:
     name: Escrow Testnet Smoke Test
     # Only on merges to main — this touches live Stellar Testnet, not on every PR.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Never deploy a crate that failed the matrix build (including legacy crates).
+    needs: [contracts-ci]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -295,16 +297,27 @@ jobs:
             --order_id "$ORDER_ID"
 
   soroban-contracts:
-    name: Soroban Contract Tests
+    name: Soroban Contracts (${{ matrix.crate }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Until #1715/#1718 consolidate the layouts, every deployable crate
+          # is built and tested here, including the legacy `contract/` tree.
+          - crate: contract
+            lockfile: contract/Cargo.lock
+          - crate: contract/reward-token
+            lockfile: contract/Cargo.lock
+          - crate: contract/carbon-offset
+            lockfile: contract/Cargo.lock
+          - crate: contracts
+            lockfile: contracts/Cargo.lock
     defaults:
       run:
-        working-directory: contracts
+        working-directory: ${{ matrix.crate }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Check EscrowError codes (NEXT_CODE, no reuse, README table)
-        run: bash scripts/check-escrow-error-codes.sh
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -318,10 +331,15 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            contracts/target
-          key: ${{ runner.os }}-cargo-contracts-${{ hashFiles('contracts/Cargo.lock', 'contracts/Cargo.toml', 'contracts/**/Cargo.toml') }}
+            ${{ matrix.crate }}/target
+          key: ${{ runner.os }}-cargo-${{ matrix.crate }}-${{ hashFiles(matrix.lockfile, format('{0}/Cargo.toml', matrix.crate)) }}
           restore-keys: |
-            ${{ runner.os }}-cargo-contracts-
+            ${{ runner.os }}-cargo-${{ matrix.crate }}-
+
+      - name: Check EscrowError codes (NEXT_CODE, no reuse, README table)
+        if: matrix.crate == 'contracts'
+        working-directory: contracts
+        run: bash scripts/check-escrow-error-codes.sh
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -329,8 +347,23 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: Run workspace tests
+      - name: Run tests
         run: cargo test --workspace
 
       - name: Build release WASM
         run: cargo build --release --target wasm32-unknown-unknown --workspace
+
+  # Single required check for branch protection: one name to require even
+  # though the build itself fans out across the crate matrix.
+  contracts-ci:
+    name: Contracts CI (required)
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [soroban-contracts]
+    steps:
+      - name: Verify every contract crate passed
+        run: |
+          if [ "${{ needs.soroban-contracts.result }}" != "success" ]; then
+            echo "::error::One or more contract crates failed CI"
+            exit 1
+          fi

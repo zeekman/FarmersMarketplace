@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# contract/test-futurenet.sh — E2E integration test on Stellar Futurenet
-# Issue #861
+# test-futurenet.sh — E2E integration test on Stellar Futurenet
+# Issue #861. Kept in the legacy directory for history; it now exercises the
+# actively developed `contracts/escrow` crate (ADR 0002). Set
+# ENABLE_LEGACY_ESCROW_ABI=true only when deliberately testing the old ABI.
 #
 # Validates that the Soroban escrow contract behaves correctly when deployed
 # to a real Soroban-enabled network with actual XLM transfers.
@@ -45,7 +47,12 @@ TIMEOUT_SECS="${TIMEOUT_SECS:-7200}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WASM_PATH="${WASM_PATH:-${SCRIPT_DIR}/target/wasm32-unknown-unknown/release/escrow.wasm}"
+CONTRACTS_DIR="${SCRIPT_DIR}/../contracts"
+DEFAULT_WASM="${CONTRACTS_DIR}/target/wasm32-unknown-unknown/release/soroban_escrow.wasm"
+if [[ "${ENABLE_LEGACY_ESCROW_ABI:-false}" == "true" ]]; then
+  DEFAULT_WASM="${SCRIPT_DIR}/target/wasm32-unknown-unknown/release/escrow.wasm"
+fi
+WASM_PATH="${WASM_PATH:-${DEFAULT_WASM}}"
 
 FRIENDBOT_URL="https://friendbot-futurenet.stellar.org"
 HORIZON_URL="https://horizon-futurenet.stellar.org"
@@ -58,7 +65,11 @@ done
 # ── build ─────────────────────────────────────────────────────────────────────
 if [[ "$SKIP_BUILD" != "1" ]]; then
   info "Building escrow WASM (release)…"
-  (cd "$SCRIPT_DIR" && cargo build --target wasm32-unknown-unknown --release --quiet)
+  if [[ "${ENABLE_LEGACY_ESCROW_ABI:-false}" == "true" ]]; then
+    (cd "$SCRIPT_DIR" && cargo build --target wasm32-unknown-unknown --release --quiet)
+  else
+    (cd "$CONTRACTS_DIR" && cargo build --target wasm32-unknown-unknown --release --quiet -p soroban-escrow)
+  fi
 fi
 
 [[ -f "$WASM_PATH" ]] || fail "WASM not found at $WASM_PATH — build first or set WASM_PATH"

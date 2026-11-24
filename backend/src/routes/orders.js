@@ -104,10 +104,10 @@ async function restoreProductStock(productId, quantity) {
 }
 
 // GET /api/orders/fee-preview
-router.get('/fee-preview', (req, res) => {
+router.get('/fee-preview', async (req, res) => {
   const amount = parseFloat(req.query.amount);
   if (!amount || amount <= 0) return res.status(400).json({ error: 'amount is required' });
-  const info = getPlatformFeeInfo(amount);
+  const info = await getPlatformFeeInfo(amount);
   // Escrowed orders auto-release to the farmer after this many days (FE-16 shows it at checkout).
   const autoReleaseDays = parseInt(process.env.SOROBAN_ESCROW_TIMEOUT_DAYS || '14', 10);
   res.json({ success: true, total: amount, ...info, auto_release_days: autoReleaseDays });
@@ -968,7 +968,7 @@ router.post('/', auth, requireEmailVerified, orderRateLimit, validate.order, asy
       }
     }
 
-    const feeInfo = getPlatformFeeInfo(totalPrice);
+    const feeInfo = await getPlatformFeeInfo(totalPrice);
     const responseData = {
       success: true,
       orderId,
