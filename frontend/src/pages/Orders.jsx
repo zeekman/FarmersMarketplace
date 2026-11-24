@@ -7,7 +7,7 @@ import Spinner from '../components/Spinner';
 import Pagination from '../components/Pagination';
 import { normalizePage } from '../hooks/usePaginatedQuery';
 import { useNetwork } from '../context/NetworkContext';
-import OrderStatusTimeline from '../components/orders/OrderStatusTimeline';
+import OrderStatusTimeline, { TxHashLink, settlementLabel } from '../components/orders/OrderStatusTimeline';
 import CarbonOffsetBadge from '../components/CarbonOffsetBadge';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { useIdempotencyKey } from '../hooks/useIdempotencyKey';
@@ -729,19 +729,11 @@ export default function Orders() {
                             : ''}
                         </div>
                       ) : null}
-                      {o.stellar_tx_hash && (
-                        <div style={s.hash}>
-                          TX:{' '}
-                          <a
-                            href={explorerUrl('tx', o.stellar_tx_hash)}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ color: '#2d6a4f' }}
-                          >
-                            {o.stellar_tx_hash}
-                          </a>
-                        </div>
-                      )}
+                      <TxHashLink label="Payment" hash={o.stellar_tx_hash} />
+                      <TxHashLink
+                        label={settlementLabel(o.settlement_type)}
+                        hash={o.settlement_tx_hash}
+                      />
                       {o.stellar_memo && (
                         <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
                           📝 Memo: <span style={{ fontFamily: 'monospace' }}>{o.stellar_memo}</span>
