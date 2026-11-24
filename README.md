@@ -621,6 +621,11 @@ For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md)
 <!-- handsoff-issue-1539 -->
 - #1539: CT-20: Auto-release and timeout refund: define precedence and test the boundaries
 
+<!-- handsoff-issue-1710 -->
+- #1710: Escrow has no pause circuit breaker, but `get_config` always reports `paused: false`
+
+<!-- handsoff-issue-1719 -->
+- #1719: `mint_for_order` is not idempotent per order, so retries double-mint rewards
 <!-- handsoff-issue-1707 -->
 - #1707: `resolve_dispute` is declared twice and the first declaration has no body
 
