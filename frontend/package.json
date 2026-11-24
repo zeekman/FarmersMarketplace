@@ -15,7 +15,7 @@
   },
   "devDependencies_note": "run: npm install --save-dev rollup-plugin-visualizer --legacy-peer-deps",
   "dependencies": {
-    "@stellar/freighter-api": "2.0.0",
+    "@stellar/freighter-api": "6.0.1",
     "@tanstack/react-query": "^5.59.0",
     "dompurify": "^3.3.3",
     "i18next": "^26.0.1",

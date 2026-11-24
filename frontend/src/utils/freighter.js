@@ -15,10 +15,15 @@ function writeStored(value) {
   } catch { /* storage unavailable */ }
 }
 
+// Freighter API v6 reports failures as `{ error }` instead of throwing; turn them back into exceptions.
+function unwrap(res) {
+  if (res?.error) throw new Error(res.error.message ?? res.error);
+  return res;
+}
+
 export async function isFreighterInstalled() {
   try {
-    const res = await freighterApi.isConnected();
-    return typeof res === 'object' ? Boolean(res?.isConnected) : Boolean(res);
+    return Boolean(unwrap(await freighterApi.isConnected()).isConnected);
   } catch {
     return false;
   }
@@ -31,12 +36,11 @@ export function toFreighterNetwork(appNetwork) {
 
 export async function connectFreighter() {
   if (!(await isFreighterInstalled())) throw new Error('Freighter extension is not installed');
-  const access = freighterApi.requestAccess ? await freighterApi.requestAccess() : await freighterApi.getPublicKey();
-  const publicKey = typeof access === 'object' ? access?.address || access?.publicKey : access;
+  const { address: publicKey } = unwrap(await freighterApi.requestAccess());
   if (!publicKey) throw new Error('Freighter did not return a public key');
-  const details = await freighterApi.getNetworkDetails();
+  const details = unwrap(await freighterApi.getNetworkDetails());
   writeStored(publicKey);
-  return { publicKey, network: details?.network, networkPassphrase: details?.networkPassphrase };
+  return { publicKey, network: details.network, networkPassphrase: details.networkPassphrase };
 }
 
 export function disconnectFreighter() {
@@ -54,6 +58,8 @@ export function freighterErrorKey(err) {
 }
 
 export async function signWithFreighter(xdr, networkPassphrase) {
+  const { signedTxXdr: signed } = unwrap(await freighterApi.signTransaction(xdr, { networkPassphrase }));
+  if (!signed) throw new Error('Transaction was not signed');
   const tag = (e) => Object.assign(e, { freighterKey: freighterErrorKey(e) });
   let res;
   try {
@@ -85,8 +91,8 @@ export function useFreighter(appNetwork) {
       setInstalled(ok);
       if (ok && readStored()) {
         try {
-          const details = await freighterApi.getNetworkDetails();
-          if (!cancelled) setNetwork(details?.network || null);
+          const details = unwrap(await freighterApi.getNetworkDetails());
+          if (!cancelled) setNetwork(details.network || null);
         } catch { /* ignore */ }
       }
     })();
