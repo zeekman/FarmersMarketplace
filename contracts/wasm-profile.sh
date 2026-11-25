@@ -93,3 +93,10 @@ echo ""
 
 profile_contract "soroban-escrow" "soroban_escrow" "SOROBAN_ESCROW"
 profile_contract "creator-earnings" "creator_earnings" "CREATOR_EARNINGS"
+profile_contract "reward-token" "reward_token" "REWARD_TOKEN"
+
+# fm-math is an rlib (no WASM output of its own). Its code is inlined into each
+# consumer contract at link time. Expected net size change from this refactor:
+# neutral-to-slightly-smaller — one copy of the BPS multiply/divide replaces
+# three slightly different hand-rolled copies, and lto=true + opt-level="z"
+# deduplicates the inlined code across call sites within each WASM binary.

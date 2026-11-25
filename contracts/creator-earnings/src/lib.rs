@@ -41,6 +41,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN,
     Env, Vec,
 };
+use fm_math::compute_fee as fm_compute_fee;
 
 /// Maximum number of entries accepted by `batch_credit` in a single call —
 /// keeps the transaction under Stellar's operation limit.
@@ -128,20 +129,6 @@ pub struct CreatorEarningsContract;
 
 #[contractimpl]
 impl CreatorEarningsContract {
-    /// Shared basis-point fee/royalty/reward-split calculation: `amount * bps / 10_000`.
-    /// Rounds down (truncates toward zero); the remainder stays with whichever side
-    /// did not receive this result. Uses `checked_mul` so an overflowing multiplication
-    /// panics instead of silently wrapping. (#1225)
-    ///
-    /// This is a deliberate copy of `contracts/escrow`'s `compute_fee` — see ADR 0001
-    /// (no shared crate across SDK generations yet).
-    fn compute_fee(amount: i128, bps: u32) -> i128 {
-        amount
-            .checked_mul(bps as i128)
-            .expect("fee calculation overflow")
-            / 10_000
-    }
-
     /// One-time initialization of the platform administrator.
     pub fn init(env: Env, platform: Address) -> Result<(), EarningsError> {
         if env.storage().instance().has(&DataKey::Initialized) {
@@ -276,7 +263,7 @@ impl CreatorEarningsContract {
             return Err(EarningsError::CreatorIsPlatform);
         }
 
-        let fee_amount: i128 = Self::compute_fee(amount, fee_bps);
+        let fee_amount: i128 = fm_compute_fee(amount, fee_bps).expect("fee calculation overflow");
         let farmer_amount: i128 = amount - fee_amount;
 
         // Accumulate the creator's claimable balance.

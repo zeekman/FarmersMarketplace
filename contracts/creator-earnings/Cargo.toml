@@ -13,6 +13,8 @@ testutils = ["soroban-sdk/testutils"]
 # `contracts/escrow`. See ADR 0001 (docs/adr/0001-soroban-contract-boundaries.md).
 [dependencies]
 soroban-sdk = { version = "=22.0.0" }
+fm-math = { path = "../fm-math" }
+fm-math = { path = "../fm-math" }
 
 [dev-dependencies]
 soroban-sdk = { version = "=22.0.0", features = ["testutils"] }

@@ -16,6 +16,7 @@ testutils = ["soroban-sdk/testutils"]
 # not unified yet.
 [dependencies]
 soroban-sdk = { version = "=22.0.0" }
+fm-math = { path = "../fm-math" }
 
 [dev-dependencies]
 soroban-sdk = { version = "=22.0.0", features = ["testutils"] }

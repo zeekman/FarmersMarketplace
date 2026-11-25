@@ -4,6 +4,8 @@ members = [
     "creator-earnings",
     "carbon-offset",
     "test-utils",
+    "fm-math",
+    "reward-token",
 ]
 exclude = ["escrow/fuzz"]
 resolver = "2"

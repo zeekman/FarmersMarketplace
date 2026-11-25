@@ -10,6 +10,7 @@
 
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String, Vec};
+use fm_math::compute_fee as fm_compute_fee;
 
 const ADMIN_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 
@@ -106,20 +107,6 @@ pub struct Config {
 
 #[contractimpl]
 impl RewardToken {
-    /// Shared basis-point fee/royalty/reward-split calculation: `amount * bps / 10_000`.
-    /// Rounds down (truncates toward zero); the remainder stays with whichever side
-    /// did not receive this result. Uses `checked_mul` so an overflowing multiplication
-    /// panics instead of silently wrapping. (#1225)
-    ///
-    /// This is a deliberate copy of `contracts/escrow`'s `compute_fee` — see ADR 0001
-    /// (no shared crate across SDK generations yet).
-    fn compute_fee(amount: i128, bps: u32) -> i128 {
-        amount
-            .checked_mul(bps as i128)
-            .expect("fee calculation overflow")
-            / 10_000
-    }
-
     /// Initialise the token.  `max_supply` is the hard cap on total mintable
     /// tokens (#696).  Pass `0` to leave the supply uncapped.
     /// `minter` is the address authorized to mint tokens (#849).
@@ -279,7 +266,7 @@ impl RewardToken {
         if rate == 0 {
             return; // reward rate not configured, no-op
         }
-        let amount = Self::compute_fee(xlm_amount, rate);
+        let amount = fm_compute_fee(xlm_amount, rate).expect("fee calculation overflow");
         if amount <= 0 {
             return;
         }
@@ -620,7 +607,7 @@ impl RewardToken {
         }
 
         let fee_bps: u32 = env.storage().instance().get(&DataKey::TransferFeeBps).unwrap_or(0);
-        let burn_amount: i128 = if fee_bps > 0 { Self::compute_fee(amount, fee_bps) } else { 0 };
+        let burn_amount: i128 = if fee_bps > 0 { fm_compute_fee(amount, fee_bps).expect("fee calculation overflow") } else { 0 };
         let net_amount = amount - burn_amount;
 
         Self::set_balance(&env, &from, from_balance - amount);
@@ -663,7 +650,7 @@ impl RewardToken {
         }
 
         let fee_bps: u32 = env.storage().instance().get(&DataKey::TransferFeeBps).unwrap_or(0);
-        let burn_amount: i128 = if fee_bps > 0 { Self::compute_fee(amount, fee_bps) } else { 0 };
+        let burn_amount: i128 = if fee_bps > 0 { fm_compute_fee(amount, fee_bps).expect("fee calculation overflow") } else { 0 };
         let net_amount = amount - burn_amount;
 
         Self::set_balance(&env, &from, from_balance - amount);

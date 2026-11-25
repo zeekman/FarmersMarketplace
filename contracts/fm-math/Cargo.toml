@@ -3,12 +3,14 @@ name = "fm-math"
 version = "0.1.0"
 edition = "2021"
 publish = false
+# Pure arithmetic crate — no Soroban SDK dependency, works in any no_std context.
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+# rlib only: this crate is a shared library, never deployed as a WASM contract.
+crate-type = ["rlib"]
 
 [dependencies]
-soroban-sdk = { workspace = true }
+# No runtime dependencies — pure i128 arithmetic.
 
 [dev-dependencies]
-soroban-sdk = { workspace = true, features = ["testutils"] }
+proptest = "1"
