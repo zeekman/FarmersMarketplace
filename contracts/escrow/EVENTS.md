@@ -27,9 +27,13 @@ subscribers can filter deterministically.
 | `release` | `(escrow, release, order_id)` | `(farmer_amount, fee_amount)` |
 | `release_to_stream` | `(escrow, release, order_id)` | `(farmer_amount, fee_amount)` |
 | `refund` | `(escrow, refund, order_id)` | `(farmer_amount, fee_amount)` |
+| `cancel_by_farmer` | `(escrow, f_cancel)` | `order_id` |
 | `dispute` | `(escrow, dispute, order_id)` | `(initiator,)` |
 | `resolve` | `(escrow, resolve, order_id)` | `(farmer_amount, fee_amount)` |
 | `auto_release` | `(escrow, auto_release, order_id)` | `(farmer_amount, fee_amount)` |
+| `dispute` | `(escrow, dispute)` | `order_id` |
+| `resolve` | `(escrow, resolved)` | `(order_id, buyer_amount, farmer_amount, fee_amount)` |
+| `auto_release` | `(escrow, auto_rel)` | `order_id` |
 | `stream_create` | `(escrow, stream_create, order_id)` | `(farmer, rate, duration)` |
 | `stream_withdraw` | `(escrow, stream_withdraw, order_id)` | `(farmer_amount,)` |
 | `stream_cancel` | `(escrow, stream_cancel, order_id)` | `(farmer_amount, fee_amount)` |
@@ -41,6 +45,7 @@ subscribers can filter deterministically.
 `idx_evict` fires when a full buyer/farmer index drops its oldest settled entry
 to make room. The evicted escrow is still stored on-chain; only its index slot is
 lost. The backend DB is the system of record for full order history. (#1728)
+| `upgrade` | `(admin, upgrade)` | `()` |
 
 ## Migration notes
 

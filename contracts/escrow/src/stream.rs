@@ -1363,4 +1363,149 @@ mod tests {
             assert_eq!(s.withdrawn_amount, 300);
         });
     }
+
+    // ── property tests (issue #1731) ──────────────────────────────────────────
+    //
+    // Case count defaults to 1,000 and is overridable with `PROPTEST_CASES`.
+    // Failing seeds are persisted by proptest under `proptest-regressions/`;
+    // commit that file so every counterexample becomes a regression test.
+
+    use proptest::prelude::*;
+
+    fn prop_config() -> ProptestConfig {
+        let cases = std::env::var("PROPTEST_CASES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1000);
+        ProptestConfig::with_cases(cases)
+    }
+
+    #[derive(Clone, Debug)]
+    enum Op {
+        Advance(u64),
+        Withdraw,
+        TopUp(i128),
+        /// (rate increment, extra deposit on top of the required minimum)
+        IncreaseRate(i128, i128),
+        /// Selector mapped onto `1..rate`.
+        DecreaseRate(u8),
+        Cancel,
+    }
+
+    fn op_strategy() -> impl Strategy<Value = Op> {
+        prop_oneof![
+            (0u64..40).prop_map(Op::Advance),
+            Just(Op::Withdraw),
+            (1i128..2_000).prop_map(Op::TopUp),
+            (1i128..5, 0i128..500).prop_map(|(d, e)| Op::IncreaseRate(d, e)),
+            any::<u8>().prop_map(Op::DecreaseRate),
+            Just(Op::Cancel),
+        ]
+    }
+
+    fn load(env: &Env, id: u64) -> PaymentStream {
+        env.storage().persistent().get(&StreamKey::Stream(id)).unwrap()
+    }
+
+    proptest! {
+        #![proptest_config(prop_config())]
+
+        /// Conservation, accrual monotonicity/bound and checkpoint idempotence
+        /// over random op sequences driven through the real entrypoints.
+        #[test]
+        fn stream_op_sequences_hold_invariants(
+            rate in 1i128..20,
+            deposit in 1i128..5_000,
+            duration in 1u64..200,
+            ops in proptest::collection::vec(op_strategy(), 0..30),
+        ) {
+            let env = Env::default();
+            env.mock_all_auths();
+            env.ledger().set_timestamp(0);
+            let contract_id = env.register(crate::EscrowContract, ());
+            let token = env.register(ZeroRateNoopToken, ());
+            let sender = Address::generate(&env);
+            let recipient = Address::generate(&env);
+
+            env.as_contract(&contract_id, || {
+                let id = create_stream(&env, &sender, &recipient, &token, deposit, rate, duration);
+                let mut total_in = deposit;
+                let mut refunded = 0i128;
+                let mut now = 0u64;
+                let mut last_accrued = 0i128;
+
+                for op in ops {
+                    let s = load(&env, id);
+                    match op {
+                        Op::Advance(dt) => {
+                            now += dt;
+                            env.ledger().set_timestamp(now);
+                        }
+                        Op::Withdraw => {
+                            withdraw(&env, id, &token, &recipient);
+                        }
+                        Op::TopUp(amt) if !s.cancelled => {
+                            top_up(&env, id, &sender, &token, amt);
+                            total_in += amt;
+                        }
+                        Op::IncreaseRate(d, extra) if !s.cancelled => {
+                            let new_rate = s.rate_per_second + d;
+                            let add = required_additional_deposit(
+                                &checkpoint(s.clone(), now),
+                                now,
+                                new_rate,
+                            ) + extra;
+                            increase_rate_per_second(&env, id, &sender, &token, new_rate, add);
+                            total_in += add;
+                        }
+                        Op::DecreaseRate(sel) if !s.cancelled && s.rate_per_second > 1 => {
+                            let new_rate = 1 + (sel as i128) % (s.rate_per_second - 1);
+                            refunded += decrease_rate_per_second(&env, id, &sender, new_rate);
+                        }
+                        Op::Cancel if !s.cancelled => {
+                            refunded += cancel_stream(&env, id, &token);
+                        }
+                        _ => {}
+                    }
+
+                    let s = load(&env, id);
+                    let accrued = get_accrued_amount(&s, now);
+
+                    // Conservation: withdrawn + refunded + remaining == deposited + topped up.
+                    let remaining = if s.cancelled { s.accrued_at_checkpoint } else { s.deposit }
+                        - s.withdrawn_amount;
+                    prop_assert!(remaining >= 0);
+                    prop_assert_eq!(s.withdrawn_amount + refunded + remaining, total_in);
+
+                    // Accrual never decreases over time and never exceeds funds put in.
+                    prop_assert!(accrued >= last_accrued);
+                    prop_assert!(accrued <= total_in);
+                    prop_assert!(get_accrued_amount(&s, now + 1) >= accrued);
+                    prop_assert!(s.withdrawn_amount <= accrued);
+                    last_accrued = accrued;
+
+                    // Checkpointing at the same timestamp leaves accrual unchanged.
+                    prop_assert_eq!(get_accrued_amount(&checkpoint(s, now), now), accrued);
+                }
+                Ok(())
+            })?;
+        }
+
+        /// A zero-rate stream accrues nothing beyond its last checkpoint.
+        #[test]
+        fn zero_rate_stream_accrues_nothing(
+            rate in 1i128..20,
+            deposit in 1i128..5_000,
+            end in 1u64..200,
+            t0 in 0u64..300,
+            dt in 0u64..300,
+        ) {
+            let env = Env::default();
+            let mut s = checkpoint(make_stream(&env, rate, deposit, 0, end), t0);
+            s.rate_per_second = 0;
+            let base = s.accrued_at_checkpoint;
+            prop_assert_eq!(get_accrued_amount(&s, t0 + dt), base);
+            prop_assert_eq!(get_accrued_amount(&checkpoint(s, t0 + dt), t0 + dt), base);
+        }
+    }
 }

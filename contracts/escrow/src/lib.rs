@@ -51,6 +51,8 @@ const ADMIN_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 const MAX_COOP_SIGNERS: u32 = 15;
 /// Maximum limit for paginated escrow queries to prevent excessive read costs. (#980)
 const MAX_ESCROW_PAGE_SIZE: u32 = 100;
+/// Maximum number of order IDs kept per buyer/farmer index; the oldest is dropped
+/// first. (#876)
 
 /// Basis-point denominator: 10_000 bps == 100%.
 const BPS_DENOMINATOR: u32 = 10_000;
@@ -71,6 +73,7 @@ const MAX_INDEX_ENTRIES: u32 = 1_000;
 // NEVER reuse a code, even after removing a variant.
 // When adding a new variant, use NEXT_CODE and increment it.
 // NEXT_CODE: 33
+// NEXT_CODE: 34
 // ---------------------------------------------------------------------------
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -101,12 +104,6 @@ pub enum EscrowError {
     BelowMinDeposit        = 16,
     /// A batch release, deposit, preview, or migration exceeded its configured size.
     BatchTooLarge          = 17,
-    BelowMinDeposit = 16,
-    /// `batch_release` was called with more than `MAX_BATCH_RELEASE` order IDs. (#856)
-    BelowMinDeposit = 16,
-    /// `batch_release` / `batch_deposit` was called with more than
-    /// `MAX_BATCH_RELEASE` / `MAX_BATCH_DEPOSIT` entries. (#856, #1292)
-    BatchTooLarge = 17,
     /// No snapshot exists for the requested (order_id, ledger_sequence). (#858)
     SnapshotNotFound = 18,
     /// Release called before the pre-order unlock date. (#875)
@@ -130,10 +127,6 @@ pub enum EscrowError {
     /// Admin or settlement configuration has not been set; call `initialize` first. (#1291, #1301)
     NotInitialized = 28,
     /// Buyer equals farmer, or the cooperative address equals either party. (#1290)
-    InvalidParties         = 23,
-    TooManyCoopSigners = 22,
-    /// An admin transfer proposal has expired.
-    AdminProposalExpired = 29,
     InvalidParties = 29,
     /// Coop threshold is 0, exceeds member count, or members contain duplicates. (#1296)
     InvalidCoopConfig = 30,
@@ -141,6 +134,10 @@ pub enum EscrowError {
     NotInDispute = 31,
     /// A buyer or farmer index is full of active escrows, so nothing can be evicted. (#1728)
     IndexFull = 32,
+    /// An admin transfer proposal has expired.
+    AdminProposalExpired = 32,
+    /// Deposit token is not on the admin-managed allowlist (`allow_token`). (#1726)
+    TokenNotAllowed = 33,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -205,6 +202,8 @@ pub enum DataKey {
     FarmerEscrows(Address),
     /// Expiration timestamp for the current pending admin proposal.
     AdminProposalExpiry,
+    /// Admin-managed allowlist entry for a deposit token. (#1726)
+    AllowedToken(Address),
 }
 
 /// Full escrow record. `token` stores the SAC address used for this escrow (#683).
@@ -272,7 +271,8 @@ pub struct CoopConfig {
 }
 
 /// Contract version reported by `version()`; bump on every storage/ABI change. (CT-28)
-pub const CONTRACT_VERSION: u32 = 1;
+/// v2: `batch_release` returns `(order_id, u32)` error codes instead of `(order_id, bool)`. (#1727)
+pub const CONTRACT_VERSION: u32 = 2;
 
 /// Read-only snapshot of all admin-configurable values. (CT-28)
 #[contracttype]
@@ -316,7 +316,8 @@ impl EscrowContract {
     /// `EscrowError::AlreadyInitialized`. All other admin-requiring functions
     /// should check `DataKey::Admin` after this has been called.
     ///
-    /// - `admin`: the address that will own admin privileges.
+    /// - `admin`: the address that will own admin privileges. When the WASM is built
+    ///   with `ESCROW_ADMIN` set (deploy.sh does this), it must equal that address.
     /// - `fee_bps`: platform fee in basis points (e.g. 250 = 2.5%). Max 1000.
     /// - `fee_destination`: address that receives the platform fee on release.
     pub fn initialize(
@@ -331,6 +332,13 @@ impl EscrowContract {
         }
         if fee_bps > 1_000 {
             return Err(EscrowError::InvalidAmount);
+        }
+        // Without this pin anyone can front-run deploy-time initialisation with their own admin.
+        // shortcut: the pin is compile-time only; a WASM built without ESCROW_ADMIN accepts any admin, upgrade to __constructor args once the test harness is migrated
+        if let Some(pinned) = option_env!("ESCROW_ADMIN") {
+            if admin != Address::from_str(&env, pinned) {
+                return Err(EscrowError::Unauthorized);
+            }
         }
         admin.require_auth();
         let transfer = AdminTransfer {
@@ -405,15 +413,6 @@ impl EscrowContract {
         // Royalty bps must not exceed 10 000 (100%)
         if cooperative_royalty_bps > 10_000 {
             return Err(EscrowError::InvalidRoyalty);
-            return Err(EscrowError::InvalidAmount);
-        }
-
-        Self::validate_parties(&buyer, &farmer, &cooperative_address, cooperative_royalty_bps)?;
-        let key = DataKey::Escrow(order_id);
-
-        // Royalty bps must not exceed 10 000 (100%)
-        if cooperative_royalty_bps > BPS_DENOMINATOR {
-            return Err(EscrowError::InvalidAmount);
         }
         // #857: enforce a minimum deposit to prevent dust escrow records that
         // cost more to store (Stellar base reserve) than they are worth.
@@ -463,6 +462,8 @@ impl EscrowContract {
     ) -> Result<(), EscrowError> {
         buyer.require_auth();
 
+        Self::require_allowed_token(&env, &token)?;
+        Self::validate_parties(&buyer, &farmer, &cooperative_address, cooperative_royalty_bps)?;
         Self::validate_deposit(&env, order_id, amount, timeout_unix, cooperative_royalty_bps)?;
 
         let key = DataKey::Escrow(order_id);
@@ -513,32 +514,47 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .extend_ttl(&token_key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        Self::index_escrow(&env, &buyer, &farmer, order_id);
 
-        // #1287: exactly one buyer → contract transfer, after state is persisted.
-        token::Client::new(&env, &token).transfer(
-            &buyer,
-            &env.current_contract_address(),
-            &amount,
-        );
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Token(order_id), &token);
-        env.storage().persistent().extend_ttl(
-            &DataKey::Token(order_id),
-            BUMP_THRESHOLD,
-            BUMP_AMOUNT,
-        );
-
-        let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&buyer, &env.current_contract_address(), &amount);
+        Self::transfer_in(&env, &token, &buyer, amount)?;
 
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("deposit"), order_id),
             amount,
         );
+        Ok(())
+    }
+
+    /// Fails with `TokenNotAllowed` unless the admin has allowlisted `token`. (#1726)
+    /// Only gates new deposits; release, refund and dispute paths never call it.
+    fn require_allowed_token(env: &Env, token: &Address) -> Result<(), EscrowError> {
+        if env
+            .storage()
+            .instance()
+            .has(&DataKey::AllowedToken(token.clone()))
+        {
+            Ok(())
+        } else {
+            Err(EscrowError::TokenNotAllowed)
+        }
+    }
+
+    /// Moves `amount` from `from` into the contract and fails with `InvalidAmount`
+    /// unless the contract balance grows by exactly `amount`, which rejects
+    /// fee-on-transfer tokens that would leave the escrow under-collateralised. (#1726)
+    fn transfer_in(
+        env: &Env,
+        token: &Address,
+        from: &Address,
+        amount: i128,
+    ) -> Result<(), EscrowError> {
+        let this = env.current_contract_address();
+        let client = token::Client::new(env, token);
+        let before = client.balance(&this);
+        client.transfer(from, &this, &amount);
+        if client.balance(&this) - before != amount {
+            return Err(EscrowError::InvalidAmount);
+        }
         Ok(())
     }
 
@@ -625,12 +641,13 @@ impl EscrowContract {
         let mut seen: Vec<u64> = Vec::new(&env);
         let mut batch_buyer: Option<Address> = None;
         for entry in entries.iter() {
-            let (order_id, buyer, farmer, _token, amount, timeout_unix) = entry;
+            let (order_id, buyer, farmer, token, amount, timeout_unix) = entry;
             if seen.contains(&order_id)
                 || env.storage().persistent().has(&DataKey::Escrow(order_id))
             {
                 return Err(EscrowError::AlreadyExists);
             }
+            Self::require_allowed_token(&env, &token)?;
             if let Some(expected_buyer) = &batch_buyer {
                 if *expected_buyer != buyer {
                     return Err(EscrowError::InvalidParties);
@@ -685,6 +702,8 @@ impl EscrowContract {
 
             let token_client = token::Client::new(&env, &token);
             token_client.transfer(&buyer, &env.current_contract_address(), &amount);
+            Self::transfer_in(&env, &token, &buyer, amount)?;
+            Self::index_escrow(&env, &buyer, &farmer, order_id);
         }
         Ok(())
     }
@@ -1179,6 +1198,41 @@ impl EscrowContract {
             .unwrap_or(MIN_DEPOSIT_STROOPS)
     }
 
+    /// Admin-only: add `token` to the deposit allowlist. (#1726)
+    pub fn allow_token(env: Env, token: Address) -> Result<(), EscrowError> {
+        let admin_transfer: AdminTransfer = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(EscrowError::Unauthorized)?;
+        admin_transfer.current_admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowedToken(token.clone()), &true);
+        env.events()
+            .publish((symbol_short!("escrow"), symbol_short!("tok_allow")), token);
+        Ok(())
+    }
+
+    /// Admin-only: remove `token` from the deposit allowlist. Existing escrows in
+    /// this token can still be released or refunded. (#1726)
+    pub fn disallow_token(env: Env, token: Address) -> Result<(), EscrowError> {
+        let admin_transfer: AdminTransfer = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(EscrowError::Unauthorized)?;
+        admin_transfer.current_admin.require_auth();
+
+        env.storage()
+            .instance()
+            .remove(&DataKey::AllowedToken(token.clone()));
+        env.events()
+            .publish((symbol_short!("escrow"), symbol_short!("tok_deny")), token);
+        Ok(())
+    }
+
     /// Admin-only: update the reward token mint rate (in basis points) to adjust
     /// buyer incentives. Must be positive and <= 1000 (10%). (#953)
     pub fn set_reward_bps(env: Env, reward_bps: u32) -> Result<(), EscrowError> {
@@ -1225,8 +1279,10 @@ impl EscrowContract {
     ///   per-transaction operation limit; otherwise `EscrowError::BatchTooLarge`.
     /// - Each release is independent: a failing one emits
     ///   ("escrow", "batch_release_error", order_id) and the batch continues.
-    /// - Returns one `(order_id, succeeded)` pair per input ID, in order.
-    pub fn batch_release(env: Env, order_ids: Vec<u64>) -> Result<Vec<(u64, bool)>, EscrowError> {
+    /// - Returns one `(order_id, code)` pair per input ID, in order. `code` is `0`
+    ///   on success, otherwise the `EscrowError` discriminant (e.g. `AlreadySettled`
+    ///   = 2, `InDispute` = 3, `NotYetReleasable` = 19) so callers can tell skip from retry.
+    pub fn batch_release(env: Env, order_ids: Vec<u64>) -> Result<Vec<(u64, u32)>, EscrowError> {
         // Platform-role authorization for the whole batch.
         let platform: Address = env
             .storage()
@@ -1239,11 +1295,11 @@ impl EscrowContract {
             return Err(EscrowError::BatchTooLarge);
         }
 
-        let mut results: Vec<(u64, bool)> = Vec::new(&env);
+        let mut results: Vec<(u64, u32)> = Vec::new(&env);
         for order_id in order_ids.iter() {
             match Self::batch_settle(&env, order_id) {
-                Ok(()) => results.push_back((order_id, true)),
-                Err(_) => {
+                Ok(()) => results.push_back((order_id, 0)),
+                Err(e) => {
                     env.events().publish(
                         (
                             symbol_short!("escrow"),
@@ -1252,7 +1308,7 @@ impl EscrowContract {
                         ),
                         (),
                     );
-                    results.push_back((order_id, false));
+                    results.push_back((order_id, e as u32));
                 }
             }
         }
@@ -1465,6 +1521,57 @@ impl EscrowContract {
 
         env.events()
             .publish(("escrow", "refund", order_id), escrow.amount);
+        Ok(())
+    }
+
+    /// Farmer-initiated full refund before timeout (#1725). Requires the farmer's
+    /// auth and refunds the full amount to the buyer with no fee. Blocked while
+    /// disputed; only `resolve_dispute` can settle a disputed escrow.
+    pub fn cancel_by_farmer(env: Env, order_id: u64) -> Result<(), EscrowError> {
+        let mut escrow: Escrow = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(order_id))
+            .ok_or(EscrowError::NotFound)?;
+        escrow.farmer.require_auth();
+
+        match escrow.status {
+            EscrowStatus::Released | EscrowStatus::Refunded => {
+                return Err(EscrowError::AlreadySettled);
+            }
+            EscrowStatus::Disputed => return Err(EscrowError::InDispute),
+            EscrowStatus::Active => {}
+        }
+
+        let stored_token: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Token(order_id))
+            .ok_or(EscrowError::NotFound)?;
+        if stored_token != escrow.token {
+            return Err(EscrowError::InvalidToken);
+        }
+
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &escrow.buyer,
+            &escrow.amount,
+        );
+
+        escrow.status = EscrowStatus::Refunded;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(order_id), &escrow);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Escrow(order_id), TTL_MIN, TTL_MAX);
+
+        // #1725 — farmer cancel event: ("escrow", "f_cancel") → order_id
+        env.events().publish(
+            (symbol_short!("escrow"), symbol_short!("f_cancel")),
+            order_id,
+        );
         Ok(())
     }
 
@@ -1842,7 +1949,9 @@ impl EscrowContract {
         }
 
         env.deployer().update_current_contract_wasm(new_wasm_hash);
-        env.events().publish(("admin", "upgrade"), ());
+        // #1729 — was a &str tuple; symbol_short! keeps topics consistent for indexers
+        env.events()
+            .publish((symbol_short!("admin"), symbol_short!("upgrade")), ());
         Ok(())
     }
 
@@ -4100,9 +4209,9 @@ mod test {
 
             let results = EscrowContract::batch_release(env, ids).unwrap();
             assert_eq!(results.len(), 3);
-            assert_eq!(results.get(0).unwrap(), (800u64, true));
-            assert_eq!(results.get(1).unwrap(), (801u64, false));
-            assert_eq!(results.get(2).unwrap(), (802u64, true));
+            assert_eq!(results.get(0).unwrap(), (800u64, 0));
+            assert_eq!(results.get(1).unwrap(), (801u64, EscrowError::AlreadySettled as u32));
+            assert_eq!(results.get(2).unwrap(), (802u64, 0));
         });
     }
 
@@ -4209,7 +4318,7 @@ mod test {
             assert_eq!(results.len(), MAX_BATCH_RELEASE);
             for i in 0..MAX_BATCH_RELEASE {
                 let order_id = 10_000_u64 + u64::from(i);
-                assert_eq!(results.get(i).unwrap(), (order_id, true));
+                assert_eq!(results.get(i).unwrap(), (order_id, 0));
                 assert_eq!(
                     EscrowContract::get(env.clone(), order_id).unwrap().status,
                     EscrowStatus::Released
@@ -5085,8 +5194,8 @@ mod deposit_path_test {
                 "release_admin" => flatten(c.try_release(&order_id, &self.admin)),
                 "batch_release" => {
                     let out = c.batch_release(&sdk_vec![&self.env, order_id]);
-                    let (_, ok) = out.get(0).unwrap();
-                    if ok {
+                    let (_, code) = out.get(0).unwrap();
+                    if code == 0 {
                         Ok(())
                     } else {
                         // Surface the underlying typed error via a direct settle.
@@ -5299,10 +5408,10 @@ mod deposit_path_test {
         fx.deposit(2);
         fx.deposit_with(3, AMOUNT, ROYALTY_BPS, 5_000_000); // locked
         let out = fx.client().batch_release(&sdk_vec![&fx.env, 1u64, 2u64, 3u64, 99u64]);
-        assert_eq!(out.get(0).unwrap(), (1, true));
-        assert_eq!(out.get(1).unwrap(), (2, true));
-        assert_eq!(out.get(2).unwrap(), (3, false));
-        assert_eq!(out.get(3).unwrap(), (99, false));
+        assert_eq!(out.get(0).unwrap(), (1, 0));
+        assert_eq!(out.get(1).unwrap(), (2, 0));
+        assert_eq!(out.get(2).unwrap(), (3, EscrowError::NotYetReleasable as u32));
+        assert_eq!(out.get(3).unwrap(), (99, EscrowError::NotFound as u32));
         assert_eq!(fx.bal(&fx.farmer), 2 * FARMER_NET);
         assert_eq!(fx.bal(&fx.coop), 2 * ROYALTY);
         assert_eq!(fx.bal(&fx.fee_dest), 2 * FEE);

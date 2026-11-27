@@ -283,7 +283,7 @@ mod test {
         let user = Address::generate(e);
         let spender = Address::generate(e);
         let fee_recipient = Address::generate(e);
-        let contract_id = e.register_contract(None, RewardToken);
+        let contract_id = e.register(RewardToken, ());
         let client = RewardTokenClient::new(e, &contract_id);
         client.initialize(
             &admin,
