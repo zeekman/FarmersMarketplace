@@ -40,6 +40,11 @@ subscribers can filter deterministically.
 | `admin_proposed` | `(escrow, admin_proposed)` | `(proposed,)` |
 | `admin_accepted` | `(escrow, admin_accepted)` | `(admin,)` |
 | `reward_token_set` | `(escrow, reward_token_set)` | `(token,)` |
+| `idx_evict` | `(escrow, idx_evict)` | `(address, order_id)` |
+
+`idx_evict` fires when a full buyer/farmer index drops its oldest settled entry
+to make room. The evicted escrow is still stored on-chain; only its index slot is
+lost. The backend DB is the system of record for full order history. (#1728)
 | `upgrade` | `(admin, upgrade)` | `()` |
 
 ## Migration notes

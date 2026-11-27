@@ -61,7 +61,10 @@ const BPS_DENOMINATOR: u32 = 10_000;
 const MAX_FEE_BPS: u32 = 1_000;
 /// Maximum order_ids kept per address in the buyer/farmer escrow indexes. (#1289)
 /// Each deposit rewrites the whole index vector, so read/write cost grows
-/// linearly with its length; once full, the oldest entry is dropped.
+/// linearly with its length. Once full, only the oldest *settled* entry is
+/// evicted (emitting `idx_evict`); if every entry is active, deposit fails with
+/// `IndexFull`. Active escrows are never dropped from the index. (#1728)
+/// The backend DB, not this index, is the system of record for full history.
 const MAX_INDEX_ENTRIES: u32 = 1_000;
 
 // ---------------------------------------------------------------------------
@@ -69,6 +72,7 @@ const MAX_INDEX_ENTRIES: u32 = 1_000;
 // Each variant has a stable u32 code that is part of the on-chain ABI.
 // NEVER reuse a code, even after removing a variant.
 // When adding a new variant, use NEXT_CODE and increment it.
+// NEXT_CODE: 33
 // NEXT_CODE: 34
 // ---------------------------------------------------------------------------
 #[contracterror]
@@ -128,6 +132,8 @@ pub enum EscrowError {
     InvalidCoopConfig = 30,
     /// `resolve_dispute` called on an escrow that is not in the `Disputed` state. (#1299)
     NotInDispute = 31,
+    /// A buyer or farmer index is full of active escrows, so nothing can be evicted. (#1728)
+    IndexFull = 32,
     /// An admin transfer proposal has expired.
     AdminProposalExpired = 32,
     /// Deposit token is not on the admin-managed allowlist (`allow_token`). (#1726)
@@ -482,6 +488,9 @@ impl EscrowContract {
             release_after_unix,
         };
 
+        // Index first: it can fail with `IndexFull`, which must happen before any write.
+        Self::index_escrow(&env, &buyer, &farmer, order_id)?;
+
         // Effects before interactions: the escrow record (and its Token key, #1288)
         // is written before the single token transfer below, so a reentrant
         // deposit() for the same order_id sees `has(&key) == true` and is rejected.
@@ -493,6 +502,18 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Token(order_id), TTL_MIN, TTL_MAX);
+
+        token::Client::new(&env, &token).transfer(
+            &buyer,
+            &env.current_contract_address(),
+            &amount,
+        );
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        let token_key = DataKey::Token(order_id);
+        env.storage().persistent().set(&token_key, &token);
+        env.storage()
+            .persistent()
+            .extend_ttl(&token_key, BUMP_THRESHOLD, BUMP_AMOUNT);
         Self::index_escrow(&env, &buyer, &farmer, order_id);
 
         Self::transfer_in(&env, &token, &buyer, amount)?;
@@ -556,25 +577,45 @@ impl EscrowContract {
     }
 
     /// Appends `order_id` to the buyer and farmer escrow indexes (#1289).
-    fn index_escrow(env: &Env, buyer: &Address, farmer: &Address, order_id: u64) {
-        Self::index_append(env, DataKey::BuyerEscrows(buyer.clone()), order_id);
-        Self::index_append(env, DataKey::FarmerEscrows(farmer.clone()), order_id);
+    fn index_escrow(
+        env: &Env,
+        buyer: &Address,
+        farmer: &Address,
+        order_id: u64,
+    ) -> Result<(), EscrowError> {
+        Self::index_append(env, buyer, DataKey::BuyerEscrows(buyer.clone()), order_id)?;
+        Self::index_append(env, farmer, DataKey::FarmerEscrows(farmer.clone()), order_id)
     }
 
-    /// Appends to one index, dropping the oldest entry once `MAX_INDEX_ENTRIES`
-    /// is reached so the per-address read/write cost stays bounded.
-    fn index_append(env: &Env, key: DataKey, order_id: u64) {
+    /// Appends to one index. At `MAX_INDEX_ENTRIES`, evicts the oldest *settled*
+    /// entry and emits `idx_evict`; active escrows are never evicted, so if none is
+    /// settled the call fails with `IndexFull`. (#1728)
+    fn index_append(
+        env: &Env,
+        owner: &Address,
+        key: DataKey,
+        order_id: u64,
+    ) -> Result<(), EscrowError> {
         let mut ids: Vec<u64> = env
             .storage()
             .persistent()
             .get(&key)
             .unwrap_or_else(|| Vec::new(env));
         if ids.len() >= MAX_INDEX_ENTRIES {
-            ids.remove(0);
+            let pos = (0..ids.len())
+                .find(|&i| Self::is_settled(env.clone(), ids.get(i).unwrap()))
+                .ok_or(EscrowError::IndexFull)?;
+            let evicted = ids.get(pos).unwrap();
+            ids.remove(pos);
+            env.events().publish(
+                (symbol_short!("escrow"), symbol_short!("idx_evict")),
+                (owner.clone(), evicted),
+            );
         }
         ids.push_back(order_id);
         env.storage().persistent().set(&key, &ids);
         env.storage().persistent().extend_ttl(&key, TTL_MIN, TTL_MAX);
+        Ok(())
     }
 
     /// Create multiple escrows in a single transaction to reduce fees (#689).
@@ -632,6 +673,7 @@ impl EscrowContract {
 
         for entry in entries.iter() {
             let (order_id, buyer, farmer, token, amount, timeout_unix) = entry;
+            Self::index_escrow(&env, &buyer, &farmer, order_id)?;
             let escrow = Escrow {
                 buyer: buyer.clone(),
                 farmer: farmer.clone(),
@@ -658,6 +700,8 @@ impl EscrowContract {
                 .persistent()
                 .extend_ttl(&DataKey::Token(order_id), TTL_MIN, TTL_MAX);
 
+            let token_client = token::Client::new(&env, &token);
+            token_client.transfer(&buyer, &env.current_contract_address(), &amount);
             Self::transfer_in(&env, &token, &buyer, amount)?;
             Self::index_escrow(&env, &buyer, &farmer, order_id);
         }
@@ -1943,6 +1987,8 @@ impl EscrowContract {
 
     /// Read-only view: returns paginated list of order IDs deposited by `buyer`. (#876, #980)
     /// Returns a `PaginatedEscrows` with a page of escrow IDs and total count.
+    /// The index holds at most `MAX_INDEX_ENTRIES` order IDs and `total` counts only
+    /// those; the backend DB is the system of record for full history. (#1728)
     /// `limit` is capped at `MAX_ESCROW_PAGE_SIZE` to prevent excessive read costs.
     pub fn get_buyer_escrows(
         env: Env,
@@ -1979,6 +2025,8 @@ impl EscrowContract {
 
     /// Read-only view: returns paginated list of order IDs for a given `farmer`. (#876, #980)
     /// Returns a `PaginatedEscrows` with a page of escrow IDs and total count.
+    /// The index holds at most `MAX_INDEX_ENTRIES` order IDs and `total` counts only
+    /// those; the backend DB is the system of record for full history. (#1728)
     /// `limit` is capped at `MAX_ESCROW_PAGE_SIZE` to prevent excessive read costs.
     pub fn get_farmer_escrows(
         env: Env,
@@ -2122,7 +2170,7 @@ impl EscrowContract {
                 .get(&DataKey::AutoReleaseDays)
                 .unwrap_or(Self::DEFAULT_AUTO_RELEASE_DAYS);
             // #1289: backfill the buyer/farmer indexes for migrated records.
-            Self::index_escrow(&env, &record.buyer, &record.farmer, order_id);
+            Self::index_escrow(&env, &record.buyer, &record.farmer, order_id)?;
 
             let new_escrow = Escrow {
                 buyer: record.buyer,
