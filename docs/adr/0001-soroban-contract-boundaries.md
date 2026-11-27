@@ -1,19 +1,22 @@
 # ADR 0001: Soroban Contract Crate Boundaries and Shared Conventions
 
-## Status
+- **Status:** Superseded by [ADR 0002: Contract Architecture](0002-contract-architecture.md)
+- **Date:** 2024-02-01
 
-Accepted.
+> This ADR is kept for history only. The SDK pins, shared-crate decision and
+> fee cap below were resolved in ADR 0002; the `contract/` layout is now
+> deprecated and slated for removal.
 
 ## Context
 
-FarmersMarketplace currently has Soroban contracts in two top-level layouts:
+FarmersMarketplace has Soroban contracts in two top-level layouts:
 
-- `contract/`: the legacy escrow crate used by the backend integration harness,
-  Futurenet E2E script, CLI helper, and legacy WASM size profile.
-- `contract/reward-token/`: a legacy-adjacent reward token crate using the same
-  `soroban-sdk = 21.0.0` generation as `contract/`.
-- `contracts/`: the newer Cargo workspace that contains `contracts/escrow/`
-  and `contracts/creator-earnings/`, both using `soroban-sdk = 22.0.0`.
+- `contract/`: the legacy escrow crate, now deprecated and frozen.
+- `contract/reward-token/` and `contract/carbon-offset/`: legacy crates built
+  alongside `contract/`.
+- `contracts/`: the active Cargo workspace (`contracts/escrow`,
+  `contracts/creator-earnings`, `contracts/carbon-offset`), pinned to
+  `soroban-sdk = "=22.0.0"`. `contract/` is pinned to the same version.
 
 These crates define their own `#[contracterror]` enums, storage key enums, event
 topics, admin flows, pause flows, and basis-points arithmetic conventions. That
@@ -30,9 +33,9 @@ Both layouts are intentionally maintained for now:
   legacy integration surface.
 - Treat `contracts/` as the current workspace for new Rust-only contract work
   and CI coverage.
-- Do not introduce a shared contract crate yet. The current crates span SDK
-  versions and deployment boundaries, so a shared crate would create migration
-  and release coupling before the interfaces have stabilized.
+- Do not introduce a shared contract crate yet. ADR 0002 keeps this deferral:
+  `contracts/fm-math/` exists but is empty, so copy-with-tests remains the
+  convention until the helper is actually moved there.
 
 Until a shared crate is introduced, common hardening must follow a
 copy-with-tests-per-crate convention: if a pattern is needed in more than one
@@ -52,7 +55,7 @@ Soroban SDK generation:
 | Basis-points arithmetic | `contract/`, `contract/reward-token/`, `contracts/escrow`, and `contracts/creator-earnings` all compute fee rates | Validate the maximum basis-points value before multiplication. Prefer `checked_mul`/`checked_div` or explicit bounded inputs when amounts can approach `i128::MAX`. Add boundary tests for `0`, max allowed bps, over-max bps, and large amount values. |
 | Storage keys | Every crate defines a `DataKey`-style enum | Keep key names stable after deployment. Document whether keys are instance, persistent, or temporary storage. Migration code must be idempotent and include preview/dry-run behavior when rewriting existing records. |
 | Event topics | Escrow crates emit overlapping topic names with different tuple shapes | Document event topic tuple shapes next to the emitting function. New subscribers should treat legacy `contract/` and workspace `contracts/escrow` events as separate schemas unless an explicit compatibility note says otherwise. |
-| WASM size/profile policy | `contract/wasm-profile.sh` covers legacy contracts; workspace contracts are tested through the newer workspace CI path | Each deployable crate should have a release build path, a size budget, and an artifact/report produced by CI. |
+| WASM size/profile policy | `contracts/wasm-profile.sh` covers all deployed contracts (legacy and workspace) against `contracts/wasm-sizes.json` in CI | Each deployable crate should have a release build path, a size budget, and an artifact/report produced by CI. |
 
 ## README Contract Documentation Rules
 

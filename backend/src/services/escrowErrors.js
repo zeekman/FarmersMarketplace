@@ -37,6 +37,8 @@ const SOROBAN_ESCROW_ERRORS = {
   29: { code: 'escrow_invalid_parties', httpStatus: 400, userMessage: 'The buyer, farmer, and cooperative addresses are not a valid combination.' },
   30: { code: 'escrow_invalid_coop_config', httpStatus: 400, userMessage: 'The cooperative signer configuration is invalid.' },
   31: { code: 'escrow_not_in_dispute', httpStatus: 409, userMessage: 'This order is not currently in dispute.' },
+  32: { code: 'escrow_invalid_fee_bps', httpStatus: 400, userMessage: 'The platform fee exceeds the 5% maximum.' },
+  33: { code: 'escrow_admin_proposal_expired', httpStatus: 409, userMessage: 'The pending admin transfer has expired.' },
 };
 
 // Historical discriminants from contract/src/errors.rs. Never use this table

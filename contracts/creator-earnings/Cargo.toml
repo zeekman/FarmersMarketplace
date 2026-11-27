@@ -9,8 +9,8 @@ crate-type = ["cdylib", "rlib"]
 [features]
 testutils = ["soroban-sdk/testutils"]
 
-# Part of the `contracts/` workspace, hence the same newer SDK generation as
-# `contracts/escrow`. See ADR 0001 (docs/adr/0001-soroban-contract-boundaries.md).
+# Part of the `contracts/` workspace, pinned to the same SDK generation as
+# every other crate. See ADR 0002 (docs/adr/0002-contract-architecture.md).
 [dependencies]
 soroban-sdk = { version = "=22.0.0" }
 fm-math = { path = "../fm-math" }

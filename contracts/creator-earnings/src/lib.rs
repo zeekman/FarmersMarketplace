@@ -129,6 +129,20 @@ pub struct CreatorEarningsContract;
 
 #[contractimpl]
 impl CreatorEarningsContract {
+    /// Shared basis-point fee/royalty/reward-split calculation: `amount * bps / 10_000`.
+    /// Rounds down (truncates toward zero); the remainder stays with whichever side
+    /// did not receive this result. Uses `checked_mul` so an overflowing multiplication
+    /// panics instead of silently wrapping. (#1225)
+    ///
+    /// This is a deliberate copy of `contracts/escrow`'s `compute_fee` — see ADR 0002
+    /// (`fm-math` is reserved but still empty).
+    fn compute_fee(amount: i128, bps: u32) -> i128 {
+        amount
+            .checked_mul(bps as i128)
+            .expect("fee calculation overflow")
+            / 10_000
+    }
+
     /// One-time initialization of the platform administrator.
     pub fn init(env: Env, platform: Address) -> Result<(), EarningsError> {
         if env.storage().instance().has(&DataKey::Initialized) {
@@ -475,7 +489,7 @@ mod test {
             CreatorEarningsContract::init(env.clone(), platform.clone())
         });
         let authorized_caller = Address::generate(&env);
-        let contract_id = env.register_contract(None, CreatorEarningsContract);
+        let contract_id = env.register(CreatorEarningsContract, ());
         CreatorEarningsContract::init(env.clone(), platform.clone(), authorized_caller.clone());
         (env, platform, contract_id, authorized_caller)
         CreatorEarningsContract::init(env.clone(), platform.clone()).unwrap();
@@ -1269,7 +1283,7 @@ mod test {
     fn platform_getter_returns_not_initialised_before_init() {
         let env = Env::default();
         env.mock_all_auths();
-        env.register_contract(None, CreatorEarningsContract);
+        env.register(CreatorEarningsContract, ());
 
         let result = CreatorEarningsContract::platform(env);
         assert_eq!(result, Err(EarningsError::NotInitialised));
@@ -1297,7 +1311,7 @@ mod test {
     fn claim_emits_event() {
         let env = Env::default();
         env.mock_all_auths();
-        env.register_contract(None, CreatorEarningsContract);
+        env.register(CreatorEarningsContract, ());
         CreatorEarningsContract::init(env.clone(), Address::generate(&env)).unwrap();
 
         let creator = Address::generate(&env);
@@ -1373,7 +1387,7 @@ mod test {
     fn upgrade_fails_if_not_initialized() {
         let env = Env::default();
         env.mock_all_auths();
-        env.register_contract(None, CreatorEarningsContract);
+        env.register(CreatorEarningsContract, ());
 
         let fake_hash = BytesN::<32>::from_array(&env, &[1u8; 32]);
 

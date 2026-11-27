@@ -5,9 +5,9 @@
 #
 # Builds, optimises, uploads and deploys every contract, initialises each with
 # arguments from contracts/deploy.<network>.toml, wires escrow -> reward-token
-# minter and creator-earnings authorised caller, and writes
-# deployments/<network>.json. Re-running with an unchanged WASM hash skips
-# redeploying that contract.
+# minter and creator-earnings authorised caller, verifies on-chain config against
+# the TOML, and only then writes deployments/<network>.json. Re-running with an
+# unchanged WASM hash skips redeploying that contract (it is still verified).
 #
 # Env: STELLAR_SECRET_KEY (required) — deployer secret / stellar-cli identity.
 set -euo pipefail
@@ -22,6 +22,8 @@ mkdir -p "$ROOT/deployments"
 [ -f "$OUT" ] || echo '[]' > "$OUT"
 
 DEPLOYER="$(stellar keys public-key --secret-key "$STELLAR_SECRET_KEY" 2>/dev/null || stellar keys address "$STELLAR_SECRET_KEY")"
+# Pins escrow's admin into the WASM so initialize() can't be front-run with an attacker admin (#1733).
+export ESCROW_ADMIN="$DEPLOYER"
 GIT_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 [ "$NETWORK" = mainnet ] || curl -sf "https://friendbot.stellar.org/?addr=$DEPLOYER" >/dev/null || true
 
@@ -58,7 +60,7 @@ import json, sys, datetime
 out, contract, cid, wasm_hash, sdk, sha = sys.argv[1:]
 entries = [e for e in json.load(open(out)) if e["contract"] != contract]
 entries.append({"contract": contract, "id": cid, "wasm_hash": wasm_hash, "sdk_version": sdk,
-                "git_sha": sha,
+                "git_sha": sha, "initialized": True,
                 "deployed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")})
 json.dump(sorted(entries, key=lambda e: e["contract"]), open(out, "w"), indent=2)
 open(out, "a").write("\n")
@@ -70,7 +72,23 @@ invoke() {
   stellar contract invoke --id "$id" --network "$NETWORK" --source-account "$STELLAR_SECRET_KEY" -- "$@"
 }
 
-declare -A IDS FRESH
+# Read-only call: simulates only, submits nothing.
+view() {
+  local id="$1"; shift
+  stellar contract invoke --id "$id" --network "$NETWORK" --source-account "$STELLAR_SECRET_KEY" --send no -- "$@"
+}
+
+# Print one field of a JSON object on stdin ("" when null).
+jget() {
+  python3 -c 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print("" if v is None else v)' "$1"
+}
+
+# Print a value from the TOML config with $DEPLOYER substituted.
+toml_get() {
+  python3 -c 'import sys,tomllib; v=tomllib.load(open(sys.argv[1],"rb"))[sys.argv[2]][sys.argv[3]]; print(str(v).replace("$DEPLOYER", sys.argv[4]))' "$CONFIG" "$1" "$2" "$DEPLOYER"
+}
+
+declare -A IDS FRESH HASHES SDKS
 for entry in "${CONTRACTS[@]}"; do
   IFS='|' read -r name dir pkg wasm <<<"$entry"
   echo "==> $name"
@@ -90,11 +108,14 @@ for entry in "${CONTRACTS[@]}"; do
   stellar contract upload --wasm "$opt" --network "$NETWORK" --source-account "$STELLAR_SECRET_KEY" >/dev/null
   IDS[$name]="$(stellar contract deploy --wasm "$opt" --network "$NETWORK" --source-account "$STELLAR_SECRET_KEY")"
   FRESH[$name]=1
+  HASHES[$name]="$hash"
+  SDKS[$name]="$sdk"
   echo "    deployed ${IDS[$name]}"
-  registry_put "$name" "${IDS[$name]}" "$hash" "$sdk" "$GIT_SHA"
 done
 
-# Initialise freshly deployed contracts.
+# Initialise freshly deployed contracts. Registry entries are written only after
+# init, wiring and verification pass, so a failed run is retried from scratch
+# instead of being recorded as "unchanged".
 if [ -n "${FRESH[escrow]:-}" ]; then
   mapfile -t args < <(init_args escrow); invoke "${IDS[escrow]}" initialize "${args[@]}"
 fi
@@ -111,6 +132,23 @@ if [ ${#FRESH[@]} -gt 0 ]; then
   invoke "${IDS[escrow]}" set_reward_token --reward_token_address "${IDS[reward-token]}"
   invoke "${IDS[creator-earnings]}" set_authorized_caller --authorized_caller "${IDS[escrow]}"
 fi
+
+# Verify on-chain config against deploy.<network>.toml for every contract, including
+# unchanged ones: an uninitialised or foreign-admin contract fails the run here.
+expect() { [ "$2" = "$3" ] || { echo "verify failed: $1 is '$2', expected '$3'" >&2; exit 1; }; }
+echo "==> verifying config"
+esc="$(view "${IDS[escrow]}" get_config)"
+expect "escrow.admin" "$(jget admin <<<"$esc")" "$(toml_get escrow admin)"
+expect "escrow.fee_bps" "$(jget fee_bps <<<"$esc")" "$(toml_get escrow fee_bps)"
+expect "escrow.fee_destination" "$(jget fee_destination <<<"$esc")" "$(toml_get escrow fee_destination)"
+expect "escrow.reward_token" "$(jget reward_token <<<"$esc")" "${IDS[reward-token]}"
+ce="$(view "${IDS[creator-earnings]}" get_config)"
+expect "creator-earnings.admin" "$(jget admin <<<"$ce")" "$(toml_get creator-earnings platform)"
+expect "creator-earnings.authorized_caller" "$(jget authorized_caller <<<"$ce")" "${IDS[escrow]}"
+
+for name in "${!FRESH[@]}"; do
+  registry_put "$name" "${IDS[$name]}" "${HASHES[$name]}" "${SDKS[$name]}" "$GIT_SHA"
+done
 
 echo "Registry written to $OUT"
 cat "$OUT"

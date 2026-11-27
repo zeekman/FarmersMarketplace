@@ -28,7 +28,7 @@ fn setup_env() -> Env {
 }
 
 fn register_contract(env: &Env) -> EscrowContractClient {
-    EscrowContractClient::new(env, &env.register_contract(None, EscrowContract))
+    EscrowContractClient::new(env, &env.register(EscrowContract, ()))
 }
 
 fn future_timeout(env: &Env) -> u64 {

@@ -239,8 +239,9 @@ related, but they are not the same deployment surface.
 | `contracts/escrow/` | Workspace escrow crate | Current Rust workspace escrow implementation for newer contract hardening work. |
 | `contracts/creator-earnings/` | Workspace creator earnings crate | Tracks creator balances and fee splits in the `contracts/` workspace. |
 
-Shared contract conventions and the decision to maintain both layouts for now
-are recorded in [ADR 0001](docs/adr/0001-soroban-contract-boundaries.md).
+Shared contract conventions, the single SDK pin and the legacy deprecation
+plan are recorded in [ADR 0002](docs/adr/0002-contract-architecture.md)
+(superseding [ADR 0001](docs/adr/0001-soroban-contract-boundaries.md)).
 
 ### Workspace contract tests
 
@@ -312,11 +313,13 @@ The newer Soroban workspace lives in `contracts/` and is covered by the
 cd contracts
 cargo test -p soroban-escrow --lib
 cargo test -p creator-earnings --features testutils
-bash wasm-profile.sh
+bash wasm-profile.sh          # prints {crate: bytes} for optimised WASM
 ```
 
-The CI job uploads `contracts-wasm-size-profile.txt` so release WASM size
-history is visible on every push and pull request.
+The `soroban-wasm-size` CI job runs `contracts/wasm-profile.sh --check
+contracts/wasm-sizes.json`. It fails if a crate grows more than 5% or exceeds
+the size budget, and comments the size table with deltas on the PR. To accept
+growth, update `contracts/wasm-sizes.json` in the same PR and say why.
 
 ### Escrow migration runbook
 
@@ -429,7 +432,7 @@ Every path that pays a farmer goes through one private routine,
 |-------------|--------------|-------|
 | `release(order_id, caller)` | escrow buyer or platform admin | |
 | `release_to_stream(order_id, rate, end_time)` | escrow buyer | farmer's net amount is booked as a payment stream instead of transferred |
-| `batch_release(order_ids)` | platform address | per-item failures are reported, not fatal |
+| `batch_release(order_ids)` | platform address | per-item failures are reported, not fatal; returns `(order_id, code)` where `0` = success, else the `EscrowError` code (ABI change in contract v2) |
 | `auto_release(order_id)` | anyone, after `auto_release_unix` | |
 | `multisig_release(order_id, signatures)` | cooperative M-of-N signers | |
 
@@ -470,7 +473,7 @@ The backend maps `PATCH /api/disputes/:id/resolve` (`buyer` / `farmer` / `split`
 The `contract/` directory contains the legacy Soroban escrow contract that
 provides on-chain escrow for marketplace orders. Do not treat it as
 interchangeable with the workspace escrow at `contracts/escrow/`; see
-[ADR 0001](docs/adr/0001-soroban-contract-boundaries.md) for the boundary.
+[ADR 0002](docs/adr/0002-contract-architecture.md) for the boundary and removal plan.
 
 ### Functions
 
@@ -518,8 +521,10 @@ These codes are stable on-chain ABI values. Never reuse a code, even after remov
 | 29 | `InvalidParties` | Buyer equals farmer, or the cooperative address equals either party |
 | 30 | `InvalidCoopConfig` | Cooperative threshold or member configuration is invalid |
 | 31 | `NotInDispute` | `resolve_dispute` called on an escrow that is not disputed |
+| 32 | `InvalidFeeBps` | Platform fee exceeds `MAX_FEE_BPS` (500 bps = 5%, ADR 0002) |
+| 33 | `AdminProposalExpired` | Pending admin transfer has expired |
 
-Next available code: **32**. See the `NEXT_CODE` comment in `contracts/escrow/src/lib.rs` for the authoritative value.
+Next available code: **34**. See the `NEXT_CODE` comment in `contracts/escrow/src/lib.rs` for the authoritative value.
 
 ### Build & Test
 

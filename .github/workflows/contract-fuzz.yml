@@ -4,11 +4,41 @@ on:
   schedule:
     - cron: '0 3 * * *'  # nightly at 03:00 UTC
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'contracts/escrow/**'
+      - '.github/workflows/contract-fuzz.yml'
+
+permissions:
+  contents: read
 
 jobs:
-  fuzz-escrow:
-    name: Fuzz escrow (10 min)
+  build-fuzz-escrow:
+    name: Build escrow fuzz target (PR)
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts/escrow
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Build escrow_ops (no fuzzing)
+        run: cargo +nightly fuzz build escrow_ops
+
+  fuzz-escrow:
+    name: Fuzz escrow (30 min)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     defaults:
       run:
         working-directory: contracts/escrow
@@ -28,13 +58,33 @@ jobs:
           key: fuzz-corpus-escrow-${{ github.run_id }}
           restore-keys: fuzz-corpus-escrow-
 
-      - name: Run escrow_ops for 10 minutes
-        run: cargo +nightly fuzz run escrow_ops -- -max_total_time=600
+      - name: Run escrow_ops for 30 minutes
+        id: fuzz
+        run: cargo +nightly fuzz run escrow_ops -- -max_total_time=1800
 
       - name: Upload crashes
-        if: failure()
+        if: steps.fuzz.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-crashes-escrow
           path: contracts/escrow/fuzz/artifacts/
           retention-days: 30
+
+      - name: Upload corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-escrow-${{ github.run_id }}
+          path: contracts/escrow/fuzz/corpus/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Open issue on crash
+        if: steps.fuzz.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Nightly fuzz crash: escrow_ops ($(date -u +%F))" \
+            --body "The nightly escrow_ops fuzz run found a crash. Crash inputs are in the fuzz-crashes-escrow artifact of $RUN_URL"

@@ -34,4 +34,10 @@
 29 InvalidParties
 30 InvalidCoopConfig
 31 NotInDispute
-# NEXT_CODE: 32
+32 InvalidFeeBps
+33 AdminProposalExpired
+32 IndexFull
+# NEXT_CODE: 33
+32 AdminProposalExpired
+33 TokenNotAllowed
+# NEXT_CODE: 34

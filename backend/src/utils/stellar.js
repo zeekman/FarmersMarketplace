@@ -943,20 +943,10 @@ async function removeTrustline({ secret, assetCode, assetIssuer }) {
   return result.hash;
 }
 
+// Fee preview reads get_config().fee_bps from the deployed contract (cached).
+// The implementation lives in stellar-payments.js and is re-exported below.
 function getPlatformFeeInfo(amount) {
-  const feePercent = parseFloat(process.env.PLATFORM_FEE_PERCENT || '0');
-  const platformWallet = process.env.PLATFORM_WALLET_PUBLIC_KEY || null;
-  if (!feePercent || !platformWallet) {
-    return {
-      feePercent: 0,
-      feeAmount: 0,
-      farmerAmount: amount,
-      platformWallet: null,
-    };
-  }
-  const feeAmount = parseFloat(((amount * feePercent) / 100).toFixed(7));
-  const farmerAmount = parseFloat((amount - feeAmount).toFixed(7));
-  return { feePercent, feeAmount, farmerAmount, platformWallet };
+  return require('./stellar-payments').getPlatformFeeInfo(amount);
 }
 
 /**

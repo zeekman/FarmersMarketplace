@@ -3,8 +3,8 @@ name: Contract Testnet Deploy + Smoke Test
 # #859 — Build the escrow contract Wasm, deploy it to Stellar Testnet, run an
 # end-to-end smoke test (deposit -> release) and verify the result on Horizon.
 #
-# Runs on manual dispatch and on pushes to main that touch the escrow contract.
-# It is intentionally NOT triggered by pull_request: deploying requires the
+# Runs on manual dispatch and after a successful CI run on main (so the
+# contract matrix gate has passed). It is intentionally NOT triggered by pull_request: deploying requires the
 # STELLAR_CI_SECRET_KEY secret, which is not exposed to fork PRs.
 on:
   workflow_dispatch:
@@ -14,15 +14,12 @@ on:
         type: choice
         options: [testnet, futurenet, mainnet]
         default: testnet
-  push:
+  # Cross-workflow equivalent of `needs: [contracts-ci]`: a deploy can only
+  # follow a successful CI run (which gates on the full contract matrix).
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
-    paths:
-      - 'contracts/escrow/**'
-      - 'contracts/reward-token/**'
-      - 'contracts/creator-earnings/**'
-      - 'contracts/scripts/deploy.sh'
-      - 'contracts/deploy.*.toml'
-      - '.github/workflows/contract-deploy.yml'
 
 env:
   STELLAR_NETWORK: ${{ inputs.network || 'testnet' }}
@@ -33,6 +30,8 @@ jobs:
   deploy-and-smoke-test:
     name: Deploy contracts & Smoke Test
     runs-on: ubuntu-latest
+    # CI must have passed (or be an explicit manual dispatch) before deploying.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     # CT-30: secrets come from GitHub environments; `mainnet` has required reviewers.
     environment: ${{ inputs.network || 'testnet' }}
     permissions:
@@ -55,7 +54,7 @@ jobs:
             ${{ runner.os }}-cargo-escrow-
 
       - name: Install Stellar CLI
-        run: cargo install --locked stellar-cli@22.0.0
+        run: cargo install --locked stellar-cli@23.0.0
 
       # Acceptance: a CI testnet key is stored as a secret and used to deploy.
       - name: Guard — require deploy secret
