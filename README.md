@@ -429,7 +429,7 @@ Every path that pays a farmer goes through one private routine,
 |-------------|--------------|-------|
 | `release(order_id, caller)` | escrow buyer or platform admin | |
 | `release_to_stream(order_id, rate, end_time)` | escrow buyer | farmer's net amount is booked as a payment stream instead of transferred |
-| `batch_release(order_ids)` | platform address | per-item failures are reported, not fatal |
+| `batch_release(order_ids)` | platform address | per-item failures are reported, not fatal; returns `(order_id, code)` where `0` = success, else the `EscrowError` code (ABI change in contract v2) |
 | `auto_release(order_id)` | anyone, after `auto_release_unix` | |
 | `multisig_release(order_id, signatures)` | cooperative M-of-N signers | |
 

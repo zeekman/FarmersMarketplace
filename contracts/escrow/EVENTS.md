@@ -31,12 +31,16 @@ subscribers can filter deterministically.
 | `dispute` | `(escrow, dispute, order_id)` | `(initiator,)` |
 | `resolve` | `(escrow, resolve, order_id)` | `(farmer_amount, fee_amount)` |
 | `auto_release` | `(escrow, auto_release, order_id)` | `(farmer_amount, fee_amount)` |
+| `dispute` | `(escrow, dispute)` | `order_id` |
+| `resolve` | `(escrow, resolved)` | `(order_id, buyer_amount, farmer_amount, fee_amount)` |
+| `auto_release` | `(escrow, auto_rel)` | `order_id` |
 | `stream_create` | `(escrow, stream_create, order_id)` | `(farmer, rate, duration)` |
 | `stream_withdraw` | `(escrow, stream_withdraw, order_id)` | `(farmer_amount,)` |
 | `stream_cancel` | `(escrow, stream_cancel, order_id)` | `(farmer_amount, fee_amount)` |
 | `admin_proposed` | `(escrow, admin_proposed)` | `(proposed,)` |
 | `admin_accepted` | `(escrow, admin_accepted)` | `(admin,)` |
 | `reward_token_set` | `(escrow, reward_token_set)` | `(token,)` |
+| `upgrade` | `(admin, upgrade)` | `()` |
 
 ## Migration notes
 
