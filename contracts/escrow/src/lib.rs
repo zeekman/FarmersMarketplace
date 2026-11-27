@@ -270,7 +270,8 @@ pub struct CoopConfig {
 }
 
 /// Contract version reported by `version()`; bump on every storage/ABI change. (CT-28)
-pub const CONTRACT_VERSION: u32 = 1;
+/// v2: `batch_release` returns `(order_id, u32)` error codes instead of `(order_id, bool)`. (#1727)
+pub const CONTRACT_VERSION: u32 = 2;
 
 /// Read-only snapshot of all admin-configurable values. (CT-28)
 #[contracttype]
@@ -1207,8 +1208,10 @@ impl EscrowContract {
     ///   per-transaction operation limit; otherwise `EscrowError::BatchTooLarge`.
     /// - Each release is independent: a failing one emits
     ///   ("escrow", "batch_release_error", order_id) and the batch continues.
-    /// - Returns one `(order_id, succeeded)` pair per input ID, in order.
-    pub fn batch_release(env: Env, order_ids: Vec<u64>) -> Result<Vec<(u64, bool)>, EscrowError> {
+    /// - Returns one `(order_id, code)` pair per input ID, in order. `code` is `0`
+    ///   on success, otherwise the `EscrowError` discriminant (e.g. `AlreadySettled`
+    ///   = 2, `InDispute` = 3, `NotYetReleasable` = 19) so callers can tell skip from retry.
+    pub fn batch_release(env: Env, order_ids: Vec<u64>) -> Result<Vec<(u64, u32)>, EscrowError> {
         // Platform-role authorization for the whole batch.
         let platform: Address = env
             .storage()
@@ -1221,11 +1224,11 @@ impl EscrowContract {
             return Err(EscrowError::BatchTooLarge);
         }
 
-        let mut results: Vec<(u64, bool)> = Vec::new(&env);
+        let mut results: Vec<(u64, u32)> = Vec::new(&env);
         for order_id in order_ids.iter() {
             match Self::batch_settle(&env, order_id) {
-                Ok(()) => results.push_back((order_id, true)),
-                Err(_) => {
+                Ok(()) => results.push_back((order_id, 0)),
+                Err(e) => {
                     env.events().publish(
                         (
                             symbol_short!("escrow"),
@@ -1234,7 +1237,7 @@ impl EscrowContract {
                         ),
                         (),
                     );
-                    results.push_back((order_id, false));
+                    results.push_back((order_id, e as u32));
                 }
             }
         }
@@ -4080,9 +4083,9 @@ mod test {
 
             let results = EscrowContract::batch_release(env, ids).unwrap();
             assert_eq!(results.len(), 3);
-            assert_eq!(results.get(0).unwrap(), (800u64, true));
-            assert_eq!(results.get(1).unwrap(), (801u64, false));
-            assert_eq!(results.get(2).unwrap(), (802u64, true));
+            assert_eq!(results.get(0).unwrap(), (800u64, 0));
+            assert_eq!(results.get(1).unwrap(), (801u64, EscrowError::AlreadySettled as u32));
+            assert_eq!(results.get(2).unwrap(), (802u64, 0));
         });
     }
 
@@ -4189,7 +4192,7 @@ mod test {
             assert_eq!(results.len(), MAX_BATCH_RELEASE);
             for i in 0..MAX_BATCH_RELEASE {
                 let order_id = 10_000_u64 + u64::from(i);
-                assert_eq!(results.get(i).unwrap(), (order_id, true));
+                assert_eq!(results.get(i).unwrap(), (order_id, 0));
                 assert_eq!(
                     EscrowContract::get(env.clone(), order_id).unwrap().status,
                     EscrowStatus::Released
@@ -5065,8 +5068,8 @@ mod deposit_path_test {
                 "release_admin" => flatten(c.try_release(&order_id, &self.admin)),
                 "batch_release" => {
                     let out = c.batch_release(&sdk_vec![&self.env, order_id]);
-                    let (_, ok) = out.get(0).unwrap();
-                    if ok {
+                    let (_, code) = out.get(0).unwrap();
+                    if code == 0 {
                         Ok(())
                     } else {
                         // Surface the underlying typed error via a direct settle.
@@ -5279,10 +5282,10 @@ mod deposit_path_test {
         fx.deposit(2);
         fx.deposit_with(3, AMOUNT, ROYALTY_BPS, 5_000_000); // locked
         let out = fx.client().batch_release(&sdk_vec![&fx.env, 1u64, 2u64, 3u64, 99u64]);
-        assert_eq!(out.get(0).unwrap(), (1, true));
-        assert_eq!(out.get(1).unwrap(), (2, true));
-        assert_eq!(out.get(2).unwrap(), (3, false));
-        assert_eq!(out.get(3).unwrap(), (99, false));
+        assert_eq!(out.get(0).unwrap(), (1, 0));
+        assert_eq!(out.get(1).unwrap(), (2, 0));
+        assert_eq!(out.get(2).unwrap(), (3, EscrowError::NotYetReleasable as u32));
+        assert_eq!(out.get(3).unwrap(), (99, EscrowError::NotFound as u32));
         assert_eq!(fx.bal(&fx.farmer), 2 * FARMER_NET);
         assert_eq!(fx.bal(&fx.coop), 2 * ROYALTY);
         assert_eq!(fx.bal(&fx.fee_dest), 2 * FEE);
