@@ -1,6 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol};
+use fm_math::compute_fee as fm_compute_fee;
 
 /// Ledgers per second approximation is not needed; vesting is expressed in ledgers.
 const DAY_IN_LEDGERS: u32 = 17_280;
@@ -242,7 +243,7 @@ impl RewardToken {
             panic!("insufficient balance");
         }
         let config = get_config(e);
-        let fee = amount * (config.fee_bps as i128) / 10_000;
+        let fee = fm_compute_fee(amount, config.fee_bps).expect("fee calculation overflow");
         let net = amount - fee;
 
         write_balance(e, from, from_balance - amount);

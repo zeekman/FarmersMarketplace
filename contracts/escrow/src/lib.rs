@@ -5,6 +5,7 @@ use soroban_sdk::{
     BytesN, Env, IntoVal, Map, TryFromVal, Val, Vec,
 };
 use soroban_sdk::xdr::ToXdr;
+use fm_math::{compute_fee as fm_compute_fee, BPS_DENOMINATOR};
 
 #[cfg(test)]
 extern crate std;
@@ -972,11 +973,11 @@ impl EscrowContract {
         escrow: &Escrow,
         gross: i128,
     ) -> Result<(i128, i128, i128), EscrowError> {
-        let fee_amount = Self::compute_fee(gross, Self::stored_fee_bps(env)?);
+        let fee_amount = fm_compute_fee(gross, Self::stored_fee_bps(env)?).expect("fee calculation overflow");
         let after_fee = gross - fee_amount;
         // #860: cooperative royalty — deducted from the farmer's portion.
         let royalty_amount = match &escrow.cooperative_address {
-            Some(_) => Self::compute_fee(after_fee, escrow.cooperative_royalty_bps),
+            Some(_) => fm_compute_fee(after_fee, escrow.cooperative_royalty_bps).expect("fee calculation overflow"),
             None => 0,
         };
         Ok((after_fee - royalty_amount, fee_amount, royalty_amount))
@@ -1013,7 +1014,7 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::RewardBps)
             .unwrap_or(100);
-        let reward_amount = Self::compute_fee(farmer_amount, reward_bps);
+        let reward_amount = fm_compute_fee(farmer_amount, reward_bps).expect("fee calculation overflow");
         let mint_args = soroban_sdk::vec![
             env,
             buyer.clone().into_val(env),
@@ -1119,12 +1120,12 @@ impl EscrowContract {
             .get(&DataKey::FeeBps)
             .unwrap_or(platform_fee_bps);
 
-        let fee_amount = Self::compute_fee(escrow.amount, effective_bps);
+        let fee_amount = fm_compute_fee(escrow.amount, effective_bps).expect("fee calculation overflow");
         let after_fee = escrow.amount - fee_amount;
 
         // #860: cooperative royalty — deducted from the farmer's portion.
         let royalty_amount: i128 = match &escrow.cooperative_address {
-            Some(_) => Self::compute_fee(after_fee, escrow.cooperative_royalty_bps),
+            Some(_) => fm_compute_fee(after_fee, escrow.cooperative_royalty_bps).expect("fee calculation overflow"),
             None => 0,
         };
         let farmer_amount = after_fee - royalty_amount;
@@ -1441,7 +1442,7 @@ impl EscrowContract {
 
         let token_client = token::Client::new(env, &escrow.token);
         let effective_bps: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
-        let fee_amount = Self::compute_fee(escrow.amount, effective_bps);
+        let fee_amount = fm_compute_fee(escrow.amount, effective_bps).expect("fee calculation overflow");
         let farmer_amount = escrow.amount - fee_amount;
 
         if fee_amount > 0 {
@@ -1941,7 +1942,7 @@ impl EscrowContract {
 
         Self::verify_stored_token(&env, order_id, &escrow)?;
 
-        let buyer_amount = Self::compute_fee(escrow.amount, buyer_bps);
+        let buyer_amount = fm_compute_fee(escrow.amount, buyer_bps).expect("fee calculation overflow");
         let farmer_gross = escrow.amount - buyer_amount;
         let (farmer_amount, fee_amount, royalty_amount) =
             Self::split_payout(&env, &escrow, farmer_gross)?;
@@ -2487,10 +2488,10 @@ impl EscrowContract {
 
         let token_client = token::Client::new(&env, &escrow.token);
         let fee_bps: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
-        let fee_amount = Self::compute_fee(escrow.amount, fee_bps);
+        let fee_amount = fm_compute_fee(escrow.amount, fee_bps).expect("fee calculation overflow");
         let after_fee = escrow.amount - fee_amount;
         let royalty_amount: i128 = match &escrow.cooperative_address {
-            Some(_) => Self::compute_fee(after_fee, escrow.cooperative_royalty_bps),
+            Some(_) => fm_compute_fee(after_fee, escrow.cooperative_royalty_bps).expect("fee calculation overflow"),
             None => 0,
         };
         let farmer_amount = after_fee - royalty_amount;
@@ -2530,7 +2531,7 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::RewardBps)
             .unwrap_or(100);
-        let reward_amount = Self::compute_fee(farmer_amount, reward_bps);
+        let reward_amount = fm_compute_fee(farmer_amount, reward_bps).expect("fee calculation overflow");
         if let Some(reward_token_address) = env.storage().instance().get(&DataKey::RewardTokenContract) {
             let mint_args = soroban_sdk::vec![
                 &env,

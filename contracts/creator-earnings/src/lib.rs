@@ -41,6 +41,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN,
     Env, Vec,
 };
+use fm_math::compute_fee as fm_compute_fee;
 
 /// Maximum number of entries accepted by `batch_credit` in a single call —
 /// keeps the transaction under Stellar's operation limit.
@@ -276,7 +277,7 @@ impl CreatorEarningsContract {
             return Err(EarningsError::CreatorIsPlatform);
         }
 
-        let fee_amount: i128 = Self::compute_fee(amount, fee_bps);
+        let fee_amount: i128 = fm_compute_fee(amount, fee_bps).expect("fee calculation overflow");
         let farmer_amount: i128 = amount - fee_amount;
 
         // Accumulate the creator's claimable balance.

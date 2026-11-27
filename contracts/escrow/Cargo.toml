@@ -14,6 +14,7 @@ testutils = ["soroban-sdk/testutils"]
 # (docs/adr/0002-contract-architecture.md) for the pinning decision.
 [dependencies]
 soroban-sdk = { version = "=22.0.0" }
+fm-math = { path = "../fm-math" }
 
 [dev-dependencies]
 soroban-sdk = { version = "=22.0.0", features = ["testutils"] }

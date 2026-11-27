@@ -10,6 +10,7 @@
 
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String, Vec};
+use fm_math::compute_fee as fm_compute_fee;
 
 const ADMIN_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 
@@ -279,7 +280,7 @@ impl RewardToken {
         if rate == 0 {
             return; // reward rate not configured, no-op
         }
-        let amount = Self::compute_fee(xlm_amount, rate);
+        let amount = fm_compute_fee(xlm_amount, rate).expect("fee calculation overflow");
         if amount <= 0 {
             return;
         }
@@ -620,7 +621,7 @@ impl RewardToken {
         }
 
         let fee_bps: u32 = env.storage().instance().get(&DataKey::TransferFeeBps).unwrap_or(0);
-        let burn_amount: i128 = if fee_bps > 0 { Self::compute_fee(amount, fee_bps) } else { 0 };
+        let burn_amount: i128 = if fee_bps > 0 { fm_compute_fee(amount, fee_bps).expect("fee calculation overflow") } else { 0 };
         let net_amount = amount - burn_amount;
 
         Self::set_balance(&env, &from, from_balance - amount);
@@ -663,7 +664,7 @@ impl RewardToken {
         }
 
         let fee_bps: u32 = env.storage().instance().get(&DataKey::TransferFeeBps).unwrap_or(0);
-        let burn_amount: i128 = if fee_bps > 0 { Self::compute_fee(amount, fee_bps) } else { 0 };
+        let burn_amount: i128 = if fee_bps > 0 { fm_compute_fee(amount, fee_bps).expect("fee calculation overflow") } else { 0 };
         let net_amount = amount - burn_amount;
 
         Self::set_balance(&env, &from, from_balance - amount);

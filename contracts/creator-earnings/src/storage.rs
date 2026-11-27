@@ -1,6 +1,7 @@
 use soroban_sdk::{contracttype, Address, Env};
 
 use crate::errors::Error;
+use fm_math::compute_fee as fm_compute_fee;
 
 /// Maximum platform fee that may ever be configured, in basis points (20%).
 pub const MAX_FEE_BPS: u32 = 2_000;
@@ -42,14 +43,9 @@ pub fn set_fee_bps(env: &Env, fee_bps: u32) -> Result<(), Error> {
     Ok(())
 }
 
-/// Compute the platform fee for `amount` using floor rounding.
-pub fn compute_fee(amount: i128, fee_bps: u32) -> i128 {
-    (amount * fee_bps as i128) / 10_000
-}
-
 /// Split `amount` into (platform_fee, creator_share) using the stored fee.
 pub fn split_with_stored_fee(env: &Env, amount: i128) -> (i128, i128) {
-    let fee = compute_fee(amount, get_fee_bps(env));
+    let fee = fm_compute_fee(amount, get_fee_bps(env)).expect("fee calculation overflow");
     (fee, amount - fee)
 }
 

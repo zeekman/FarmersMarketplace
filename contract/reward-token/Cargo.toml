@@ -10,6 +10,8 @@ crate-type = ["cdylib"]
 # same SDK generation as every crate; see ADR 0002
 # (docs/adr/0002-contract-architecture.md).
 [dependencies]
+soroban-sdk = { version = "=21.0.0" }
+fm-math = { path = "../../contracts/fm-math" }
 soroban-sdk = { version = "=22.0.0" }
 
 [dev-dependencies]

@@ -13,6 +13,8 @@ testutils = ["soroban-sdk/testutils"]
 # every other crate. See ADR 0002 (docs/adr/0002-contract-architecture.md).
 [dependencies]
 soroban-sdk = { version = "=22.0.0" }
+fm-math = { path = "../fm-math" }
+fm-math = { path = "../fm-math" }
 
 [dev-dependencies]
 soroban-sdk = { version = "=22.0.0", features = ["testutils"] }
