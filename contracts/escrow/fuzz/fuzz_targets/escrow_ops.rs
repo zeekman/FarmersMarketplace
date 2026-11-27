@@ -46,6 +46,7 @@ enum Op {
     Release { order: u8, caller: u8, as_admin: bool },
     Refund { order: u8 },
     TimeoutRefund { order: u8 },
+    FarmerCancel { order: u8 },
     Dispute { order: u8, caller: u8 },
     Resolve { order: u8, buyer_bps: u16 },
     AutoRelease { order: u8 },
@@ -174,6 +175,9 @@ fuzz_target!(|input: Input| {
             }
             Op::TimeoutRefund { order } => {
                 let _ = client.try_claim_timeout_refund(&oid(order));
+            }
+            Op::FarmerCancel { order } => {
+                let _ = client.try_cancel_by_farmer(&oid(order));
             }
             Op::Dispute { order, caller } => {
                 let _ = client.try_dispute(&oid(order), &pick(caller));

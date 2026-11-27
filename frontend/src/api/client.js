@@ -368,6 +368,7 @@ export const api = {
 
   fundEscrow: (orderId) => (requireOnline(), request(`/orders/${orderId}/escrow`, { method: 'POST' })),
   claimEscrow: (orderId) => request(`/orders/${orderId}/claim`, { method: 'POST' }),
+  refundEscrow: (orderId) => request(`/orders/${orderId}/refund`, { method: 'POST' }),
   claimPreorder: (orderId, idempotencyKey) => request(`/orders/${orderId}/claim-preorder`, {
     method: 'POST',
     headers: { 'X-Idempotency-Key': requireIdempotencyKey(idempotencyKey) },

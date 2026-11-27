@@ -12,6 +12,7 @@ libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 ed25519-dalek = "2"
 soroban-sdk = { version = "=22.0.0", features = ["testutils"] }
+soroban-sdk = { version = "=23.0.0", features = ["testutils"] }
 soroban-escrow = { path = "..", features = ["testutils"] }
 
 # Keep the fuzz crate out of the `contracts/` workspace.

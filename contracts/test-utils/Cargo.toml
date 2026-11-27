@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-# Shared test fixtures for the `contracts/` workspace (SDK =22.0.0). Use as a
+# Shared test fixtures for the `contracts/` workspace (SDK =23.0.0). Use as a
 # dev-dependency only; it is never built into a deployable WASM.
 [dependencies]
-soroban-sdk = { version = "=22.0.0", features = ["testutils"] }
+soroban-sdk = { version = "=23.0.0", features = ["testutils"] }
