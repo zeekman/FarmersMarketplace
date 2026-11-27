@@ -495,7 +495,6 @@ impl EscrowContract {
         // is written before the single token transfer below, so a reentrant
         // deposit() for the same order_id sees `has(&key) == true` and is rejected.
         env.storage().persistent().set(&key, &escrow);
-        env.storage().persistent().extend_ttl(&key, TTL_MIN, TTL_MAX);
         // Persist the deposit-time token separately so every settlement path can
         // enforce it (#683).
         env.storage().persistent().set(&DataKey::Token(order_id), &token);
@@ -515,7 +514,14 @@ impl EscrowContract {
             .persistent()
             .extend_ttl(&token_key, BUMP_THRESHOLD, BUMP_AMOUNT);
         Self::index_escrow(&env, &buyer, &farmer, order_id);
+        Self::bump_escrow(&env, order_id);
 
+        // #1287: exactly one buyer → contract transfer, after state is persisted.
+        token::Client::new(&env, &token).transfer(
+            &buyer,
+            &env.current_contract_address(),
+            &amount,
+        );
         Self::transfer_in(&env, &token, &buyer, amount)?;
 
         env.events().publish(
@@ -616,6 +622,58 @@ impl EscrowContract {
         env.storage().persistent().set(&key, &ids);
         env.storage().persistent().extend_ttl(&key, TTL_MIN, TTL_MAX);
         Ok(())
+    }
+
+    /// Every persistent entry that belongs to `order_id` and currently exists.
+    /// Release fails with an archived-entry error if any one of them lapses, so
+    /// they are always extended together. (#1734)
+    fn live_escrow_keys(env: &Env, order_id: u64) -> Vec<DataKey> {
+        let mut candidates = Vec::new(env);
+        candidates.push_back(DataKey::Escrow(order_id));
+        candidates.push_back(DataKey::Token(order_id));
+        candidates.push_back(DataKey::BuyerEvidence(order_id));
+        candidates.push_back(DataKey::FarmerEvidence(order_id));
+        candidates.push_back(DataKey::BuyerEvidenceCount(order_id));
+        candidates.push_back(DataKey::FarmerEvidenceCount(order_id));
+        candidates.push_back(DataKey::DisputeOpenedAt(order_id));
+        if let Some(escrow) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Escrow>(&DataKey::Escrow(order_id))
+        {
+            candidates.push_back(DataKey::BuyerEscrows(escrow.buyer));
+            candidates.push_back(DataKey::FarmerEscrows(escrow.farmer));
+        }
+        let mut live = Vec::new(env);
+        for key in candidates.iter() {
+            if env.storage().persistent().has(&key) {
+                live.push_back(key);
+            }
+        }
+        live
+    }
+
+    /// Extends TTL on the whole footprint of `order_id` in one place. Every
+    /// entrypoint that reads or writes an escrow calls this. `extend_ttl` panics on
+    /// missing entries, hence the `has` filter in `live_escrow_keys`. (#1734)
+    fn bump_escrow(env: &Env, order_id: u64) {
+        for key in Self::live_escrow_keys(env, order_id).iter() {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, TTL_MIN, TTL_MAX);
+        }
+        let stream_key = stream::StreamKey::Stream(order_id);
+        if env.storage().persistent().has(&stream_key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&stream_key, TTL_MIN, TTL_MAX);
+        }
+    }
+
+    /// View: the persistent `DataKey`s that make up `order_id`'s footprint. The
+    /// backend TTL keeper passes these to `ExtendFootprintTTLOp`. (#1734)
+    pub fn escrow_ttl_keys(env: Env, order_id: u64) -> Vec<DataKey> {
+        Self::live_escrow_keys(&env, order_id)
     }
 
     /// Create multiple escrows in a single transaction to reduce fees (#689).
@@ -797,7 +855,7 @@ impl EscrowContract {
         escrow.status = EscrowStatus::Released;
         let key = DataKey::Escrow(order_id);
         env.storage().persistent().set(&key, &escrow);
-        env.storage().persistent().extend_ttl(&key, TTL_MIN, TTL_MAX);
+        Self::bump_escrow(env, order_id);
 
         let token_client = token::Client::new(env, &escrow.token);
         let this = env.current_contract_address();
@@ -1487,6 +1545,7 @@ impl EscrowContract {
         if env.ledger().timestamp() < escrow.timeout_unix {
             return Err(EscrowError::TimeoutNotReached);
         }
+        Self::bump_escrow(&env, order_id);
 
         // Verify the token stored at deposit time matches the escrow record.
         let stored_token: Address = env
@@ -1707,6 +1766,8 @@ impl EscrowContract {
             .persistent()
             .extend_ttl(&count_key, TTL_MIN, TTL_MAX);
 
+        Self::bump_escrow(&env, order_id);
+
         // Emit event
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("evidence"), order_id),
@@ -1764,6 +1825,7 @@ impl EscrowContract {
         Self::store_snapshot(&env, order_id)?;
 
         escrow.status = EscrowStatus::Disputed;
+        Self::bump_escrow(&env, order_id);
         // #877: Record dispute opened timestamp for evidence window check
         escrow.dispute_opened_at = env.ledger().timestamp();
         env.storage()
@@ -1850,6 +1912,8 @@ impl EscrowContract {
         } else {
             None
         };
+
+        Self::bump_escrow(&env, order_id);
 
         // Effects before interactions.
         escrow.status = if buyer_bps == BPS_DENOMINATOR {
@@ -2187,9 +2251,7 @@ impl EscrowContract {
             };
 
             env.storage().persistent().set(&key, &new_escrow);
-            env.storage()
-                .persistent()
-                .extend_ttl(&key, TTL_MIN, TTL_MAX);
+            Self::bump_escrow(&env, order_id);
 
             env.events().publish(("escrow", "migrated", order_id), ());
 
@@ -2296,6 +2358,7 @@ impl EscrowContract {
             .get(&DataKey::Escrow(order_id))
             .ok_or(EscrowError::NotFound)?;
 
+        Self::bump_escrow(&env, order_id);
         let coop_addr = escrow
             .cooperative_address
             .clone()
