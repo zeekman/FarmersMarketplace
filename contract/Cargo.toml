@@ -13,10 +13,10 @@ testutils = ["soroban-sdk/testutils"]
 # two layouts share a single soroban-sdk version — see ADR 0001
 # (docs/adr/0001-soroban-contract-boundaries.md).
 [dependencies]
-soroban-sdk = { version = "=22.0.0" }
+soroban-sdk = { version = "=23.0.0" }
 
 [dev-dependencies]
-soroban-sdk = { version = "=22.0.0", features = ["testutils"] }
+soroban-sdk = { version = "=23.0.0", features = ["testutils"] }
 
 [profile.release]
 opt-level = "z"
