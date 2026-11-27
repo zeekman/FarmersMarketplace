@@ -310,7 +310,8 @@ impl EscrowContract {
     /// `EscrowError::AlreadyInitialized`. All other admin-requiring functions
     /// should check `DataKey::Admin` after this has been called.
     ///
-    /// - `admin`: the address that will own admin privileges.
+    /// - `admin`: the address that will own admin privileges. When the WASM is built
+    ///   with `ESCROW_ADMIN` set (deploy.sh does this), it must equal that address.
     /// - `fee_bps`: platform fee in basis points (e.g. 250 = 2.5%). Max 1000.
     /// - `fee_destination`: address that receives the platform fee on release.
     pub fn initialize(
@@ -325,6 +326,13 @@ impl EscrowContract {
         }
         if fee_bps > 1_000 {
             return Err(EscrowError::InvalidAmount);
+        }
+        // Without this pin anyone can front-run deploy-time initialisation with their own admin.
+        // shortcut: the pin is compile-time only; a WASM built without ESCROW_ADMIN accepts any admin, upgrade to __constructor args once the test harness is migrated
+        if let Some(pinned) = option_env!("ESCROW_ADMIN") {
+            if admin != Address::from_str(&env, pinned) {
+                return Err(EscrowError::Unauthorized);
+            }
         }
         admin.require_auth();
         let transfer = AdminTransfer {
