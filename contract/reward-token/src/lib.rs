@@ -111,8 +111,8 @@ impl RewardToken {
     /// did not receive this result. Uses `checked_mul` so an overflowing multiplication
     /// panics instead of silently wrapping. (#1225)
     ///
-    /// This is a deliberate copy of `contracts/escrow`'s `compute_fee` — see ADR 0001
-    /// (no shared crate across SDK generations yet).
+    /// This is a deliberate copy of `contracts/escrow`'s `compute_fee` — see ADR 0002
+    /// (`fm-math` is reserved but still empty).
     fn compute_fee(amount: i128, bps: u32) -> i128 {
         amount
             .checked_mul(bps as i128)

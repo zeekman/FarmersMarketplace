@@ -21,6 +21,7 @@
 'use strict';
 
 const { execSync, spawnSync } = require('child_process');
+const path = require('node:path');
 const StellarSdk = require('@stellar/stellar-sdk');
 
 // ---------------------------------------------------------------------------
@@ -35,6 +36,14 @@ const SANDBOX_CONTAINER = process.env.TEST_SANDBOX_CONTAINER || 'soroban-sandbox
 
 const server        = new StellarSdk.Horizon.Server(LOCAL_HORIZON, { allowHttp: true });
 const sorobanServer = new StellarSdk.SorobanRpc.Server(LOCAL_SOROBAN_RPC, { allowHttp: true });
+
+// The harness targets the actively developed workspace escrow by default
+// (ADR 0002). The legacy contract/ ABI is opt-in for compatibility work.
+const REPO_ROOT = path.resolve(__dirname, '../../../..');
+const ENABLE_LEGACY_ESCROW_ABI = process.env.ENABLE_LEGACY_ESCROW_ABI === 'true';
+const ESCROW_WASM = ENABLE_LEGACY_ESCROW_ABI
+  ? path.join(REPO_ROOT, 'contract/target/wasm32-unknown-unknown/release/escrow.wasm')
+  : path.join(REPO_ROOT, 'contracts/target/wasm32-unknown-unknown/release/soroban_escrow.wasm');
 
 // ---------------------------------------------------------------------------
 // Sandbox lifecycle
@@ -276,6 +285,8 @@ module.exports = {
   server,
   sorobanServer,
   NETWORK_PASSPHRASE,
+  ESCROW_WASM,
+  ENABLE_LEGACY_ESCROW_ABI,
   LOCAL_HORIZON,
   LOCAL_SOROBAN_RPC,
   SANDBOX_CONTAINER,

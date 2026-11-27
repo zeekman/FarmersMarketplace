@@ -6,7 +6,7 @@ contract. Each state transition emits **exactly one** event. All topics use
 same position for a given event family so that indexers and off-chain
 subscribers can filter deterministically.
 
-> ADR 0001: tuple shapes are documented next to the emitting function in
+> ADR 0002: tuple shapes are documented next to the emitting function in
 > `contracts/escrow/src/lib.rs` and mirrored here.
 
 ## Conventions

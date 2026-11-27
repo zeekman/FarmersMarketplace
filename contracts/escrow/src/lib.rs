@@ -52,6 +52,14 @@ const MAX_COOP_SIGNERS: u32 = 15;
 /// Maximum limit for paginated escrow queries to prevent excessive read costs. (#980)
 const MAX_ESCROW_PAGE_SIZE: u32 = 100;
 /// Maximum number of order IDs kept per buyer/farmer index; the oldest is dropped
+/// first. (#876, #1289)
+const MAX_INDEX_ENTRIES: u32 = 1_000;
+
+/// Basis-point denominator: 10_000 bps == 100%.
+const BPS_DENOMINATOR: u32 = 10_000;
+/// Upper bound on the platform fee (500 bps = 5%), per ADR 0002. Enforced by
+/// `initialize()` / `set_fee_bps()` and re-checked whenever the stored value is read.
+const MAX_FEE_BPS: u32 = 500;
 /// first. (#876)
 
 /// Basis-point denominator: 10_000 bps == 100%.
@@ -101,6 +109,9 @@ pub enum EscrowError {
     /// Caller is not the platform admin or does not hold the required role. (#837)
     NotAdmin = 15,
     /// Deposit amount is below the configured minimum (dust guard). (#857)
+    BelowMinDeposit = 16,
+    /// `batch_release` / `batch_deposit` exceeded its configured size. (#856, #1292)
+    BatchTooLarge = 17,
     BelowMinDeposit        = 16,
     /// A batch release, deposit, preview, or migration exceeded its configured size.
     BatchTooLarge          = 17,
@@ -132,6 +143,10 @@ pub enum EscrowError {
     InvalidCoopConfig = 30,
     /// `resolve_dispute` called on an escrow that is not in the `Disputed` state. (#1299)
     NotInDispute = 31,
+    /// `fee_bps` exceeds MAX_FEE_BPS (500 = 5%). (#1723)
+    InvalidFeeBps = 32,
+    /// An admin transfer proposal has expired.
+    AdminProposalExpired = 33,
     /// A buyer or farmer index is full of active escrows, so nothing can be evicted. (#1728)
     IndexFull = 32,
     /// An admin transfer proposal has expired.
@@ -302,7 +317,7 @@ impl EscrowContract {
     ///
     /// This is the canonical copy — `contracts/creator-earnings` and
     /// `contract/reward-token` intentionally keep their own copy of this exact
-    /// logic per ADR 0001 (no shared crate across SDK generations yet).
+    /// logic per ADR 0002 (`fm-math` is reserved but still empty).
     fn compute_fee(amount: i128, bps: u32) -> i128 {
         amount
             .checked_mul(bps as i128)
@@ -316,6 +331,8 @@ impl EscrowContract {
     /// `EscrowError::AlreadyInitialized`. All other admin-requiring functions
     /// should check `DataKey::Admin` after this has been called.
     ///
+    /// - `admin`: the address that will own admin privileges.
+    /// - `fee_bps`: platform fee in basis points (e.g. 250 = 2.5%). Max `MAX_FEE_BPS` (500).
     /// - `admin`: the address that will own admin privileges. When the WASM is built
     ///   with `ESCROW_ADMIN` set (deploy.sh does this), it must equal that address.
     /// - `fee_bps`: platform fee in basis points (e.g. 250 = 2.5%). Max 1000.
@@ -330,8 +347,8 @@ impl EscrowContract {
         if env.storage().instance().has(&DataKey::Initialized) {
             return Err(EscrowError::AlreadyInitialized);
         }
-        if fee_bps > 1_000 {
-            return Err(EscrowError::InvalidAmount);
+        if fee_bps > MAX_FEE_BPS {
+            return Err(EscrowError::InvalidFeeBps);
         }
         // Without this pin anyone can front-run deploy-time initialisation with their own admin.
         // shortcut: the pin is compile-time only; a WASM built without ESCROW_ADMIN accepts any admin, upgrade to __constructor args once the test harness is migrated
@@ -1226,6 +1243,27 @@ impl EscrowContract {
             .persistent()
             .extend_ttl(&key, TTL_MIN, TTL_MAX);
         Ok(accrued)
+    }
+
+    /// Admin-only: update the platform fee, capped at `MAX_FEE_BPS` (500 = 5%).
+    /// Emits an event so the backend can invalidate its cached fee preview. (#1723)
+    pub fn set_fee_bps(env: Env, fee_bps: u32) -> Result<(), EscrowError> {
+        let admin_transfer: AdminTransfer = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(EscrowError::Unauthorized)?;
+        admin_transfer.current_admin.require_auth();
+
+        if fee_bps > MAX_FEE_BPS {
+            return Err(EscrowError::InvalidFeeBps);
+        }
+        env.storage().instance().set(&DataKey::FeeBps, &fee_bps);
+        env.events().publish(
+            (symbol_short!("escrow"), symbol_short!("fee_bps")),
+            fee_bps,
+        );
+        Ok(())
     }
 
     /// Admin-only: update the minimum deposit amount (in stroops) to respond to

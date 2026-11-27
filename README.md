@@ -239,8 +239,9 @@ related, but they are not the same deployment surface.
 | `contracts/escrow/` | Workspace escrow crate | Current Rust workspace escrow implementation for newer contract hardening work. |
 | `contracts/creator-earnings/` | Workspace creator earnings crate | Tracks creator balances and fee splits in the `contracts/` workspace. |
 
-Shared contract conventions and the decision to maintain both layouts for now
-are recorded in [ADR 0001](docs/adr/0001-soroban-contract-boundaries.md).
+Shared contract conventions, the single SDK pin and the legacy deprecation
+plan are recorded in [ADR 0002](docs/adr/0002-contract-architecture.md)
+(superseding [ADR 0001](docs/adr/0001-soroban-contract-boundaries.md)).
 
 ### Workspace contract tests
 
@@ -472,7 +473,7 @@ The backend maps `PATCH /api/disputes/:id/resolve` (`buyer` / `farmer` / `split`
 The `contract/` directory contains the legacy Soroban escrow contract that
 provides on-chain escrow for marketplace orders. Do not treat it as
 interchangeable with the workspace escrow at `contracts/escrow/`; see
-[ADR 0001](docs/adr/0001-soroban-contract-boundaries.md) for the boundary.
+[ADR 0002](docs/adr/0002-contract-architecture.md) for the boundary and removal plan.
 
 ### Functions
 
@@ -520,8 +521,10 @@ These codes are stable on-chain ABI values. Never reuse a code, even after remov
 | 29 | `InvalidParties` | Buyer equals farmer, or the cooperative address equals either party |
 | 30 | `InvalidCoopConfig` | Cooperative threshold or member configuration is invalid |
 | 31 | `NotInDispute` | `resolve_dispute` called on an escrow that is not disputed |
+| 32 | `InvalidFeeBps` | Platform fee exceeds `MAX_FEE_BPS` (500 bps = 5%, ADR 0002) |
+| 33 | `AdminProposalExpired` | Pending admin transfer has expired |
 
-Next available code: **32**. See the `NEXT_CODE` comment in `contracts/escrow/src/lib.rs` for the authoritative value.
+Next available code: **34**. See the `NEXT_CODE` comment in `contracts/escrow/src/lib.rs` for the authoritative value.
 
 ### Build & Test
 

@@ -10,8 +10,8 @@ crate-type = ["cdylib", "rlib"]
 testutils = ["soroban-sdk/testutils"]
 
 # Pinned to the same exact SDK generation used throughout `contracts/` so the
-# two layouts share a single soroban-sdk version — see ADR 0001
-# (docs/adr/0001-soroban-contract-boundaries.md).
+# two layouts share a single soroban-sdk version — see ADR 0002
+# (docs/adr/0002-contract-architecture.md).
 [dependencies]
 soroban-sdk = { version = "=23.0.0" }
 

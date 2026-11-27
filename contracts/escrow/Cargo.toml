@@ -10,10 +10,8 @@ crate-type = ["cdylib", "rlib"]
 # Exposes soroban-sdk testutils to the fuzz crate (fuzz/). (CT-27)
 testutils = ["soroban-sdk/testutils"]
 
-# Pinned to the newer SDK generation used by the `contracts/` workspace. This
-# is intentionally ahead of the `=21.0.0` pin in `contract/` — see ADR 0001
-# (docs/adr/0001-soroban-contract-boundaries.md) for why the two layouts are
-# not unified yet.
+# All crates use the same exact SDK generation. See ADR 0002
+# (docs/adr/0002-contract-architecture.md) for the pinning decision.
 [dependencies]
 soroban-sdk = { version = "=22.0.0" }
 
@@ -24,10 +22,9 @@ proptest = "1"
 
 # Integration test crate for issue #1311: deploys the escrow and reward-token
 # contracts together and imports the reward token as a WASM via
-# `contractimport!`. The reward token lives in the sibling `contract/` layout
-# (SDK 21), so it is consumed here as a prebuilt WASM artifact rather than as a
-# path dependency — this keeps the two SDK generations from being unified
-# (see ADR 0001) while still exercising the cross-contract mint/burn path.
+# `contractimport!`. The reward token still lives in the legacy `contract/`
+# layout, so it is consumed here as a prebuilt WASM artifact rather than as a
+# path dependency; ADR 0002 schedules that legacy crate for removal.
 [[test]]
 name = "reward_minting"
 path = "tests/reward_minting.rs"

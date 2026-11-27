@@ -120,7 +120,7 @@ legacy deployment back into service:
      --fee_destination "$FEE_DESTINATION_ADDRESS"
    ```
 
-   `fee_bps` must be `<= 1000` (10%). A second call returns `AlreadyInitialized`.
+   `fee_bps` must be `<= 500` (5%, ADR 0002). A second call returns `AlreadyInitialized`.
 3. Verify with a small escrow, or by checking that `release` on an existing active escrow no
    longer returns `NotInitialized`.
 

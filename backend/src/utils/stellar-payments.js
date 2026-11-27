@@ -181,21 +181,64 @@ function generatePaymentLink({ destination, amount, assetCode, assetIssuer, memo
   return `web+stellar:pay?${params.toString()}`;
 }
 
-/**
- * Computes the platform fee split for a given XLM amount.
- * Returns zero-fee info when `PLATFORM_FEE_PERCENT` or `PLATFORM_WALLET_PUBLIC_KEY` are not set.
- * @param {number} amount
- * @returns {{ feePercent: number, feeAmount: number, farmerAmount: number, platformWallet: string|null }}
- */
-function getPlatformFeeInfo(amount) {
-  const feePercent = config.platformFeePercent;
-  const platformWallet = config.platformWalletPublicKey;
-  if (!feePercent || !platformWallet) {
-    return { feePercent: 0, feeAmount: 0, farmerAmount: amount, platformWallet: null };
+// The deployed contract is the source of truth for the fee (#1723, ADR 0002).
+// Cache the value briefly so the fee-preview endpoint does not call RPC on every request.
+const FEE_BPS_TTL_MS = 5 * 60 * 1000;
+let _feeBpsCache = null;
+
+function feeBpsFromConfig(configValue) {
+  const raw = configValue instanceof Map
+    ? (configValue.get('fee_bps') ?? configValue.get('feeBps'))
+    : (configValue?.fee_bps ?? configValue?.feeBps);
+  const bps = Number(raw);
+  return Number.isFinite(bps) && bps >= 0 ? bps : null;
+}
+
+async function getPlatformFeeBps() {
+  if (_feeBpsCache && Date.now() < _feeBpsCache.expiresAt) return _feeBpsCache.bps;
+
+  // Fallback keeps local development and RPC outages working; production parity
+  // comes from get_config() below.
+  let bps = Math.round((config.platformFeePercent || 0) * 100);
+  const contractId = config.sorobanEscrowContractId;
+  if (contractId) {
+    try {
+      const { simulateContractCall } = require('./stellar-contracts');
+      const sim = await simulateContractCall(contractId, 'get_config');
+      if (sim?.success) {
+        const fromChain = feeBpsFromConfig(sim.result?.returnValue ?? sim.result);
+        if (fromChain !== null) bps = fromChain;
+      }
+    } catch (error) {
+      logger.warn('[Stellar] Could not read fee_bps from chain; using configured fallback', {
+        error: error.message,
+      });
+    }
   }
-  const feeAmount = parseFloat(((amount * feePercent) / 100).toFixed(7));
+  _feeBpsCache = { bps, expiresAt: Date.now() + FEE_BPS_TTL_MS };
+  return bps;
+}
+
+/** Test helper: drop the cached on-chain fee after changing configuration. */
+function clearPlatformFeeBpsCache() {
+  _feeBpsCache = null;
+}
+
+/**
+ * Computes the platform fee split for a given XLM amount using the deployed
+ * escrow's `get_config().fee_bps` (cached for five minutes).
+ * @param {number} amount
+ * @returns {Promise<{ feePercent: number, feeBps: number, feeAmount: number, farmerAmount: number, platformWallet: string|null }>}
+ */
+async function getPlatformFeeInfo(amount) {
+  const feeBps = await getPlatformFeeBps();
+  const platformWallet = config.platformWalletPublicKey;
+  if (!feeBps || !platformWallet) {
+    return { feePercent: 0, feeBps: 0, feeAmount: 0, farmerAmount: amount, platformWallet: null };
+  }
+  const feeAmount = parseFloat(((amount * feeBps) / 10_000).toFixed(7));
   const farmerAmount = parseFloat((amount - feeAmount).toFixed(7));
-  return { feePercent, feeAmount, farmerAmount, platformWallet };
+  return { feePercent: feeBps / 100, feeBps, feeAmount, farmerAmount, platformWallet };
 }
 
 function getPathPaymentSendMax(sourceAmount, slippagePercent = 0.5) {
@@ -634,6 +677,8 @@ module.exports = {
   findIncomingPaymentsByMemo,
   generatePaymentLink,
   getPlatformFeeInfo,
+  getPlatformFeeBps,
+  clearPlatformFeeBpsCache,
   getPathPaymentSendMax,
   getPathPaymentEstimate,
   pathPayment,

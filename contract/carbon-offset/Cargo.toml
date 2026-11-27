@@ -6,9 +6,13 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
-# Built alongside the legacy `contract/` crate, hence the same SDK
-# generation. See ADR 0001 (docs/adr/0001-soroban-contract-boundaries.md).
+# Legacy crate built alongside `contract/`; see ADR 0002 for the removal plan
+# (docs/adr/0002-contract-architecture.md).
 [dependencies]
+soroban-sdk = "=22.0.0"
+
+[dev-dependencies]
+soroban-sdk = { version = "=22.0.0", features = ["testutils"] }
 soroban-sdk = "=23.0.0"
 
 [dev-dependencies]
