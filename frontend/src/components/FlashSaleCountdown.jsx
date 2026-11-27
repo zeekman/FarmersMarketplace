@@ -28,7 +28,7 @@ export const ANNOUNCE_THRESHOLDS = [
 ];
 export const ENDED_MESSAGE = "The flash sale has ended";
 
-function getRemaining(endAt) {
+export function getRemaining(endAt) {
   const diff = Math.max(0, new Date(endAt).getTime() - Date.now());
   const totalSeconds = Math.floor(diff / 1000);
   return {
