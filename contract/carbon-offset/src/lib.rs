@@ -407,7 +407,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, CarbonOffsetContract);
+        let contract_id = env.register(CarbonOffsetContract, ());
         let client = CarbonOffsetContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -429,7 +429,7 @@ mod test {
     #[test]
     fn missing_offset_returns_none() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, CarbonOffsetContract);
+        let contract_id = env.register(CarbonOffsetContract, ());
         let client = CarbonOffsetContractClient::new(&env, &contract_id);
 
         assert!(client.get_offset(&99).is_none());
@@ -441,7 +441,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, CarbonOffsetContract);
+        let contract_id = env.register(CarbonOffsetContract, ());
         let client = CarbonOffsetContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -459,7 +459,7 @@ mod test {
     fn zero_offset_rejected() {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register_contract(None, CarbonOffsetContract);
+        let contract_id = env.register(CarbonOffsetContract, ());
         let client = CarbonOffsetContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let verifier = Address::generate(&env);
@@ -473,7 +473,7 @@ mod test {
     fn offset_requires_verifier_approval() {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register_contract(None, CarbonOffsetContract);
+        let contract_id = env.register(CarbonOffsetContract, ());
         let client = CarbonOffsetContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let verifier = Address::generate(&env);
@@ -486,7 +486,7 @@ mod test {
     #[should_panic]
     fn verifier_must_authorize_its_approval() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, CarbonOffsetContract);
+        let contract_id = env.register(CarbonOffsetContract, ());
         let client = CarbonOffsetContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let verifier = Address::generate(&env);
@@ -500,7 +500,7 @@ mod test {
     fn admin_can_amend_and_void_then_reissue_offset() {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register_contract(None, CarbonOffsetContract);
+        let contract_id = env.register(CarbonOffsetContract, ());
         let client = CarbonOffsetContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let verifier = Address::generate(&env);
@@ -523,7 +523,7 @@ mod test {
     fn zero_upgrade_hash_rejected() {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register_contract(None, CarbonOffsetContract);
+        let contract_id = env.register(CarbonOffsetContract, ());
         let client = CarbonOffsetContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -536,7 +536,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, CarbonOffsetContract);
+        let contract_id = env.register(CarbonOffsetContract, ());
         let client = CarbonOffsetContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);

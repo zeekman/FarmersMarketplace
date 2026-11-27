@@ -263,7 +263,7 @@ jobs:
             ${{ runner.os }}-cargo-smoke-
 
       - name: Install stellar-cli
-        run: cargo install --locked stellar-cli@22.0.0 --features opt
+        run: cargo install --locked stellar-cli@23.0.0 --features opt
 
       - name: Build escrow contract (release WASM)
         working-directory: contracts
@@ -366,4 +366,50 @@ jobs:
           if [ "${{ needs.soroban-contracts.result }}" != "success" ]; then
             echo "::error::One or more contract crates failed CI"
             exit 1
+  soroban-wasm-size:
+    name: Soroban WASM Size Budget
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/target
+            contract/target
+            contract/reward-token/target
+          key: ${{ runner.os }}-cargo-wasm-size-${{ hashFiles('contracts/Cargo.lock', 'contracts/Cargo.toml', 'contracts/**/Cargo.toml', 'contract/Cargo.lock', 'contract/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wasm-size-
+
+      - name: Install stellar-cli
+        run: cargo install --locked stellar-cli@22.0.0 --features opt
+
+      # Fails on >5% growth or a breached budget vs contracts/wasm-sizes.json.
+      # To accept growth, update the baseline in the same PR with the reason.
+      - name: Check WASM size budgets
+        run: |
+          set -o pipefail
+          bash contracts/wasm-profile.sh --check contracts/wasm-sizes.json | tee "$RUNNER_TEMP/wasm-size-table.md"
+
+      - name: Comment size table on PR
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true  # fork PRs get a read-only token
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -s "$RUNNER_TEMP/wasm-size-table.md" ]; then
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/wasm-size-table.md"
           fi

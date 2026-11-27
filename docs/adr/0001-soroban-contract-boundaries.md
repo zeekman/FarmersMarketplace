@@ -55,7 +55,7 @@ Soroban SDK generation:
 | Basis-points arithmetic | `contract/`, `contract/reward-token/`, `contracts/escrow`, and `contracts/creator-earnings` all compute fee rates | Validate the maximum basis-points value before multiplication. Prefer `checked_mul`/`checked_div` or explicit bounded inputs when amounts can approach `i128::MAX`. Add boundary tests for `0`, max allowed bps, over-max bps, and large amount values. |
 | Storage keys | Every crate defines a `DataKey`-style enum | Keep key names stable after deployment. Document whether keys are instance, persistent, or temporary storage. Migration code must be idempotent and include preview/dry-run behavior when rewriting existing records. |
 | Event topics | Escrow crates emit overlapping topic names with different tuple shapes | Document event topic tuple shapes next to the emitting function. New subscribers should treat legacy `contract/` and workspace `contracts/escrow` events as separate schemas unless an explicit compatibility note says otherwise. |
-| WASM size/profile policy | `contract/wasm-profile.sh` covers legacy contracts; workspace contracts are tested through the newer workspace CI path | Each deployable crate should have a release build path, a size budget, and an artifact/report produced by CI. |
+| WASM size/profile policy | `contracts/wasm-profile.sh` covers all deployed contracts (legacy and workspace) against `contracts/wasm-sizes.json` in CI | Each deployable crate should have a release build path, a size budget, and an artifact/report produced by CI. |
 
 ## README Contract Documentation Rules
 

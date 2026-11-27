@@ -8,9 +8,9 @@ and scope document for the external audit. Covers **every** deployable contract:
 | `escrow` (legacy) | `contract/src/lib.rs` | 21.x | Role-based escrow with pause / unpause votes |
 | `reward-token` | `contract/reward-token/src/lib.rs` | 21.x | FRT token: minting, vesting, redemption, transfer fee |
 | `carbon-offset` | `contract/carbon-offset/src/lib.rs` | 21.x | Verifier-approved carbon offset certificates |
-| `soroban-escrow` | `contracts/escrow/src/lib.rs` (+ `stream.rs`) | 22.0.0 | Order escrow: disputes, evidence, streams, coop multisig, migration, reward minting |
-| `creator-earnings` | `contracts/creator-earnings/src/lib.rs` | 22.0.0 | Creator balance ledger, credit/claim, pause |
-| `test-utils` | `contracts/test-utils` | 22.0.0 | Test-only helpers; not deployed, out of audit scope |
+| `soroban-escrow` | `contracts/escrow/src/lib.rs` (+ `stream.rs`) | 23.0.0 | Order escrow: disputes, evidence, streams, coop multisig, migration, reward minting |
+| `creator-earnings` | `contracts/creator-earnings/src/lib.rs` | 23.0.0 | Creator balance ledger, credit/claim, pause |
+| `test-utils` | `contracts/test-utils` | 23.0.0 | Test-only helpers; not deployed, out of audit scope |
 
 Complements the dependency audit in [`SECURITY-AUDIT.md`](../docs/implementation-notes/SECURITY-AUDIT.md).
 

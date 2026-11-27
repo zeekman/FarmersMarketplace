@@ -8,6 +8,7 @@ html[data-theme="light"] {
   --color-primary-light: #40916c;
   --color-primary-lighter: #52b788;
   --color-primary-lightest: #d8f3dc;
+  --focus-ring: #2d6a4f;
 
   /* Colors - Secondary & Accent */
   --color-secondary: #1a6b8a;
@@ -113,6 +114,7 @@ html[data-theme="dark"] {
   --color-primary-light: #52b788;
   --color-primary-lighter: #74c69d;
   --color-primary-lightest: #1b5e20;
+  --focus-ring: #40916c;
 
   /* Colors - Secondary & Accent */
   --color-secondary: #4ca7b5;
@@ -240,6 +242,13 @@ html[data-theme] select:focus {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px var(--color-primary-lightest);
+}
+
+html[data-theme] input:focus-visible,
+html[data-theme] textarea:focus-visible,
+html[data-theme] select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 html[data-theme] input:invalid:not(:placeholder-shown) {

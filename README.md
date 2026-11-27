@@ -313,11 +313,13 @@ The newer Soroban workspace lives in `contracts/` and is covered by the
 cd contracts
 cargo test -p soroban-escrow --lib
 cargo test -p creator-earnings --features testutils
-bash wasm-profile.sh
+bash wasm-profile.sh          # prints {crate: bytes} for optimised WASM
 ```
 
-The CI job uploads `contracts-wasm-size-profile.txt` so release WASM size
-history is visible on every push and pull request.
+The `soroban-wasm-size` CI job runs `contracts/wasm-profile.sh --check
+contracts/wasm-sizes.json`. It fails if a crate grows more than 5% or exceeds
+the size budget, and comments the size table with deltas on the PR. To accept
+growth, update `contracts/wasm-sizes.json` in the same PR and say why.
 
 ### Escrow migration runbook
 
@@ -430,7 +432,7 @@ Every path that pays a farmer goes through one private routine,
 |-------------|--------------|-------|
 | `release(order_id, caller)` | escrow buyer or platform admin | |
 | `release_to_stream(order_id, rate, end_time)` | escrow buyer | farmer's net amount is booked as a payment stream instead of transferred |
-| `batch_release(order_ids)` | platform address | per-item failures are reported, not fatal |
+| `batch_release(order_ids)` | platform address | per-item failures are reported, not fatal; returns `(order_id, code)` where `0` = success, else the `EscrowError` code (ABI change in contract v2) |
 | `auto_release(order_id)` | anyone, after `auto_release_unix` | |
 | `multisig_release(order_id, signatures)` | cooperative M-of-N signers | |
 

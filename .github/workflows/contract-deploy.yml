@@ -54,7 +54,7 @@ jobs:
             ${{ runner.os }}-cargo-escrow-
 
       - name: Install Stellar CLI
-        run: cargo install --locked stellar-cli@22.0.0
+        run: cargo install --locked stellar-cli@23.0.0
 
       # Acceptance: a CI testnet key is stored as a secret and used to deploy.
       - name: Guard — require deploy secret

@@ -488,7 +488,7 @@ mod test {
             CreatorEarningsContract::init(env.clone(), platform.clone())
         });
         let authorized_caller = Address::generate(&env);
-        let contract_id = env.register_contract(None, CreatorEarningsContract);
+        let contract_id = env.register(CreatorEarningsContract, ());
         CreatorEarningsContract::init(env.clone(), platform.clone(), authorized_caller.clone());
         (env, platform, contract_id, authorized_caller)
         CreatorEarningsContract::init(env.clone(), platform.clone()).unwrap();
@@ -1282,7 +1282,7 @@ mod test {
     fn platform_getter_returns_not_initialised_before_init() {
         let env = Env::default();
         env.mock_all_auths();
-        env.register_contract(None, CreatorEarningsContract);
+        env.register(CreatorEarningsContract, ());
 
         let result = CreatorEarningsContract::platform(env);
         assert_eq!(result, Err(EarningsError::NotInitialised));
@@ -1310,7 +1310,7 @@ mod test {
     fn claim_emits_event() {
         let env = Env::default();
         env.mock_all_auths();
-        env.register_contract(None, CreatorEarningsContract);
+        env.register(CreatorEarningsContract, ());
         CreatorEarningsContract::init(env.clone(), Address::generate(&env)).unwrap();
 
         let creator = Address::generate(&env);
@@ -1386,7 +1386,7 @@ mod test {
     fn upgrade_fails_if_not_initialized() {
         let env = Env::default();
         env.mock_all_auths();
-        env.register_contract(None, CreatorEarningsContract);
+        env.register(CreatorEarningsContract, ());
 
         let fake_hash = BytesN::<32>::from_array(&env, &[1u8; 32]);
 

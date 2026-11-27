@@ -883,7 +883,7 @@ mod test {
     use soroban_sdk::testutils::Address as _;
 
     fn setup_token(env: &Env) -> (RewardTokenClient, Address, Address) {
-        let contract_id = env.register_contract(None, RewardToken);
+        let contract_id = env.register(RewardToken, ());
         let client = RewardTokenClient::new(env, &contract_id);
         let admin = Address::generate(env);
         let minter = Address::generate(env);
@@ -907,7 +907,7 @@ mod test {
     #[test]
     fn test_vesting_index_aggregates_same_ledger_and_prunes_unlocked_entries() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, RewardToken);
+        let contract_id = env.register(RewardToken, ());
         let client = RewardTokenClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let minter = Address::generate(&env);
@@ -970,7 +970,7 @@ mod test {
     #[test]
     fn balance_writes_extend_persistent_ttl() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, RewardToken);
+        let contract_id = env.register(RewardToken, ());
         let client = RewardTokenClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let minter = Address::generate(&env);
@@ -1345,7 +1345,7 @@ mod test {
     #[test]
     fn test_balance_retrievable_after_upgrade_simulation() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, RewardToken);
+        let contract_id = env.register(RewardToken, ());
         let client = RewardTokenClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let minter = Address::generate(&env);
@@ -1367,7 +1367,7 @@ mod test {
                 .unwrap_or(0)
         });
         assert_eq!(stored, 250, "balance must be stored under DataKey::Balance");
-        let client2 = RewardTokenClient::new(&env, &env.register_contract(Some(contract_id), RewardToken));
+        let client2 = RewardTokenClient::new(&env, &env.register_at(&contract_id, RewardToken, ()));
         assert_eq!(client2.balance(&user), 250);
     }
 
@@ -1459,7 +1459,7 @@ mod test {
     #[should_panic(expected = "MaxSupplyExceeded")]
     fn test_mint_for_order_exceeds_max_supply_panics() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, RewardToken);
+        let contract_id = env.register(RewardToken, ());
         let client = RewardTokenClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let minter = Address::generate(&env);
